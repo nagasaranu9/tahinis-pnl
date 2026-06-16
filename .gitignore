@@ -1,0 +1,53 @@
+# Environment
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# Keys (never commit)
+private_key.pem
+*.pem
+credentials/
+*.json.key
+google-service-account.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+dist/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+frontend/.next/
+frontend/out/
+frontend/dist/
+
+# Docker volumes (local)
+postgres_data/
+redis_data/
+minio_data/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Secrets baseline
+.secrets.baseline

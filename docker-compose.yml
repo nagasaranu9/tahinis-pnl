@@ -1,0 +1,160 @@
+x-api-env: &api-env
+  DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://tahinis:tahinis@postgres:5432/tahinis_dev}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  STORAGE_ENDPOINT_URL: http://minio:9000
+  STORAGE_PUBLIC_URL: http://localhost:9000
+  STORAGE_BUCKET: ${STORAGE_BUCKET:-tahinis-docs}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
+  AWS_REGION: us-east-1
+  APP_ENV: ${APP_ENV:-development}
+  DEBUG: ${DEBUG:-true}
+  JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
+  JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+  CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  GOOGLE_DOC_AI_PROJECT_ID: ${GOOGLE_DOC_AI_PROJECT_ID:-}
+  GOOGLE_DOC_AI_LOCATION: ${GOOGLE_DOC_AI_LOCATION:-us}
+  GOOGLE_DOC_AI_PROCESSOR_ID: ${GOOGLE_DOC_AI_PROCESSOR_ID:-}
+  GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+  GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+  GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:8000/api/v1/integrations/gmail/callback}
+  ALLOWED_ORIGINS: '["http://localhost:3000","http://localhost:80"]'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: tahinis
+      POSTGRES_PASSWORD: tahinis
+      POSTGRES_DB: tahinis_dev
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tahinis -d tahinis_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    environment:
+      <<: *api-env
+      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/google-service-account.json
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./credentials:/app/credentials:ro
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    environment:
+      <<: *api-env
+      CELERY_WORKER_RUNNING: "true"
+      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/google-service-account.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./credentials:/app/credentials:ro
+    command: celery -A app.workers.celery_app worker --loglevel=info -Q default,sync,ocr,ai --concurrency=2
+
+  beat:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    environment:
+      <<: *api-env
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: celery -A app.workers.celery_beat beat --loglevel=info
+
+  flower:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    environment:
+      <<: *api-env
+      FLOWER_PORT: 5555
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "5555:5555"
+    command: celery -A app.workers.celery_app flower --port=5555
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:80
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+      - frontend
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

@@ -1,0 +1,3 @@
+/Users/n/claude/Tahinis P&L/CLAUDE.md
+/Users/n/claude/Tahinis P&L/docker-compose.yml
+/Users/n/claude/Tahinis P&L/frontend/public/tahinis-logo.jpg

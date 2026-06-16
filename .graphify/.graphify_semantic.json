@@ -1,0 +1,32 @@
+{
+  "nodes": [
+    {
+      "id": "docker_compose",
+      "label": "Docker Compose Configuration",
+      "file_type": "document",
+      "source_file": "docker-compose.yml",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": null
+    },
+    {
+      "id": "tahinis_logo",
+      "label": "Tahinis Brand Logo",
+      "file_type": "image",
+      "source_file": "frontend/public/tahinis-logo.jpg",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "rationale": null
+    }
+  ],
+  "edges": [],
+  "hyperedges": [],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

@@ -1,0 +1,9 @@
+# Deploy as a separate Railway service named "worker"
+[build]
+builder = "dockerfile"
+dockerfilePath = "docker/Dockerfile.worker"
+
+[deploy]
+startCommand = "celery -A app.workers.celery_app worker --loglevel=info -Q default,sync,ocr,ai --concurrency=2"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

@@ -1,0 +1,9 @@
+# Deploy as a separate Railway service named "beat"
+[build]
+builder = "dockerfile"
+dockerfilePath = "docker/Dockerfile.worker"
+
+[deploy]
+startCommand = "celery -A app.workers.celery_beat beat --loglevel=info"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

@@ -1,0 +1,9 @@
+# Deploy as a separate Railway service named "frontend"
+[build]
+builder = "dockerfile"
+dockerfilePath = "docker/Dockerfile.frontend"
+
+[deploy]
+startCommand = "npm start"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
