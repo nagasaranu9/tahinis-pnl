@@ -114,3 +114,4 @@ async def ingest_document(
 
     logger.info("document_ingested", document_id=str(doc.id), filename=original_filename)
     return doc, False
+# force rebuild Wed Jun 17 16:44:45 EDT 2026
