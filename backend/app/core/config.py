@@ -82,6 +82,17 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = "no-reply@tahinis.app"
     SMTP_USE_TLS: bool = True
 
+    @field_validator("ALLOWED_ORIGINS", mode="before")
+    @classmethod
+    def parse_allowed_origins(cls, v: object) -> object:
+        # Accept comma-separated string (Railway-friendly) in addition to JSON array.
+        # "https://a.com,https://b.com" -> ["https://a.com", "https://b.com"]
+        if isinstance(v, str):
+            s = v.strip()
+            if not s.startswith("["):
+                return [origin.strip() for origin in s.split(",") if origin.strip()]
+        return v
+
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
     def validate_db_url(cls, v: str) -> str:
