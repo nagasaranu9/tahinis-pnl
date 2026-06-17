@@ -1,14 +1,16 @@
 import hashlib
 import secrets
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from app.core.config import settings
 from app.core.deps import CurrentUserDep, ManagerDep, OwnerDep
-from app.core.exceptions import NotFoundError, UnauthorizedError
+from app.core.exceptions import ConflictError, NotFoundError, UnauthorizedError
 from app.core.security import hash_password
+from app.db.models.email_sync import EmailSyncConfig
 from app.db.models.location import Location
 from app.db.models.user import User
 from app.db.session import AsyncSessionDep
@@ -19,6 +21,8 @@ from app.schemas.location import (
     InviteLocationOwnerRequest,
     InviteLocationOwnerResponse,
     LocationResponse,
+    OnboardingStatusResponse,
+    OnboardingStepStatus,
     UpdateLocationRequest,
 )
 from app.services.email_service import send_email
@@ -47,6 +51,27 @@ async def list_locations(user: CurrentUserDep, db: AsyncSessionDep) -> dict:
 async def invite_location_owner(
     body: InviteLocationOwnerRequest, user: OwnerDep, db: AsyncSessionDep
 ) -> dict:
+    # Uniqueness guards — return clear error instead of 500 constraint violation.
+    existing_store = await db.scalar(
+        select(Location.id).where(
+            Location.tenant_id == user.tenant_id,
+            Location.store_id == body.store_id,
+            Location.is_active == True,  # noqa: E712
+        )
+    )
+    if existing_store:
+        raise ConflictError(f"Store #{body.store_id} already exists.")
+
+    existing_email = await db.scalar(
+        select(Location.id).where(
+            Location.tenant_id == user.tenant_id,
+            Location.invite_email == body.invite_email.lower(),
+            Location.invite_status.in_(["pending", "accepted"]),
+        )
+    )
+    if existing_email:
+        raise ConflictError(f"An invite for {body.invite_email} already exists.")
+
     raw_token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
 
@@ -54,7 +79,7 @@ async def invite_location_owner(
         tenant_id=user.tenant_id,
         name=body.name,
         store_id=body.store_id,
-        invite_email=body.invite_email,
+        invite_email=body.invite_email.lower(),
         invite_token_hash=token_hash,
         invite_status="pending",
     )
@@ -132,6 +157,58 @@ async def get_location(location_id: uuid.UUID, user: CurrentUserDep, db: AsyncSe
     location = _assert_tenant(await db.get(Location, location_id), user.tenant_id)
     user.require_location_access(location.id)
     return {"data": LocationResponse.model_validate(location), "errors": None}
+
+
+async def _build_onboarding_status(
+    location: Location, db: AsyncSessionDep
+) -> OnboardingStatusResponse:
+    """Derive wizard step completion from the same fields the integration UIs write."""
+    gmail_count = await db.scalar(
+        select(func.count())
+        .select_from(EmailSyncConfig)
+        .where(
+            EmailSyncConfig.tenant_id == location.tenant_id,
+            EmailSyncConfig.provider == "gmail",
+        )
+    )
+    steps = OnboardingStepStatus(
+        profile=bool(location.address),
+        toast=bool(location.toast_location_id),
+        gmail=bool(gmail_count),
+        google=bool(location.google_place_id),
+    )
+    return OnboardingStatusResponse(
+        location_id=location.id,
+        steps=steps,
+        completed=location.onboarding_completed_at is not None,
+        completed_at=location.onboarding_completed_at,
+    )
+
+
+@router.get("/{location_id}/onboarding", response_model=APIResponse[OnboardingStatusResponse])
+async def get_onboarding_status(
+    location_id: uuid.UUID, user: CurrentUserDep, db: AsyncSessionDep
+) -> dict:
+    location = _assert_tenant(await db.get(Location, location_id), user.tenant_id)
+    user.require_location_access(location.id)
+    status = await _build_onboarding_status(location, db)
+    return {"data": status, "errors": None}
+
+
+@router.post("/{location_id}/onboarding/complete", response_model=APIResponse[OnboardingStatusResponse])
+async def complete_onboarding(
+    location_id: uuid.UUID, user: OwnerDep, db: AsyncSessionDep
+) -> dict:
+    location = _assert_tenant(await db.get(Location, location_id), user.tenant_id)
+    user.require_location_access(location.id)
+    await db.execute(
+        update(Location)
+        .where(Location.id == location.id)
+        .values(onboarding_completed_at=datetime.now(timezone.utc))
+    )
+    await db.refresh(location)
+    status = await _build_onboarding_status(location, db)
+    return {"data": status, "errors": None}
 
 
 @router.patch("/{location_id}", response_model=APIResponse[LocationResponse])

@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -23,8 +24,23 @@ class LocationResponse(BaseModel):
     contacts: dict[str, Any] | None = None
     invite_email: str | None = None
     invite_status: str = "none"
+    onboarding_completed_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+
+class OnboardingStepStatus(BaseModel):
+    profile: bool
+    toast: bool
+    gmail: bool
+    google: bool
+
+
+class OnboardingStatusResponse(BaseModel):
+    location_id: uuid.UUID
+    steps: OnboardingStepStatus
+    completed: bool
+    completed_at: datetime | None = None
 
 
 class InviteLocationOwnerRequest(BaseModel):

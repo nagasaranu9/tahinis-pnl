@@ -1,7 +1,8 @@
 import uuid
+from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +27,11 @@ class Location(Base, TenantMixin, TimestampMixin):
     invite_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     invite_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     invite_status: Mapped[str] = mapped_column(String(20), nullable=False, default="none")
+
+    # Self-serve onboarding wizard — set when owner finishes (or explicitly skips) setup.
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Delivery platform IDs
     uber_eats_id: Mapped[str | None] = mapped_column(String(255), nullable=True)

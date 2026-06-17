@@ -29,7 +29,19 @@ export default function LoginPage() {
       const payload = JSON.parse(
         atob(data.data.access_token.split(".")[1])
       ) as JWTPayload;
-      router.push(payload.location_id ? "/dashboard" : "/locations");
+      if (!payload.location_id) {
+        router.push("/locations");
+        return;
+      }
+      // Location-scoped owner: route to onboarding wizard until setup is marked complete.
+      try {
+        const { data: ob } = await apiClient.get<{ data: { completed: boolean } }>(
+          `/api/v1/locations/${payload.location_id}/onboarding`
+        );
+        router.push(ob.data.completed ? "/dashboard" : "/onboarding");
+      } catch {
+        router.push("/dashboard");
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Login failed. Check credentials.";
       setError(msg);
