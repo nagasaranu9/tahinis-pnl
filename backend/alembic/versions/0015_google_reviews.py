@@ -7,7 +7,6 @@ Create Date: 2026-06-15
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
-from sqlalchemy import inspect
 
 revision = "0015"
 down_revision = "0014"
@@ -16,11 +15,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    conn = op.get_bind()
-    inspector = inspect(conn)
-    tables = inspector.get_table_names()
-
-    if "google_review_configs" not in tables:
+    try:
         op.create_table(
             "google_review_configs",
             sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -36,8 +31,10 @@ def upgrade() -> None:
             sa.UniqueConstraint("tenant_id", "location_id", name="uq_google_review_config_location"),
         )
         op.create_index("ix_google_review_configs_tenant_id", "google_review_configs", ["tenant_id"])
+    except Exception:
+        pass
 
-    if "google_reviews" not in tables:
+    try:
         op.create_table(
             "google_reviews",
             sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -58,8 +55,10 @@ def upgrade() -> None:
         op.create_index("ix_google_reviews_tenant_id", "google_reviews", ["tenant_id"])
         op.create_index("ix_google_reviews_location_id", "google_reviews", ["location_id"])
         op.create_index("ix_google_reviews_published_at", "google_reviews", ["published_at"])
+    except Exception:
+        pass
 
-    if "google_review_snapshots" not in tables:
+    try:
         op.create_table(
             "google_review_snapshots",
             sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -77,6 +76,8 @@ def upgrade() -> None:
             sa.UniqueConstraint("tenant_id", "location_id", "snapshot_date", name="uq_review_snapshot_day"),
         )
         op.create_index("ix_google_review_snapshots_tenant_id", "google_review_snapshots", ["tenant_id"])
+    except Exception:
+        pass
 
 
 def downgrade() -> None:
