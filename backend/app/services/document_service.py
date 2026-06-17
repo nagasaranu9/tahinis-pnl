@@ -106,12 +106,15 @@ async def ingest_document(
 
     # Enqueue OCR — non-fatal if Celery/Redis unavailable
     try:
-        from app.workers.tasks.ocr_process import process_document
-        process_document.delay(str(doc.id), str(tenant_id))
+        from app.workers.celery_app import celery_app
+        celery_app.send_task(
+            "app.workers.tasks.ocr_process.process_document",
+            args=[str(doc.id), str(tenant_id)],
+            queue="ocr",
+        )
         logger.info("ocr_task_enqueued", document_id=str(doc.id))
     except Exception as e:
         logger.warning("ocr_task_enqueue_failed", document_id=str(doc.id), error=str(e))
 
     logger.info("document_ingested", document_id=str(doc.id), filename=original_filename)
     return doc, False
-# force rebuild Wed Jun 17 16:44:45 EDT 2026
