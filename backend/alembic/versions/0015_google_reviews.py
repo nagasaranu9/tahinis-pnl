@@ -15,69 +15,66 @@ depends_on = None
 
 
 def upgrade() -> None:
-    try:
-        op.create_table(
-            "google_review_configs",
-            sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-            sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=False),
-            sa.Column("location_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("locations.id", ondelete="CASCADE"), nullable=False),
-            sa.Column("place_id", sa.String(255), nullable=False),
-            sa.Column("account_name", sa.String(500)),
-            sa.Column("location_name", sa.String(500)),
-            sa.Column("is_active", sa.Boolean, nullable=False, server_default="true"),
-            sa.Column("last_synced_at", sa.DateTime(timezone=True)),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.UniqueConstraint("tenant_id", "location_id", name="uq_google_review_config_location"),
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS google_review_configs (
+            id UUID PRIMARY KEY,
+            tenant_id UUID NOT NULL,
+            location_id UUID NOT NULL,
+            place_id VARCHAR(255) NOT NULL,
+            account_name VARCHAR(500),
+            location_name VARCHAR(500),
+            is_active BOOLEAN NOT NULL DEFAULT true,
+            last_synced_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT uq_google_review_config_location UNIQUE (tenant_id, location_id),
+            CONSTRAINT fk_google_review_configs_location_id FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE
         )
-        op.create_index("ix_google_review_configs_tenant_id", "google_review_configs", ["tenant_id"])
-    except Exception:
-        pass
+    """)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_google_review_configs_tenant_id ON google_review_configs(tenant_id)")
 
-    try:
-        op.create_table(
-            "google_reviews",
-            sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-            sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=False),
-            sa.Column("location_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("locations.id", ondelete="CASCADE"), nullable=False),
-            sa.Column("review_id", sa.String(500), nullable=False),
-            sa.Column("author_name", sa.String(255)),
-            sa.Column("rating", sa.Integer),
-            sa.Column("comment", sa.Text),
-            sa.Column("published_at", sa.DateTime(timezone=True)),
-            sa.Column("update_time", sa.DateTime(timezone=True)),
-            sa.Column("reply_comment", sa.Text),
-            sa.Column("reply_update_time", sa.DateTime(timezone=True)),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.UniqueConstraint("tenant_id", "review_id", name="uq_google_review_tenant"),
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS google_reviews (
+            id UUID PRIMARY KEY,
+            tenant_id UUID NOT NULL,
+            location_id UUID NOT NULL,
+            review_id VARCHAR(500) NOT NULL,
+            author_name VARCHAR(255),
+            rating INTEGER,
+            comment TEXT,
+            published_at TIMESTAMPTZ,
+            update_time TIMESTAMPTZ,
+            reply_comment TEXT,
+            reply_update_time TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT uq_google_review_tenant UNIQUE (tenant_id, review_id),
+            CONSTRAINT fk_google_reviews_location_id FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE
         )
-        op.create_index("ix_google_reviews_tenant_id", "google_reviews", ["tenant_id"])
-        op.create_index("ix_google_reviews_location_id", "google_reviews", ["location_id"])
-        op.create_index("ix_google_reviews_published_at", "google_reviews", ["published_at"])
-    except Exception:
-        pass
+    """)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_google_reviews_tenant_id ON google_reviews(tenant_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_google_reviews_location_id ON google_reviews(location_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_google_reviews_published_at ON google_reviews(published_at)")
 
-    try:
-        op.create_table(
-            "google_review_snapshots",
-            sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-            sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=False),
-            sa.Column("location_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("locations.id", ondelete="CASCADE"), nullable=False),
-            sa.Column("snapshot_date", sa.DateTime(timezone=True), nullable=False),
-            sa.Column("average_rating", sa.Numeric(3, 2)),
-            sa.Column("total_review_count", sa.Integer),
-            sa.Column("five_star_count", sa.Integer),
-            sa.Column("four_star_count", sa.Integer),
-            sa.Column("three_star_count", sa.Integer),
-            sa.Column("two_star_count", sa.Integer),
-            sa.Column("one_star_count", sa.Integer),
-            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.UniqueConstraint("tenant_id", "location_id", "snapshot_date", name="uq_review_snapshot_day"),
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS google_review_snapshots (
+            id UUID PRIMARY KEY,
+            tenant_id UUID NOT NULL,
+            location_id UUID NOT NULL,
+            snapshot_date TIMESTAMPTZ NOT NULL,
+            average_rating NUMERIC(3, 2),
+            total_review_count INTEGER,
+            five_star_count INTEGER,
+            four_star_count INTEGER,
+            three_star_count INTEGER,
+            two_star_count INTEGER,
+            one_star_count INTEGER,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT uq_review_snapshot_day UNIQUE (tenant_id, location_id, snapshot_date),
+            CONSTRAINT fk_google_review_snapshots_location_id FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE
         )
-        op.create_index("ix_google_review_snapshots_tenant_id", "google_review_snapshots", ["tenant_id"])
-    except Exception:
-        pass
+    """)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_google_review_snapshots_tenant_id ON google_review_snapshots(tenant_id)")
 
 
 def downgrade() -> None:
