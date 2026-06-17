@@ -104,17 +104,14 @@ async def ingest_document(
         logger.warning("document_duplicate", checksum=checksum, existing_id=str(existing.id))
         return doc, True
 
-    # Enqueue OCR — non-fatal if Celery/Redis unavailable
+    # Enqueue OCR — non-fatal if Redis unavailable (v3)
+    logger.info("ocr_enqueue_attempt_v3", document_id=str(doc.id))
     try:
-        from app.workers.celery_app import celery_app
-        celery_app.send_task(
-            "app.workers.tasks.ocr_process.process_document",
-            args=[str(doc.id), str(tenant_id)],
-            queue="ocr",
-        )
+        from app.workers.tasks.ocr_process import process_document
+        process_document.delay(str(doc.id), str(tenant_id))
         logger.info("ocr_task_enqueued", document_id=str(doc.id))
     except Exception as e:
-        logger.warning("ocr_task_enqueue_failed", document_id=str(doc.id), error=str(e))
+        logger.warning("ocr_task_enqueue_failed_v3", document_id=str(doc.id), error=str(e), error_type=type(e).__name__)
 
     logger.info("document_ingested", document_id=str(doc.id), filename=original_filename)
     return doc, False
