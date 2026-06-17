@@ -222,6 +222,16 @@ class PnLCalculator:
             Expense.tenant_id == tenant_id,
             Expense.expense_date >= period_start,
             Expense.expense_date <= period_end,
+            # exclude expenses whose source document was flagged as a duplicate
+            ~(
+                select(Document.id)
+                .where(
+                    Document.id == Expense.document_id,
+                    Document.is_duplicate.is_(True),
+                )
+                .correlate(Expense)
+                .exists()
+            ),
         ]
         if location_id:
             conds.append(Expense.location_id == location_id)

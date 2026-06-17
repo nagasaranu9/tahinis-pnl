@@ -27,7 +27,12 @@ def _get_client() -> boto3.client:
         }
         if settings.STORAGE_ENDPOINT_URL:
             kwargs["endpoint_url"] = settings.STORAGE_ENDPOINT_URL
-        _client = boto3.client(**kwargs)
+        try:
+            _client = boto3.client(**kwargs)
+            logger.info("s3_client_created", endpoint=settings.STORAGE_ENDPOINT_URL, region=settings.AWS_REGION)
+        except Exception as e:
+            logger.error("s3_client_creation_failed", error=str(e), exc_info=e)
+            raise
     return _client
 
 
@@ -53,10 +58,19 @@ def _ensure_bucket() -> None:
     client = _get_client()
     try:
         client.head_bucket(Bucket=settings.STORAGE_BUCKET)
+        logger.info("bucket_exists", bucket=settings.STORAGE_BUCKET)
     except ClientError as e:
+        logger.error("bucket_check_failed", bucket=settings.STORAGE_BUCKET, error_code=e.response["Error"]["Code"], error=str(e))
         if e.response["Error"]["Code"] == "404":
-            client.create_bucket(Bucket=settings.STORAGE_BUCKET)
-            logger.info("storage_bucket_created", bucket=settings.STORAGE_BUCKET)
+            try:
+                client.create_bucket(Bucket=settings.STORAGE_BUCKET)
+                logger.info("storage_bucket_created", bucket=settings.STORAGE_BUCKET)
+            except Exception as create_err:
+                logger.error("bucket_creation_failed", bucket=settings.STORAGE_BUCKET, error=str(create_err), exc_info=create_err)
+                raise
+    except Exception as e:
+        logger.error("bucket_check_error", bucket=settings.STORAGE_BUCKET, error=str(e), exc_info=e)
+        raise
 
 
 def upload_document(
@@ -86,8 +100,12 @@ def upload_document(
     # SSE-AES256 only on real S3; MinIO dev instance has no KMS
     if not settings.STORAGE_ENDPOINT_URL:
         put_kwargs["ServerSideEncryption"] = "AES256"
-    _get_client().put_object(**put_kwargs)
-    logger.info("document_uploaded", path=storage_path, size=len(file_bytes))
+    try:
+        _get_client().put_object(**put_kwargs)
+        logger.info("document_uploaded", path=storage_path, size=len(file_bytes))
+    except Exception as e:
+        logger.error("put_object_failed", bucket=settings.STORAGE_BUCKET, key=storage_path, error=str(e), exc_info=e)
+        raise
     return storage_path, checksum
 
 

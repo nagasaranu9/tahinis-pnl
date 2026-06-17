@@ -6,6 +6,7 @@ import structlog
 from sqlalchemy import and_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.document import Document
 from app.db.models.expense import Expense
 
 logger = structlog.get_logger(__name__)
@@ -88,7 +89,19 @@ class ExpenseRepository:
         page: int = 1,
         limit: int = 50,
     ) -> tuple[list[Expense], int]:
-        conditions = [Expense.tenant_id == tenant_id]
+        conditions = [
+            Expense.tenant_id == tenant_id,
+            # exclude expenses whose source document was flagged as a duplicate
+            ~(
+                select(Document.id)
+                .where(
+                    Document.id == Expense.document_id,
+                    Document.is_duplicate.is_(True),
+                )
+                .correlate(Expense)
+                .exists()
+            ),
+        ]
         if location_id:
             conditions.append(Expense.location_id == location_id)
         if category:
