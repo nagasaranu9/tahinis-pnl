@@ -1,5 +1,7 @@
+from typing import Annotated
+
 from pydantic import PostgresDsn, RedisDsn, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -68,7 +70,9 @@ class Settings(BaseSettings):
     RATE_LIMIT_LOGIN_PER_5MIN: int = 10
 
     # CORS
-    ALLOWED_ORIGINS: list[str] = ["http://localhost:3000"]
+    # NoDecode: skip pydantic's eager JSON parse so the before-validator below
+    # receives the raw env string and can split comma-separated values.
+    ALLOWED_ORIGINS: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
 
     # URLs
     FRONTEND_URL: str = "http://localhost:3000"
