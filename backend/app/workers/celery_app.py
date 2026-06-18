@@ -35,6 +35,8 @@ celery_app.conf.update(
     task_default_retry_delay=60,
     # Result expiry
     result_expires=86400,
+    # Beat scheduler — use /tmp (writable in containers) instead of current dir
+    beat_schedule_filename="/tmp/celerybeat-schedule",
     # Route heavy AI/OCR tasks to dedicated queue
     task_routes={
         "app.workers.tasks.ocr_process.*": {"queue": "ocr"},
