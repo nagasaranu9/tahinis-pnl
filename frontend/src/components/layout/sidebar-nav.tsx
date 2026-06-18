@@ -50,7 +50,7 @@ export function SidebarNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
-  const { getRole, getLocationId, clearTokens, refreshToken, locationName } = useAuthStore();
+  const { getRole, getLocationId, clearTokens, refreshToken } = useAuthStore();
   const [mounted, setMounted] = useState(false);
 
   const role = getRole();
@@ -95,9 +95,8 @@ export function SidebarNav() {
         </Link>
 
         {/* Location info */}
-        {locationName && (
+        {getLocationId() && (
           <div className="text-center text-xs space-y-1">
-            <div className="font-medium text-foreground truncate px-2">{locationName}</div>
             <div className="text-[11px] text-muted-foreground/70">Location #{getLocationId()}</div>
           </div>
         )}
