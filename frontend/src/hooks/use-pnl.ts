@@ -23,6 +23,8 @@ export function usePnLReport(params: {
     },
     enabled: Boolean(period_start && period_end),
     staleTime: 60_000,
+    // Backend syncs Toast every minute; auto-refetch so figures stay current.
+    refetchInterval: 60_000,
   });
 }
 
@@ -53,6 +55,7 @@ export function useDailyBreakdown(params: {
     },
     enabled: Boolean(period_start && period_end),
     staleTime: 60_000,
+    refetchInterval: 60_000,
   });
 }
 

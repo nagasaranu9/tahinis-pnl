@@ -79,6 +79,39 @@ class ExpenseRepository:
         )
         return result.scalar_one_or_none()
 
+    async def payroll_duplicate_exists(
+        self,
+        tenant_id: uuid.UUID,
+        location_id: uuid.UUID | None,
+        expense_date: datetime,
+        amount: Decimal,
+        vendor_name: str | None,
+    ) -> bool:
+        """True if an identical Payroll expense already exists for this period.
+
+        Re-importing the same PushOps export must not double-count labor, so we
+        dedup on the natural key (tenant, location, date, amount, vendor).
+        """
+        conditions = [
+            Expense.tenant_id == tenant_id,
+            Expense.category == "Payroll",
+            Expense.expense_date == expense_date,
+            Expense.amount == amount,
+        ]
+        if location_id is None:
+            conditions.append(Expense.location_id.is_(None))
+        else:
+            conditions.append(Expense.location_id == location_id)
+        if vendor_name is None:
+            conditions.append(Expense.vendor_name.is_(None))
+        else:
+            conditions.append(Expense.vendor_name == vendor_name)
+
+        result = await self._db.execute(
+            select(Expense.id).where(and_(*conditions)).limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
     async def list_expenses(
         self,
         tenant_id: uuid.UUID,

@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     jobs,
     locations,
     pnl,
+    pushops_integrations,
     reconciliation,
     reviews,
     tenants,
@@ -28,6 +29,7 @@ api_router.include_router(pnl.router, prefix="/pnl", tags=["pnl"])
 api_router.include_router(ai_insights.router, prefix="/ai/insights", tags=["ai-insights"])
 api_router.include_router(external_platforms.router, prefix="/external", tags=["external-platforms"])
 api_router.include_router(toast_integrations.router, prefix="/integrations/toast", tags=["toast"])
+api_router.include_router(pushops_integrations.router, prefix="/integrations/pushops", tags=["pushops"])
 api_router.include_router(email_integrations.router, prefix="/integrations", tags=["email-drive"])
 api_router.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
 api_router.include_router(reviews.router, prefix="/reviews", tags=["reviews"])
