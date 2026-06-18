@@ -275,7 +275,11 @@ function LocationCard({ loc }: { loc: Location }) {
   // Basic fields
   const [name, setName] = useState(loc.name);
   const [address, setAddress] = useState(loc.address ?? "");
-  const [timezone, setTimezone] = useState(loc.timezone ?? "America/Toronto");
+  // Invited locations default to "UTC" in the DB; coerce to Eastern so the live clock
+  // and the dropdown agree (and saving persists a real IANA zone instead of UTC).
+  const [timezone, setTimezone] = useState(
+    loc.timezone && loc.timezone !== "UTC" ? loc.timezone : "America/Toronto"
+  );
   const [storeId, setStoreId] = useState(loc.store_id ?? "");
   const [toastId, setToastId] = useState(loc.toast_location_id ?? "");
   const [uberEatsId, setUberEatsId] = useState(loc.uber_eats_id ?? "");

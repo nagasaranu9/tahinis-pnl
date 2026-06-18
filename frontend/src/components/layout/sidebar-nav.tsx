@@ -72,19 +72,34 @@ export function SidebarNav() {
 
   return (
     <aside className="w-60 flex flex-col bg-card h-full shrink-0 border-r border-border/60">
-      {/* Logo — flat, no heavy color band */}
-      <div className="h-14 px-5 flex items-center gap-2.5 border-b border-border/60">
-        <Image
-          src="/tahinis-logo.png"
-          alt="Tahini's Mediterranean Fusion"
-          width={28}
-          height={28}
-          className="object-contain rounded-md shrink-0"
-          priority
+      {/* Brand lockup */}
+      <div className="h-16 px-4 flex items-center gap-3 border-b border-border/60 relative overflow-hidden">
+        {/* subtle brand glow */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-8 -left-6 h-24 w-24 rounded-full opacity-[0.18] blur-2xl"
+          style={{ background: "radial-gradient(circle, #d42b2b 0%, transparent 70%)" }}
         />
-        <span className="text-[15px] font-semibold text-foreground tracking-tight truncate">
-          Tahini&apos;s
-        </span>
+        <div className="relative shrink-0 rounded-xl p-[1.5px] bg-gradient-to-br from-[#d42b2b]/70 via-[#d42b2b]/25 to-transparent">
+          <div className="rounded-[10px] bg-background/80 p-1">
+            <Image
+              src="/tahinis-logo.png"
+              alt="Tahini's Mediterranean Fusion"
+              width={30}
+              height={30}
+              className="object-contain rounded-md shrink-0"
+              priority
+            />
+          </div>
+        </div>
+        <div className="relative flex flex-col min-w-0 leading-none">
+          <span className="text-[15.5px] font-bold text-foreground tracking-tight truncate">
+            Tahini&apos;s
+          </span>
+          <span className="mt-1 text-[9.5px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/60 truncate">
+            Financial&nbsp;OS
+          </span>
+        </div>
       </div>
 
       {/* Nav */}
