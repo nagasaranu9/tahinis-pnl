@@ -53,21 +53,13 @@ async def list_locations(user: CurrentUserDep, db: AsyncSessionDep) -> dict:
 async def invite_location_owner(
     body: InviteLocationOwnerRequest, user: OwnerDep, db: AsyncSessionDep
 ) -> dict:
-    # Uniqueness guards — return clear error instead of 500 constraint violation.
-    existing_store = await db.scalar(
-        select(Location.id).where(
-            Location.tenant_id == user.tenant_id,
-            Location.store_id == body.store_id,
-            Location.is_active == True,  # noqa: E712
-        )
-    )
-    if existing_store:
-        raise ConflictError(f"Store #{body.store_id} already exists.")
+    invite_email = body.invite_email.lower()
 
+    # Email guard — block only live (non-deleted) pending/accepted invites.
     existing_email = await db.scalar(
         select(Location.id).where(
             Location.tenant_id == user.tenant_id,
-            Location.invite_email == body.invite_email.lower(),
+            Location.invite_email == invite_email,
             Location.invite_status.in_(["pending", "accepted"]),
             Location.is_active == True,  # noqa: E712 — soft-deleted invites must not block re-invite
         )
@@ -78,15 +70,37 @@ async def invite_location_owner(
     raw_token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
 
-    location = Location(
-        tenant_id=user.tenant_id,
-        name=body.name,
-        store_id=body.store_id,
-        invite_email=body.invite_email.lower(),
-        invite_token_hash=token_hash,
-        invite_status="pending",
+    # store_id has a GLOBAL unique index (ignores is_active), so a soft-deleted
+    # row with this store_id would crash an INSERT. Fetch the full row regardless
+    # of is_active and reuse it: live row -> conflict, deleted row -> revive.
+    existing = await db.scalar(
+        select(Location).where(
+            Location.tenant_id == user.tenant_id,
+            Location.store_id == body.store_id,
+        )
     )
-    db.add(location)
+    if existing is not None and existing.is_active:
+        raise ConflictError(f"Store #{body.store_id} already exists.")
+
+    if existing is not None:
+        # Revive the soft-deleted row as a fresh pending invite.
+        existing.is_active = True
+        existing.name = body.name
+        existing.invite_email = invite_email
+        existing.invite_token_hash = token_hash
+        existing.invite_status = "pending"
+        existing.onboarding_completed_at = None
+        location = existing
+    else:
+        location = Location(
+            tenant_id=user.tenant_id,
+            name=body.name,
+            store_id=body.store_id,
+            invite_email=invite_email,
+            invite_token_hash=token_hash,
+            invite_status="pending",
+        )
+        db.add(location)
     await db.flush()
 
     invite_url = f"{settings.FRONTEND_URL}/invite/{location.id}?token={raw_token}"
