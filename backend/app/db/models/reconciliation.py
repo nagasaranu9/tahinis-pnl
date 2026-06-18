@@ -19,6 +19,7 @@ FLAG_TYPES = {
     "uncategorized_expense", # expense has no category after AI pass
     "suspicious_amount",     # amount > 3 stddev from vendor mean
     "unmatched_sale",        # Toast sale day with no expense document
+    "unverified_payroll",    # Payroll expense with no matching bank-statement debit
 }
 
 FLAG_SEVERITIES = {"low", "medium", "high", "critical"}

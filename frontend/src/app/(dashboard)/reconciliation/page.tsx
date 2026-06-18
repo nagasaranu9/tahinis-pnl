@@ -26,6 +26,7 @@ const FLAG_LABELS: Record<FlagType, string> = {
   uncategorized_expense: "Uncategorized",
   suspicious_amount: "Suspicious Amount",
   unmatched_sale: "Unmatched Sale",
+  unverified_payroll: "Unverified Payroll",
 };
 
 function StatusBadge({ status }: { status: ReconciliationRun["status"] }) {

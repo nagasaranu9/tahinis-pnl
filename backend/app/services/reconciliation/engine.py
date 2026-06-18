@@ -13,7 +13,7 @@ import structlog
 from sqlalchemy import and_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.document import Document
+from app.db.models.document import Document, ExtractedLineItem
 from app.db.models.expense import Expense
 from app.db.models.toast import ToastOrder
 from app.db.repositories.reconciliation_repo import ReconciliationRepository
@@ -24,6 +24,12 @@ logger = structlog.get_logger(__name__)
 # Requires at least MIN_VENDOR_SAMPLES samples.
 ANOMALY_STDDEV_THRESHOLD = 3
 MIN_VENDOR_SAMPLES = 5
+
+# Payroll-vs-bank match tolerance: a lump payroll withdrawal should equal the
+# fully-burdened payroll expense, but OCR rounding and minor fee differences mean
+# we allow the larger of $1.00 or 0.5% of the amount.
+PAYROLL_MATCH_ABS = Decimal("1.00")
+PAYROLL_MATCH_PCT = Decimal("0.005")
 
 
 class ReconciliationEngine:
@@ -132,6 +138,40 @@ class ReconciliationEngine:
                         )
                         flags_raised += 1
 
+        # ---- Flag: unverified_payroll (payroll not seen on bank statement) ---
+        # Payroll is imported from PushOps CSV (no API), so the only independent
+        # confirmation the money actually left the account is a matching debit on
+        # a bank statement. Each fully-burdened payroll expense should equal one
+        # lump payroll withdrawal. Only check when a bank statement exists for the
+        # period — otherwise there's nothing to verify against (the P&L already
+        # warns about the missing statement).
+        bank_debits = await self._load_bank_debit_amounts(
+            tenant_id, period_start, period_end, location_id
+        )
+        if bank_debits is not None:
+            for exp in expenses:
+                if exp.category != "Payroll" or exp.amount is None:
+                    continue
+                # Verify against the pay period, not upload time: a bulk CSV import
+                # stamps created_at=now but expense_date=the real pay date, so only
+                # check payroll whose pay date falls in the period being reconciled.
+                if not (period_start <= exp.expense_date <= period_end):
+                    continue
+                target = abs(exp.amount)
+                tol = max(PAYROLL_MATCH_ABS, target * PAYROLL_MATCH_PCT)
+                if not any(abs(debit - target) <= tol for debit in bank_debits):
+                    await self._repo.create_flag(
+                        tenant_id=tenant_id, run_id=run_id,
+                        flag_type="unverified_payroll", severity="high",
+                        message=(
+                            f"Payroll expense {exp.id} ({exp.vendor_name}, {exp.amount}) "
+                            f"has no matching withdrawal on any bank statement for this "
+                            f"period. Confirm the payroll debit cleared."
+                        ),
+                        expense_id=exp.id,
+                    )
+                    flags_raised += 1
+
         # ---- Flag: unmatched_sale (Toast day with no expense document) -------
         # Group Toast orders by business date; flag dates with sales but no expense
         toast_dates: dict[str, Decimal] = defaultdict(Decimal)
@@ -204,6 +244,44 @@ class ReconciliationEngine:
             conditions.append(Document.location_id == location_id)
         rows = await self._db.execute(select(Document).where(and_(*conditions)))
         return list(rows.scalars().all())
+
+    async def _load_bank_debit_amounts(
+        self,
+        tenant_id: uuid.UUID,
+        period_start: datetime,
+        period_end: datetime,
+        location_id: uuid.UUID | None,
+    ) -> list[Decimal] | None:
+        """Return absolute debit amounts extracted from bank statements in the
+        period, or None when no bank statement exists (nothing to verify against).
+
+        Bank statements are OCR'd into ExtractedLineItem rows; each line's amount
+        is a transaction value. We compare on absolute value because debits may be
+        stored as negative depending on the statement layout.
+        """
+        doc_conditions = [
+            Document.tenant_id == tenant_id,
+            Document.document_type == "bank_statement",
+            Document.created_at >= period_start,
+            Document.created_at <= period_end,
+        ]
+        if location_id:
+            doc_conditions.append(Document.location_id == location_id)
+        doc_ids = (
+            await self._db.execute(select(Document.id).where(and_(*doc_conditions)))
+        ).scalars().all()
+        if not doc_ids:
+            return None
+
+        rows = await self._db.execute(
+            select(ExtractedLineItem.amount).where(
+                and_(
+                    ExtractedLineItem.tenant_id == tenant_id,
+                    ExtractedLineItem.document_id.in_(doc_ids),
+                )
+            )
+        )
+        return [abs(a) for a in rows.scalars().all() if a is not None]
 
     async def _load_expenses(
         self,

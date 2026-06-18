@@ -6,7 +6,8 @@ export type FlagType =
   | "duplicate_expense"
   | "uncategorized_expense"
   | "suspicious_amount"
-  | "unmatched_sale";
+  | "unmatched_sale"
+  | "unverified_payroll";
 
 export interface ReconciliationRun {
   id: string;
