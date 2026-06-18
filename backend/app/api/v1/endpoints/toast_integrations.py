@@ -97,7 +97,14 @@ async def get_toast_status(
     config = await repo.get_sync_config(user.tenant_id, location_id)
     if not config:
         raise NotFoundError("Toast not connected for this location")
-    return {"data": ToastConnectResponse.model_validate(config), "errors": None}
+    resp = ToastConnectResponse.model_validate(config)
+    hist = await repo.get_latest_historical_job(user.tenant_id, location_id)
+    if hist is not None:
+        resp.historical_status = hist.status
+        resp.historical_started_at = hist.started_at
+        resp.historical_orders_synced = hist.orders_synced
+        resp.historical_error = hist.error_message
+    return {"data": resp, "errors": None}
 
 
 @router.post("/sync", response_model=APIResponse[ToastSyncJobResponse])

@@ -17,9 +17,12 @@ export function useToastStatus(locationId: string | undefined) {
     },
     enabled: !!locationId,
     retry: false,
-    // Backend beat dispatches incremental sync every minute; refetch status so the
-    // sidebar "last synced" stamp stays current without a manual page refresh.
-    refetchInterval: 60_000,
+    // Poll fast while a historical import is in flight so the progress banner
+    // updates live; otherwise refetch once a minute to keep "last synced" fresh.
+    refetchInterval: (query) => {
+      const s = query.state.data?.historical_status;
+      return s === "pending" || s === "running" ? 5_000 : 60_000;
+    },
   });
 }
 

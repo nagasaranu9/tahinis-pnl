@@ -92,6 +92,21 @@ class ToastRepository:
             .values(historical_import_complete=True)
         )
 
+    async def get_latest_historical_job(
+        self, tenant_id: uuid.UUID, location_id: uuid.UUID
+    ) -> Optional[ToastSyncJob]:
+        result = await self._db.execute(
+            select(ToastSyncJob)
+            .where(
+                ToastSyncJob.tenant_id == tenant_id,
+                ToastSyncJob.location_id == location_id,
+                ToastSyncJob.job_type == "historical",
+            )
+            .order_by(ToastSyncJob.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def list_active_configs(self) -> Sequence[ToastSyncConfig]:
         result = await self._db.execute(
             select(ToastSyncConfig).where(ToastSyncConfig.is_active.is_(True))

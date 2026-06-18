@@ -4,6 +4,10 @@ export interface ToastSyncConfig {
   is_active: boolean;
   historical_import_complete: boolean;
   last_synced_at: string | null;
+  historical_status: "pending" | "running" | "complete" | "failed" | null;
+  historical_started_at: string | null;
+  historical_orders_synced: number | null;
+  historical_error: string | null;
 }
 
 export type SyncJobStatus = "pending" | "running" | "complete" | "failed";

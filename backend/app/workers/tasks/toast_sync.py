@@ -138,11 +138,48 @@ async def _dispatch_daily_sync() -> dict:
     from app.db.session import AsyncSessionLocal
     from app.db.repositories.toast_repo import ToastRepository
 
+    from datetime import timedelta
+    from sqlalchemy import select, func, update
+    from app.db.models.toast import ToastSyncJob
+
     dispatched = 0
     async with AsyncSessionLocal() as db:
+        # Expire stale pending/running jobs: a healthy worker grabs a queued job
+        # within seconds, so anything still pending after 10 min is an orphan
+        # left by a worker that died mid-flight (its Redis message is gone). Mark
+        # them failed so they stop blocking new dispatch and show honestly in UI.
+        stale_cutoff = datetime.now(UTC) - timedelta(minutes=10)
+        await db.execute(
+            update(ToastSyncJob)
+            .where(
+                ToastSyncJob.status.in_(("pending", "running")),
+                ToastSyncJob.created_at < stale_cutoff,
+            )
+            .values(status="failed", error_message="Timed out — worker did not process (stale)")
+        )
+        await db.commit()
+
         repo = ToastRepository(db)
         configs = await repo.list_active_configs()
         for config in configs:
+            # Skip if an incremental job is already pending/running for this
+            # location — otherwise a down/slow worker lets per-minute beat ticks
+            # pile up hundreds of orphan "pending" rows that never drain.
+            backlog = (await db.execute(
+                select(func.count(ToastSyncJob.id)).where(
+                    ToastSyncJob.tenant_id == config.tenant_id,
+                    ToastSyncJob.location_id == config.location_id,
+                    ToastSyncJob.job_type == "incremental",
+                    ToastSyncJob.status.in_(("pending", "running")),
+                )
+            )).scalar_one()
+            if backlog and backlog > 0:
+                logger.info(
+                    "toast_dispatch_skipped_backlog",
+                    location_id=str(config.location_id),
+                    backlog=backlog,
+                )
+                continue
             job = await repo.create_sync_job(
                 tenant_id=config.tenant_id,
                 location_id=config.location_id,

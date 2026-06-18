@@ -22,6 +22,11 @@ class ToastConnectResponse(BaseModel):
     is_active: bool
     historical_import_complete: bool
     last_synced_at: Optional[datetime]
+    # Latest historical-import job state, for the persistent progress banner.
+    historical_status: Optional[str] = None  # pending | running | complete | failed
+    historical_started_at: Optional[datetime] = None
+    historical_orders_synced: Optional[int] = None
+    historical_error: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

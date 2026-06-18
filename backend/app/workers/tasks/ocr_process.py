@@ -127,16 +127,30 @@ def _classify_document_type(
 
     combined = f"{name_lower} {vendor_lower} {text_lower}"
 
+    _BANK_VENDOR_KEYWORDS = (
+        "bank", "bmo", "td", "rbc", "scotiabank", "cibc", "desjardins",
+        "hsbc", "tangerine", "simplii", "national bank", "montreal",
+    )
+    vendor_is_bank = any(k in vendor_lower for k in _BANK_VENDOR_KEYWORDS)
+    filename_is_bank = any(k in name_lower for k in _BANK_STATEMENT_FILENAME_KEYWORDS)
+    text_bank_hits = sum(1 for k in _BANK_STATEMENT_KEYWORDS if k in combined)
+
+    # Bank statement detection FIRST — a bank statement can contain a
+    # PUSHOPERATIONS payroll debit line, which must NOT cause it to be
+    # classified as a payroll_report. The vendor being a bank (e.g. "BMO Bank
+    # of Montreal", which Document AI returns as supplier_name on a statement)
+    # is the strongest signal.
+    if vendor_is_bank:
+        return "bank_statement"
+    if filename_is_bank and text_bank_hits >= 1:
+        return "bank_statement"
+    if text_bank_hits >= 2:
+        return "bank_statement"
+
+    # Payroll report = an actual pay stub / earnings statement (not a bank
+    # statement that merely lists a payroll withdrawal).
     if any(k in combined for k in _PAYROLL_KEYWORDS):
         return "payroll_report"
-
-    # Bank statement: filename OR (vendor is a bank AND statement keywords in text)
-    filename_is_bank = any(k in name_lower for k in _BANK_STATEMENT_FILENAME_KEYWORDS)
-    text_is_bank = sum(1 for k in _BANK_STATEMENT_KEYWORDS if k in combined) >= 2
-    if filename_is_bank and text_is_bank:
-        return "bank_statement"
-    if text_is_bank and any(k in vendor_lower for k in ("bank", "bmo", "td", "rbc", "scotiabank", "cibc", "desjardins", "hsbc", "tangerine", "simplii", "national bank")):
-        return "bank_statement"
 
     if any(k in combined for k in _RECEIPT_KEYWORDS):
         return "receipt"
