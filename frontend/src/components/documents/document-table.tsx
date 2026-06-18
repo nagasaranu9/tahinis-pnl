@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
-import { FileText, ExternalLink, Copy } from "lucide-react";
+import { FileText, ExternalLink, Copy, Trash2, RefreshCw } from "lucide-react";
 import { DocumentStatusBadge } from "./document-status-badge";
+import { useDeleteDocument, useReprocessDocument } from "@/hooks/use-documents";
 import type { Document } from "@/types/document";
 
 interface Props {
@@ -35,6 +37,101 @@ function getSortDate(doc: Document): number {
   }
 }
 
+function DocRow({ doc }: { doc: Document }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const { mutate: deleteDoc, isPending: deleting } = useDeleteDocument();
+  const { mutate: reprocess, isPending: reprocessing } = useReprocessDocument();
+
+  const isPending = doc.status === "pending" || doc.status === "error" || doc.status === "ocr_processing";
+
+  return (
+    <tr className="hover:bg-muted/20 transition-colors">
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-primary/60 shrink-0" />
+          <span className="truncate max-w-[200px]" title={doc.original_filename}>
+            {doc.original_filename}
+          </span>
+          {doc.is_duplicate && (
+            <span
+              title="Duplicate — already imported from another source"
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-500/10 text-orange-500 border border-orange-500/20 shrink-0"
+            >
+              <Copy className="h-2.5 w-2.5" />
+              DUPLICATE
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="px-4 py-3 text-muted-foreground">
+        {doc.vendor_name ?? "—"}
+      </td>
+      <td className="px-4 py-3 capitalize text-muted-foreground">
+        {doc.document_type}
+      </td>
+      <td className="px-4 py-3 text-muted-foreground">
+        {doc.document_date
+          ? format(parseISO(doc.document_date), "MMM d, yyyy")
+          : "—"}
+      </td>
+      <td className="px-4 py-3 text-right font-medium">
+        {formatCurrency(doc.total_amount, doc.currency_code)}
+      </td>
+      <td className="px-4 py-3">
+        <DocumentStatusBadge status={doc.status} />
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2 justify-end">
+          {/* Reprocess: show for pending/error docs */}
+          {isPending && (
+            <button
+              onClick={() => reprocess(doc.id)}
+              disabled={reprocessing}
+              title="Reprocess document"
+              className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 disabled:opacity-40 transition-colors"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`} />
+            </button>
+          )}
+          <Link
+            href={`/documents/${doc.id}`}
+            className="text-primary hover:underline flex items-center gap-1 text-sm"
+          >
+            <ExternalLink className="h-3 w-3" />
+            View
+          </Link>
+          {/* Delete */}
+          {confirmDelete ? (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => deleteDoc(doc.id)}
+                disabled={deleting}
+                className="text-xs px-2 py-0.5 rounded bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+              >
+                {deleting ? "…" : "Confirm"}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="text-xs px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-accent"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              title="Delete document"
+              className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 export function DocumentTable({ documents }: Props) {
   if (documents.length === 0) {
     return (
@@ -45,7 +142,6 @@ export function DocumentTable({ documents }: Props) {
     );
   }
 
-  // Group by month/year, newest first
   const grouped = new Map<string, Document[]>();
   const groupOrder: string[] = [];
 
@@ -81,51 +177,7 @@ export function DocumentTable({ documents }: Props) {
               </thead>
               <tbody className="divide-y divide-border">
                 {grouped.get(monthYear)!.map((doc) => (
-                  <tr key={doc.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-primary/60 shrink-0" />
-                        <span className="truncate max-w-[200px]" title={doc.original_filename}>
-                          {doc.original_filename}
-                        </span>
-                        {doc.is_duplicate && (
-                          <span
-                            title="Duplicate — already imported from another source"
-                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-500/10 text-orange-500 border border-orange-500/20 shrink-0"
-                          >
-                            <Copy className="h-2.5 w-2.5" />
-                            DUPLICATE
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {doc.vendor_name ?? "—"}
-                    </td>
-                    <td className="px-4 py-3 capitalize text-muted-foreground">
-                      {doc.document_type}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {doc.document_date
-                        ? format(parseISO(doc.document_date), "MMM d, yyyy")
-                        : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right font-medium">
-                      {formatCurrency(doc.total_amount, doc.currency_code)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <DocumentStatusBadge status={doc.status} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/documents/${doc.id}`}
-                        className="text-primary hover:underline flex items-center gap-1"
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                        View
-                      </Link>
-                    </td>
-                  </tr>
+                  <DocRow key={doc.id} doc={doc} />
                 ))}
               </tbody>
             </table>

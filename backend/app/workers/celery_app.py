@@ -21,6 +21,7 @@ celery_app = Celery(
 )
 
 celery_app.conf.update(
+    task_default_queue="default",  # worker runs -Q default,sync,ocr,ai; without this, Celery uses "celery" queue which is not consumed
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],

@@ -1,13 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { useDocuments } from "@/hooks/use-documents";
+import { RefreshCw } from "lucide-react";
+import { useDocuments, useReprocessDocument } from "@/hooks/use-documents";
 import { UploadDropzone } from "@/components/documents/upload-dropzone";
 import { DocumentTable } from "@/components/documents/document-table";
 
 export default function DocumentsPage() {
   const [page, setPage] = useState(1);
   const { data, isLoading, isError } = useDocuments({ page, limit: 50 });
+  const { mutate: reprocess, isPending: reprocessing } = useReprocessDocument();
+
+  const pendingIds = (data?.data ?? [])
+    .filter((d) => d.status === "pending" || d.status === "error")
+    .map((d) => d.id);
+
+  function reprocessAll() {
+    for (const id of pendingIds) reprocess(id);
+  }
 
   return (
     <div className="space-y-6">
@@ -25,6 +35,16 @@ export default function DocumentsPage() {
           <h2 className="text-sm font-medium text-muted-foreground">
             {data?.meta.total ?? 0} documents
           </h2>
+          {pendingIds.length > 0 && (
+            <button
+              onClick={reprocessAll}
+              disabled={reprocessing}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 disabled:opacity-50 transition-colors"
+            >
+              <RefreshCw className={`h-3 w-3 ${reprocessing ? "animate-spin" : ""}`} />
+              Reprocess {pendingIds.length} pending
+            </button>
+          )}
         </div>
 
         {isLoading && (
