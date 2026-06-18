@@ -123,6 +123,123 @@ def _parse_date(raw: str) -> date | None:
     return None
 
 
+@dataclass(frozen=True)
+class _SummaryCols:
+    pay_date_idx: int
+    gross_idx: int
+    employer_cpp_idx: int | None
+    employer_ei_idx: int | None
+    wcb_idx: int | None
+    first_col_idx: int  # to detect the trailing "Total" summary row
+
+
+def _group_owners(grouping_row: list[str] | None, width: int) -> list[str]:
+    """Forward-fill a merged grouping row into a per-column owner label.
+
+    PushOps merges "Employee"/"Employer"/"Government Remittance" across several
+    columns, leaving the continuation cells blank. Forward-fill so each column
+    knows which group it belongs to (needed to tell employee CPP/EI from the
+    identically-named employer CPP/EI).
+    """
+    owners = [""] * width
+    if not grouping_row:
+        return owners
+    current = ""
+    for i in range(width):
+        cell = grouping_row[i].strip().lower() if i < len(grouping_row) else ""
+        if cell:
+            current = cell
+        owners[i] = current
+    return owners
+
+
+def _summary_columns(
+    headers: list[str], grouping_row: list[str] | None
+) -> _SummaryCols | None:
+    """Detect the 'Payroll Summary by Period' layout and map its columns.
+
+    Returns None if this is not the summary layout (caller falls back to the
+    simple per-employee path).
+    """
+    norm = [_normalize(h) for h in headers]
+    gross_idx = next((i for i, h in enumerate(norm) if h == "total gross"), None)
+    pay_date_idx = next((i for i, h in enumerate(norm) if h == "pay date"), None)
+    if gross_idx is None or pay_date_idx is None:
+        return None
+
+    owners = _group_owners(grouping_row, len(headers))
+
+    def _find(header_name: str, owner: str | None = None) -> int | None:
+        for i, h in enumerate(norm):
+            if h == header_name and (owner is None or owners[i] == owner):
+                return i
+        return None
+
+    employer_cpp_idx = _find("total cpp", "employer")
+    employer_ei_idx = _find("total ei", "employer")
+    wcb_idx = _find("total wcb")  # WCB is employer-only; no grouping needed
+
+    return _SummaryCols(
+        pay_date_idx=pay_date_idx,
+        gross_idx=gross_idx,
+        employer_cpp_idx=employer_cpp_idx,
+        employer_ei_idx=employer_ei_idx,
+        wcb_idx=wcb_idx,
+        first_col_idx=0,
+    )
+
+
+def _cell_amount(row: list[str], idx: int | None) -> Decimal:
+    if idx is None or idx >= len(row):
+        return Decimal("0")
+    return _parse_amount(row[idx]) or Decimal("0")
+
+
+def _parse_summary(
+    headers: list[str],
+    data_rows: list[list[str]],
+    cols: _SummaryCols,
+    fallback_pay_date: date | None,
+) -> list[LaborLineItem]:
+    items: list[LaborLineItem] = []
+    for row in data_rows:
+        # Trailing "Total" row has no pay date and a "Total" label in col 0.
+        first = row[cols.first_col_idx].strip().lower() if cols.first_col_idx < len(row) else ""
+        if first in ("total", "totals", "grand total"):
+            continue
+
+        pay_date = None
+        if cols.pay_date_idx < len(row):
+            pay_date = _parse_date(row[cols.pay_date_idx])
+        if pay_date is None:
+            pay_date = fallback_pay_date
+        if pay_date is None:
+            continue
+
+        gross = _cell_amount(row, cols.gross_idx)
+        # Fully-burdened employer labor cost = gross wages + employer-side
+        # statutory costs. This is the real cost to the business for the P&L.
+        burden = (
+            _cell_amount(row, cols.employer_cpp_idx)
+            + _cell_amount(row, cols.employer_ei_idx)
+            + _cell_amount(row, cols.wcb_idx)
+        )
+        amount = gross + burden
+        if amount == 0:
+            continue
+        items.append(
+            LaborLineItem(
+                employee=None,
+                pay_date=pay_date,
+                amount=amount,
+                location_hint=None,
+            )
+        )
+    if not items:
+        raise PushOpsParseError("No valid payroll rows found in CSV")
+    return items
+
+
 def parse_pushops_csv(
     file_bytes: bytes,
     fallback_pay_date: date | None = None,
@@ -154,19 +271,39 @@ def parse_pushops_csv(
     if len(rows) < 2:
         raise PushOpsParseError("CSV has no data rows")
 
-    headers = rows[0]
-    amount_idx = _match_column(headers, _AMOUNT_HEADERS)
-    if amount_idx is None:
+    # PushOps exports can carry a grouping row ("Employee / Employer / Government
+    # Remittance") above the real header row, so the header is not always row 0.
+    # Locate the header row as the first row that contains an amount column.
+    header_idx = None
+    for i, row in enumerate(rows):
+        if _match_column(row, _AMOUNT_HEADERS) is not None:
+            header_idx = i
+            break
+    if header_idx is None:
         raise PushOpsParseError(
             "Could not find a pay/amount column. Expected one of: "
             + ", ".join(_AMOUNT_HEADERS)
         )
+
+    headers = rows[header_idx]
+    data_rows = rows[header_idx + 1 :]
+    grouping_row = rows[header_idx - 1] if header_idx > 0 else None
+
+    # "Payroll Summary by Period" format: per-period rows with a Total Gross plus
+    # separate employee/employer deductions. The figure that matters for the P&L
+    # is the fully-burdened employer cost = gross + employer CPP + employer EI + WCB.
+    summary = _summary_columns(headers, grouping_row)
+    if summary is not None:
+        return _parse_summary(headers, data_rows, summary, fallback_pay_date)
+
+    amount_idx = _match_column(headers, _AMOUNT_HEADERS)
+    assert amount_idx is not None  # guaranteed by header_idx search
     employee_idx = _match_column(headers, _EMPLOYEE_HEADERS)
     date_idx = _match_column(headers, _DATE_HEADERS)
     location_idx = _match_column(headers, _LOCATION_HEADERS)
 
     items: list[LaborLineItem] = []
-    for row in rows[1:]:
+    for row in data_rows:
         if amount_idx >= len(row):
             continue
         amount = _parse_amount(row[amount_idx])

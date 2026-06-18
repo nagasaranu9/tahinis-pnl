@@ -106,6 +106,29 @@ def test_utf8_bom_handled():
     assert items[0].amount == Decimal("100.00")
 
 
+def test_summary_by_period_fully_burdened():
+    """Real PushOps 'Payroll Summary by Period' export: grouping row above the
+    header, no employee column, duplicate CPP/EI columns. Labor must be the
+    fully-burdened employer cost = gross + employer CPP + employer EI + WCB."""
+    data = _csv(
+        "Pay Dates from 2026-01-01 to 2026-06-20\n"
+        ",,,Employee,,,,Employer,,,,,Government Remittance\n"
+        "Period Start,Period End,Pay Date,Total Gross,Total Income Tax,Total CPP,"
+        "Total EI,Total CPP,Total EI,Total WCB,Total EHT Wages,Total EHT Taxes,Total\n"
+        "2025-12-20,2026-01-02,2026-01-07,5690.22,271.11,279.06,91.81,279.06,128.54,56.91,0.00,0.00,1049.58\n"
+        "2026-01-03,2026-01-16,2026-01-22,6061.71,301.52,304.60,87.62,304.60,122.67,60.62,0.00,0.00,1121.01\n"
+        ",,Total,11751.93,572.63,583.66,179.43,583.66,251.21,117.53,0.00,0.00,2170.59\n"
+    )
+    items = parse_pushops_csv(data)
+    assert len(items) == 2  # total row skipped
+    # gross 5690.22 + employer CPP 279.06 + employer EI 128.54 + WCB 56.91
+    assert items[0].amount == Decimal("6154.73")
+    assert items[0].pay_date == date(2026, 1, 7)
+    assert items[0].employee is None
+    # must NOT pick the "Total" government-remittance column (1049.58)
+    assert items[0].amount != Decimal("1049.58")
+
+
 def test_to_datetime_is_utc_midnight():
     dt = to_datetime(date(2026, 5, 31))
     assert (dt.year, dt.month, dt.day, dt.hour) == (2026, 5, 31, 0)
