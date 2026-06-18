@@ -13,6 +13,7 @@ from app.core.exceptions import ConflictError, NotFoundError, UnauthorizedError
 from app.core.security import hash_password
 from app.db.models.email_sync import EmailSyncConfig
 from app.db.models.location import Location
+from app.db.models.toast import ToastSyncConfig
 from app.db.models.user import User
 from app.db.session import AsyncSessionDep
 from app.schemas.common import APIResponse
@@ -197,9 +198,16 @@ async def _build_onboarding_status(
             EmailSyncConfig.provider == "gmail",
         )
     )
+    # Toast connect writes a ToastSyncConfig row (not location.toast_location_id),
+    # so derive the step from that.
+    toast_count = await db.scalar(
+        select(func.count())
+        .select_from(ToastSyncConfig)
+        .where(ToastSyncConfig.location_id == location.id)
+    )
     steps = OnboardingStepStatus(
         profile=bool(location.address),
-        toast=bool(location.toast_location_id),
+        toast=bool(toast_count),
         gmail=bool(gmail_count),
         google=bool(location.google_place_id),
     )

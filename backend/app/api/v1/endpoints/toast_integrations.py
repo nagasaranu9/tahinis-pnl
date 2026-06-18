@@ -65,12 +65,24 @@ async def connect_toast(
         )
         await db.commit()
 
-        from app.workers.tasks.toast_sync import toast_historical_import
-        toast_historical_import.apply_async(
-            args=[str(user.tenant_id), str(body.location_id), str(job.id)],
-            queue="sync",
-        )
-        logger.info("toast_historical_import_queued", location_id=str(body.location_id))
+        # Enqueue is best-effort: if the broker (Redis) is down, the credentials
+        # are already saved and the job row exists, so the connect must still
+        # succeed. A scheduled sync / manual retry can pick the job up later.
+        try:
+            from app.workers.tasks.toast_sync import toast_historical_import
+            toast_historical_import.apply_async(
+                args=[str(user.tenant_id), str(body.location_id), str(job.id)],
+                queue="sync",
+            )
+            logger.info("toast_historical_import_queued", location_id=str(body.location_id))
+        except Exception as exc:
+            logger.error(
+                "toast_historical_import_enqueue_failed",
+                location_id=str(body.location_id),
+                job_id=str(job.id),
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
 
     return {"data": ToastConnectResponse.model_validate(config), "errors": None}
 

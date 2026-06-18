@@ -42,6 +42,7 @@ export default function OnboardingPage() {
   const [toastForm, setToastForm] = useState({ guid: "", clientId: "", clientSecret: "" });
   const [toastBusy, setToastBusy] = useState(false);
   const [toastErr, setToastErr] = useState<string | null>(null);
+  const [toastOk, setToastOk] = useState(false);
   const [gmailBusy, setGmailBusy] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -71,6 +72,7 @@ export default function OnboardingPage() {
   async function connectToast(e: React.FormEvent) {
     e.preventDefault();
     setToastErr(null);
+    setToastOk(false);
     setToastBusy(true);
     try {
       await apiClient.post(`/api/v1/integrations/toast/connect`, {
@@ -80,6 +82,7 @@ export default function OnboardingPage() {
         toast_restaurant_guid: toastForm.guid,
       });
       setToastForm({ guid: "", clientId: "", clientSecret: "" });
+      setToastOk(true);
       await refresh();
     } catch (err: unknown) {
       setToastErr(extractError(err) ?? "Could not connect Toast. Check the credentials.");
@@ -180,6 +183,11 @@ export default function OnboardingPage() {
                     <Input placeholder="Client secret" type="password" value={toastForm.clientSecret}
                       onChange={(v) => setToastForm((f) => ({ ...f, clientSecret: v }))} />
                     {toastErr && <p className="text-xs text-destructive">{toastErr}</p>}
+                    {toastOk && (
+                      <p className="text-xs font-medium text-green-600">
+                        ✓ Toast connected — historical import started.
+                      </p>
+                    )}
                     <button type="submit" disabled={toastBusy}
                       className="text-xs font-medium bg-primary text-primary-foreground px-3 py-1.5 rounded-md hover:opacity-90 disabled:opacity-50">
                       {toastBusy ? "Connecting…" : "Connect Toast"}
