@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import { useAuthStore } from "@/lib/auth-store";
 import { apiClient } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
@@ -20,7 +21,10 @@ import {
   Megaphone,
   Activity,
   LayoutGrid,
+  Moon,
+  Sun,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 interface NavItem {
   label: string;
@@ -45,11 +49,17 @@ const NAV_ITEMS: NavItem[] = [
 export function SidebarNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const { getRole, getLocationId, clearTokens, refreshToken } = useAuthStore();
-  const role = getRole();
-  const isAdmin = getLocationId() === null; // tenant-wide (HQ) account — sees all locations
+  const { theme, setTheme } = useTheme();
+  const { getRole, getLocationId, clearTokens, refreshToken, locationName } = useAuthStore();
+  const [mounted, setMounted] = useState(false);
 
-  // Ambient flag count — React Query deduplicates with dashboard's identical call
+  const role = getRole();
+  const isAdmin = getLocationId() === null;
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const { data: flags } = useReconciliationFlags({ unresolved_only: true });
   const unresolvedCount = flags?.meta?.total ?? 0;
 
@@ -69,16 +79,44 @@ export function SidebarNav() {
     router.replace("/login");
   }
 
+  const toggleTheme = () => {
+    setTheme(theme === "dark" ? "light" : "dark");
+  };
+
   return (
     <aside className="w-60 flex flex-col bg-card h-full shrink-0 border-r border-border/60">
-      {/* Brand header — wordmark, no logo image */}
-      <div className="h-16 px-5 flex items-center border-b border-border/60">
-        <Link href="/dashboard" className="cursor-pointer leading-none">
-          <span className="text-[17px] font-bold tracking-tight text-foreground">Tahini&apos;s</span>
-          <span className="ml-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
-            Financial&nbsp;OS
-          </span>
+      {/* Logo header — centered, no text */}
+      <div className="py-6 px-4 flex flex-col items-center gap-3 border-b border-border/60">
+        <Link href="/dashboard" className="cursor-pointer flex items-center justify-center w-12 h-12 rounded-lg bg-muted hover:bg-muted/80 transition-colors">
+          <svg width="28" height="28" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M50 15C35 15 25 25 25 40C25 50 30 55 35 60C32 65 28 75 28 85L72 85C72 75 68 65 65 60C70 55 75 50 75 40C75 25 65 15 50 15Z" fill="currentColor" className="text-red-600" />
+            <circle cx="50" cy="30" r="4" fill="white" />
+          </svg>
         </Link>
+
+        {/* Location info */}
+        {locationName && (
+          <div className="text-center text-xs space-y-1">
+            <div className="font-medium text-foreground truncate px-2">{locationName}</div>
+            <div className="text-[11px] text-muted-foreground/70">Location #{getLocationId()}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Theme toggle */}
+      <div className="px-4 py-2 border-b border-border/60">
+        <button
+          onClick={toggleTheme}
+          className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-md text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+          aria-label="Toggle theme"
+        >
+          {mounted && (
+            <>
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              <span>{theme === "dark" ? "Light" : "Dark"}</span>
+            </>
+          )}
+        </button>
       </div>
 
       {/* Nav */}
