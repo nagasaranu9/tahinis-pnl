@@ -72,34 +72,24 @@ export function SidebarNav() {
 
   return (
     <aside className="w-60 flex flex-col bg-card h-full shrink-0 border-r border-border/60">
-      {/* Brand lockup */}
-      <div className="h-16 px-4 flex items-center gap-3 border-b border-border/60 relative overflow-hidden">
+      {/* Brand lockup — logo only */}
+      <div className="h-20 px-4 flex items-center justify-center border-b border-border/60 relative overflow-hidden">
         {/* subtle brand glow */}
         <div
           aria-hidden
-          className="pointer-events-none absolute -top-8 -left-6 h-24 w-24 rounded-full opacity-[0.18] blur-2xl"
+          className="pointer-events-none absolute inset-x-0 -top-10 h-32 mx-auto w-40 rounded-full opacity-[0.16] blur-2xl"
           style={{ background: "radial-gradient(circle, #d42b2b 0%, transparent 70%)" }}
         />
-        <div className="relative shrink-0 rounded-xl p-[1.5px] bg-gradient-to-br from-[#d42b2b]/70 via-[#d42b2b]/25 to-transparent">
-          <div className="rounded-[10px] bg-background/80 p-1">
-            <Image
-              src="/tahinis-logo.png"
-              alt="Tahini's Mediterranean Fusion"
-              width={30}
-              height={30}
-              className="object-contain rounded-md shrink-0"
-              priority
-            />
-          </div>
-        </div>
-        <div className="relative flex flex-col min-w-0 leading-none">
-          <span className="text-[15.5px] font-bold text-foreground tracking-tight truncate">
-            Tahini&apos;s
-          </span>
-          <span className="mt-1 text-[9.5px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/60 truncate">
-            Financial&nbsp;OS
-          </span>
-        </div>
+        <Link href="/dashboard" className="relative flex items-center justify-center cursor-pointer">
+          <Image
+            src="/tahinis-logo.png"
+            alt="Tahini's"
+            width={132}
+            height={48}
+            className="object-contain h-12 w-auto"
+            priority
+          />
+        </Link>
       </div>
 
       {/* Nav */}
