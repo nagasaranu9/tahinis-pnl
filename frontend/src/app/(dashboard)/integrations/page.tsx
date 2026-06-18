@@ -46,7 +46,7 @@ function PushOpsCard() {
           <div>
             <h3 className="font-semibold">PushOperations Payroll</h3>
             <p className="text-xs text-muted-foreground">
-              Upload a payroll CSV export to import labor cost into your P&amp;L
+              Upload a payroll CSV — or a screenshot/PDF — to import labor cost into your P&amp;L
             </p>
           </div>
         </div>
@@ -56,20 +56,21 @@ function PushOpsCard() {
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
           <Upload className="h-3.5 w-3.5" />
-          {isPending ? "Importing…" : "Upload CSV"}
+          {isPending ? "Importing…" : "Upload CSV / Image"}
         </button>
         <input
           ref={inputRef}
           type="file"
-          accept=".csv,text/csv"
+          accept=".csv,text/csv,image/png,image/jpeg,image/tiff,image/webp,application/pdf,.pdf"
           className="hidden"
           onChange={onFile}
         />
       </div>
 
       <p className="text-xs text-muted-foreground">
-        In PushOperations, export the Payroll Summary report as CSV (Excel → Save As
-        CSV also works). Re-importing the same file is safe — duplicates are skipped.
+        Export the Payroll Summary report as CSV if your tier allows it. No CSV? Upload
+        a clear screenshot or PDF instead — it&apos;s read via OCR. Re-importing the same
+        file is safe — duplicates are skipped.
       </p>
 
       {data && (

@@ -17,6 +17,10 @@ from app.services.labor.pushops_import import (
     parse_pushops_csv,
     to_datetime,
 )
+from app.services.labor.pushops_vision import (
+    extract_pushops_image,
+    is_image_or_pdf,
+)
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -47,12 +51,15 @@ async def import_pushops_csv(
     location_id: str | None = Form(None),
     pay_date: date | None = Form(None),
 ) -> dict:
-    """Import a PushOperations payroll CSV export as Payroll-category expenses.
+    """Import a PushOperations payroll export as Payroll-category expenses.
 
-    PushOps has no open API on lower tiers, so the operator downloads the payroll
-    report as CSV and uploads it here. Each row becomes a Payroll expense that
-    flows into the P&L Labor Cost line. Re-importing the same file is safe —
-    identical rows are deduplicated.
+    PushOps has no open API on lower tiers, so the operator uploads the payroll
+    report here. Accepts a **CSV export** OR — when CSV isn't available on the
+    operator's tier — an **image/PDF screenshot** of the report, which is read
+    via Claude Vision OCR. Either way each pay period becomes a Payroll expense
+    that flows into the P&L Labor Cost line; the fully-burdened cost is computed
+    in Python (identical formula for both paths). Re-importing the same file is
+    safe — identical rows are deduplicated.
 
     `pay_date` is an optional fallback used for rows whose date can't be parsed
     (or summary exports with no date column).
@@ -63,8 +70,19 @@ async def import_pushops_csv(
 
     loc_id = await _resolve_location(db, user.tenant_id, location_id)
 
+    currency = "CAD"
     try:
-        items = parse_pushops_csv(file_bytes, fallback_pay_date=pay_date)
+        if is_image_or_pdf(file.content_type, file.filename):
+            extraction = extract_pushops_image(
+                file_bytes,
+                mime_type=file.content_type,
+                filename=file.filename,
+                fallback_pay_date=pay_date,
+            )
+            items = extraction.items
+            currency = extraction.currency_code
+        else:
+            items = parse_pushops_csv(file_bytes, fallback_pay_date=pay_date)
     except PushOpsParseError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -91,7 +109,7 @@ async def import_pushops_csv(
             document_id=None,
             vendor_name=vendor,
             amount=item.amount,
-            currency_code="CAD",
+            currency_code=currency,
             location_id=loc_id,
             created_by=user.user_id,
             expense_date=expense_dt,
@@ -132,7 +150,7 @@ async def import_pushops_csv(
             expenses_created=created,
             duplicates_skipped=skipped,
             total_amount=total,
-            currency_code="CAD",
+            currency_code=currency,
             pay_dates=sorted(pay_dates),
         ),
         "errors": None,
