@@ -44,32 +44,10 @@ celery_app.conf.update(
         "app.workers.tasks.external_platforms.*": {"queue": "sync"},
         "app.workers.tasks.reviews_sync.*": {"queue": "sync"},
     },
-    beat_schedule={
-        "monthly-pnl-snapshots": {
-            "task": "pnl.monthly_pnl_all_tenants",
-            "schedule": __import__("celery.schedules", fromlist=["crontab"]).crontab(
-                hour=2, minute=0, day_of_month=1
-            ),
-        },
-        "weekly-reconciliation": {
-            "task": "reconciliation.weekly_reconciliation_all_tenants",
-            "schedule": __import__("celery.schedules", fromlist=["crontab"]).crontab(
-                hour=3, minute=0, day_of_week=1
-            ),
-        },
-        "daily-external-sync": {
-            "task": "external.daily_external_sync_all_tenants",
-            "schedule": __import__("celery.schedules", fromlist=["crontab"]).crontab(
-                hour=4, minute=30
-            ),
-        },
-        "hourly-toast-sync": {
-            "task": "toast.daily_sync_all_locations",
-            "schedule": __import__("celery.schedules", fromlist=["crontab"]).crontab(
-                minute=0
-            ),
-        },
-    },
+    # NOTE: beat_schedule lives solely in app.workers.celery_beat (single source of
+    # truth). Launch beat with `-A app.workers.celery_beat beat`. Do not redefine the
+    # schedule here — two schedules silently override each other depending on which
+    # module beat is started with.
 )
 
 

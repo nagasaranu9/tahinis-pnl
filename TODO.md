@@ -1,5 +1,36 @@
 # TODO
 
+## 🔴 BLOCKER — deploy Celery worker + beat on Railway (DONE in code, needs Railway setup)
+
+Without these, every background job (Toast sync, Gmail scan, OCR, reconciliation, P&L,
+AI) is queued to Redis but **never executed** → jobs sit `pending` forever. The API
+service alone is not enough.
+
+Config files committed: `railway.worker.json`, `railway.beat.json` (both build
+`docker/Dockerfile.worker`).
+
+**Railway setup (one-time):**
+1. In the Railway project → **New → GitHub Repo** (same repo) → creates a 2nd service.
+   - Service **Settings → Config-as-code → Path** = `railway.worker.json`.
+   - Name it `worker`.
+2. Repeat → 3rd service → config path `railway.beat.json` → name `beat`.
+   - Beat MUST be a single replica (already `numReplicas: 1`). Never scale beat >1.
+3. **Redis (blocker #3):** add a Railway **Redis** plugin if not present. Each of API,
+   worker, beat needs the SAME `REDIS_URL`. Use a shared/reference variable
+   (`${{Redis.REDIS_URL}}`) so all three point at one broker.
+4. Worker + beat also need the same env as API: `DATABASE_URL`, `REDIS_URL`,
+   `CREDENTIAL_ENCRYPTION_KEY`, AWS/R2 storage vars, `ANTHROPIC_API_KEY`,
+   Google Document AI creds. Copy the API service's variables (Railway: "Shared
+   Variables" at project level is easiest).
+5. Deploy. Verify: worker log shows `celery@... ready`; beat log shows
+   `Scheduler: Sending due task toast-sync-1min`. Toast `pending` jobs flip to
+   `running` → `complete`.
+
+Note: beat schedule is single-source in `app.workers.celery_beat`; launch with
+`-A app.workers.celery_beat beat` (the railway.beat.json command already does this).
+
+
+
 ## Email — Path B: send invites to ANY recipient (production)
 
 Current state (Path A): Resend works but in **sandbox mode** — only delivers to the
