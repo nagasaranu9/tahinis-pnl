@@ -24,3 +24,15 @@ To enable search:
 1. Google Cloud → enable **Places API (New)** + **Maps JavaScript API**.
 2. Create an API key, restrict to the Vercel domain.
 3. Vercel → set `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=...` → redeploy (NEXT_PUBLIC_* bakes at build).
+
+## Backend — Gmail OAuth env (Railway)
+
+Gmail "Connect" gives Google `Error 400: invalid_request — Missing required parameter:
+client_id` because `GOOGLE_OAUTH_CLIENT_ID` is empty on Railway. To enable:
+1. Google Cloud → OAuth consent screen + create OAuth Client (Web application).
+2. Authorized redirect URI = `<API_BASE_URL>/api/v1/integrations/gmail/callback`
+   (API_BASE_URL must be the Railway backend URL, not localhost).
+3. Railway → set `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, and
+   `API_BASE_URL=https://tahinis-pnl-production.up.railway.app`.
+4. Add scopes: `gmail.readonly`. Add test users while app unverified.
+Until set, the endpoint now returns a clean error instead of a broken Google page.

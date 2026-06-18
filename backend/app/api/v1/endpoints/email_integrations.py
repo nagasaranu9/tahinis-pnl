@@ -20,7 +20,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import RedirectResponse
 
 from app.core.deps import CurrentUserDep, ManagerDep, OwnerDep
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
 from app.core.security import encrypt_value
 from app.db.models.integration import IntegrationCredential
 from app.db.repositories.email_repo import EmailSyncRepository
@@ -56,7 +56,15 @@ def _api_callback_url(provider: str) -> str:
 
 @router.get("/gmail/auth-url", response_model=APIResponse[dict])
 async def gmail_auth_url(user: OwnerDep) -> dict:
+    from app.core.config import settings
     from app.services.email.gmail_client import build_gmail_auth_url
+
+    if not settings.GOOGLE_OAUTH_CLIENT_ID or not settings.GOOGLE_OAUTH_CLIENT_SECRET:
+        raise ValidationError(
+            "Gmail is not configured on the server. Set GOOGLE_OAUTH_CLIENT_ID / "
+            "GOOGLE_OAUTH_CLIENT_SECRET and the redirect URI in Google Cloud."
+        )
+
     state = f"{user.tenant_id}:{user.user_id}:{secrets.token_urlsafe(16)}"
     url = build_gmail_auth_url(redirect_uri=_api_callback_url("gmail"), state=state)
     return {"data": {"url": url}, "errors": None}
