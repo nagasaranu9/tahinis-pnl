@@ -100,6 +100,53 @@ async def _sync_pushoperations_payroll(
         )
 
 
+_BANK_STATEMENT_KEYWORDS = (
+    "bank statement", "account statement", "statement of account",
+    "bmo", "td bank", "rbc", "scotiabank", "cibc", "desjardins",
+    "national bank", "hsbc", "tangerine", "simplii",
+    "daily balance", "opening balance", "closing balance",
+    "deposits", "withdrawals", "cheques",
+)
+_BANK_STATEMENT_FILENAME_KEYWORDS = (
+    "statement", "bank", "bmo", "td", "rbc", "scotiabank",
+)
+_RECEIPT_KEYWORDS = ("receipt", "thank you for your purchase", "subtotal", "tax", "change due")
+_INVOICE_KEYWORDS = ("invoice", "bill to", "invoice #", "invoice number", "due date", "payment terms")
+_PAYROLL_KEYWORDS = ("payroll", "pay stub", "pay slip", "earnings statement", "pushoperations", "payslip")
+
+
+def _classify_document_type(
+    filename: str | None,
+    vendor_name: str | None,
+    extracted_text: str | None,
+) -> str:
+    """Heuristic document classifier. Returns a document_type string."""
+    name_lower = (filename or "").lower()
+    vendor_lower = (vendor_name or "").lower()
+    text_lower = (extracted_text or "")[:3000].lower()
+
+    combined = f"{name_lower} {vendor_lower} {text_lower}"
+
+    if any(k in combined for k in _PAYROLL_KEYWORDS):
+        return "payroll_report"
+
+    # Bank statement: filename OR (vendor is a bank AND statement keywords in text)
+    filename_is_bank = any(k in name_lower for k in _BANK_STATEMENT_FILENAME_KEYWORDS)
+    text_is_bank = sum(1 for k in _BANK_STATEMENT_KEYWORDS if k in combined) >= 2
+    if filename_is_bank and text_is_bank:
+        return "bank_statement"
+    if text_is_bank and any(k in vendor_lower for k in ("bank", "bmo", "td", "rbc", "scotiabank", "cibc", "desjardins", "hsbc", "tangerine", "simplii", "national bank")):
+        return "bank_statement"
+
+    if any(k in combined for k in _RECEIPT_KEYWORDS):
+        return "receipt"
+
+    if any(k in combined for k in _INVOICE_KEYWORDS):
+        return "invoice"
+
+    return "invoice"  # safe default — creates expense, user can reclassify
+
+
 async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
     from app.db.repositories.document_repo import DocumentRepository
     from app.db.session import AsyncSessionLocal
@@ -178,19 +225,25 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
                 currency_code=result.currency_code or "CAD",
             )
 
+            classified_type = _classify_document_type(
+                filename=doc.original_filename,
+                vendor_name=result.vendor_name,
+                extracted_text=result.extracted_text,
+            )
+
             await repo.update_extracted_data(
                 doc_id,
                 vendor_name=result.vendor_name,
                 document_date=doc_date,
                 total_amount=result.total_amount,
                 currency_code=result.currency_code,
-                document_type="invoice",  # AI will refine in Phase 4
+                document_type=classified_type,
             )
 
             # Create Expense record from extracted document data (Phase 4)
             # Skip bank statements and reconciliation docs — not individual expenses
             _NON_EXPENSE_TYPES = {"bank_statement", "bank_reconciliation", "payroll_report", "other"}
-            if doc.document_type in _NON_EXPENSE_TYPES:
+            if classified_type in _NON_EXPENSE_TYPES:
                 await db.commit()
                 logger.info("ocr_skip_expense_for_type", document_type=doc.document_type)
                 return {"status": "ok", "skipped_expense": True, "document_type": doc.document_type}
