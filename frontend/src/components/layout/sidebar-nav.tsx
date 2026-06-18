@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/auth-store";
 import { apiClient } from "@/lib/api-client";
@@ -72,23 +71,13 @@ export function SidebarNav() {
 
   return (
     <aside className="w-60 flex flex-col bg-card h-full shrink-0 border-r border-border/60">
-      {/* Brand lockup — logo only */}
-      <div className="h-20 px-4 flex items-center justify-center border-b border-border/60 relative overflow-hidden">
-        {/* subtle brand glow */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 -top-10 h-32 mx-auto w-40 rounded-full opacity-[0.16] blur-2xl"
-          style={{ background: "radial-gradient(circle, #d42b2b 0%, transparent 70%)" }}
-        />
-        <Link href="/dashboard" className="relative flex items-center justify-center cursor-pointer">
-          <Image
-            src="/tahinis-logo.png"
-            alt="Tahini's"
-            width={132}
-            height={48}
-            className="object-contain h-12 w-auto"
-            priority
-          />
+      {/* Brand header — wordmark, no logo image */}
+      <div className="h-16 px-5 flex items-center border-b border-border/60">
+        <Link href="/dashboard" className="cursor-pointer leading-none">
+          <span className="text-[17px] font-bold tracking-tight text-foreground">Tahini&apos;s</span>
+          <span className="ml-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
+            Financial&nbsp;OS
+          </span>
         </Link>
       </div>
 
