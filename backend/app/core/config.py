@@ -86,6 +86,10 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = "no-reply@tahinis.app"
     SMTP_USE_TLS: bool = True
 
+    # Resend HTTP API (preferred on Railway — outbound SMTP ports 25/465/587 are blocked).
+    # Set RESEND_API_KEY=re_... and email goes over HTTPS:443 instead of SMTP.
+    RESEND_API_KEY: str = ""
+
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod
     def parse_allowed_origins(cls, v: object) -> object:
