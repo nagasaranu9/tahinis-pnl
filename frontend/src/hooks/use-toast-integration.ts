@@ -17,6 +17,9 @@ export function useToastStatus(locationId: string | undefined) {
     },
     enabled: !!locationId,
     retry: false,
+    // Backend beat dispatches incremental sync every minute; refetch status so the
+    // sidebar "last synced" stamp stays current without a manual page refresh.
+    refetchInterval: 60_000,
   });
 }
 

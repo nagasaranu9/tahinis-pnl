@@ -51,3 +51,4 @@ Thumbs.db
 
 # Secrets baseline
 .secrets.baseline
+backend/tahinis.db

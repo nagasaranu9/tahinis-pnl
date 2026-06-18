@@ -8,6 +8,8 @@ import { apiClient } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import type { Role } from "@/types/auth";
 import { useReconciliationFlags } from "@/hooks/use-reconciliation";
+import { useLocations } from "@/hooks/use-locations";
+import { useToastStatus } from "@/hooks/use-toast-integration";
 import {
   LayoutDashboard,
   FileText,
@@ -46,6 +48,16 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Settings", href: "/settings", icon: Settings, roles: ["owner"] },
 ];
 
+function formatRelative(iso: string | null): string {
+  if (!iso) return "Never synced";
+  const then = new Date(iso).getTime();
+  const diffSec = Math.floor((Date.now() - then) / 1000);
+  if (diffSec < 60) return "Synced just now";
+  if (diffSec < 3600) return `Synced ${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `Synced ${Math.floor(diffSec / 3600)}h ago`;
+  return `Synced ${Math.floor(diffSec / 86400)}d ago`;
+}
+
 export function SidebarNav() {
   const pathname = usePathname();
   const router = useRouter();
@@ -55,6 +67,10 @@ export function SidebarNav() {
 
   const role = getRole();
   const isAdmin = getLocationId() === null;
+
+  const { locations, selectedLocationId } = useLocations();
+  const selectedLocation = locations.find((l) => l.id === selectedLocationId);
+  const { data: toastStatus } = useToastStatus(selectedLocationId ?? undefined);
 
   useEffect(() => {
     setMounted(true);
@@ -95,9 +111,18 @@ export function SidebarNav() {
         </Link>
 
         {/* Location info */}
-        {getLocationId() && (
-          <div className="text-center text-xs space-y-1">
-            <div className="text-[11px] text-muted-foreground/70">Location #{getLocationId()}</div>
+        {selectedLocation && (
+          <div className="text-center text-xs space-y-0.5">
+            <div className="font-medium text-foreground truncate px-2">
+              {selectedLocation.store_id
+                ? `#${selectedLocation.store_id} · ${selectedLocation.name}`
+                : selectedLocation.name}
+            </div>
+            {toastStatus && (
+              <div className="text-[10.5px] text-muted-foreground/70">
+                {formatRelative(toastStatus.last_synced_at)}
+              </div>
+            )}
           </div>
         )}
       </div>
