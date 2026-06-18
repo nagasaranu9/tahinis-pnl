@@ -388,17 +388,19 @@ function AddLocationModal({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [emailSent, setEmailSent] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
     try {
-      const { data } = await apiClient.post<{ data: { invite_url: string } }>(
+      const { data } = await apiClient.post<{ data: { invite_url: string; email_sent: boolean } }>(
         "/api/v1/locations/invite",
         { store_id: storeId, name, invite_email: email }
       );
       setInviteUrl(data.data.invite_url);
+      setEmailSent(data.data.email_sent);
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { errors?: { message?: string }[] } } })?.response?.data
@@ -414,10 +416,13 @@ function AddLocationModal({
       <div className="bg-card rounded-lg shadow-xl border border-border w-full max-w-sm p-6">
         {inviteUrl ? (
           <div>
-            <h2 className="text-base font-semibold text-foreground mb-2">Invite sent</h2>
+            <h2 className="text-base font-semibold text-foreground mb-2">
+              {emailSent ? "Invite emailed" : "Invite created"}
+            </h2>
             <p className="text-sm text-muted-foreground mb-3">
-              Share this setup link with the new location&apos;s owner (also emailed if SMTP is
-              configured):
+              {emailSent
+                ? `Email sent to ${email}. Or share this setup link directly:`
+                : "Email could not be sent — copy this setup link and share it with the owner directly:"}
             </p>
             <div className="text-xs bg-muted p-2.5 rounded-md break-all font-mono mb-4">
               {inviteUrl}

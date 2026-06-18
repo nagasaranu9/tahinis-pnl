@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "tahinis-backend"
-version = "0.1.4"
+version = "0.1.5"
 description = "Tahinis Restaurant Financial Intelligence Platform - Backend"
 authors = ["Tahinis <naga.saranu@icloud.com>"]
 package-mode = false

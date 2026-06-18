@@ -3,6 +3,7 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 
+import structlog
 from fastapi import APIRouter
 from sqlalchemy import func, select, update
 
@@ -28,6 +29,7 @@ from app.schemas.location import (
 from app.services.email_service import send_email
 
 router = APIRouter()
+logger = structlog.get_logger(__name__)
 
 
 def _assert_tenant(location: Location | None, tenant_id: uuid.UUID) -> Location:
@@ -67,6 +69,7 @@ async def invite_location_owner(
             Location.tenant_id == user.tenant_id,
             Location.invite_email == body.invite_email.lower(),
             Location.invite_status.in_(["pending", "accepted"]),
+            Location.is_active == True,  # noqa: E712 — soft-deleted invites must not block re-invite
         )
     )
     if existing_email:
@@ -87,16 +90,25 @@ async def invite_location_owner(
     await db.flush()
 
     invite_url = f"{settings.FRONTEND_URL}/invite/{location.id}?token={raw_token}"
-    send_email(
+    email_sent = send_email(
         body.invite_email,
         "You're invited to set up your Tahini's location",
         f"You've been invited to onboard store #{body.store_id} ({body.name}).\n\n"
         f"Set your password here: {invite_url}\n\nThis link is single-use.",
     )
+    logger.info(
+        "location_invite_created",
+        location_id=str(location.id),
+        store_id=body.store_id,
+        invite_email=body.invite_email.lower(),
+        email_sent=email_sent,
+    )
 
     return {
         "data": InviteLocationOwnerResponse(
-            location=LocationResponse.model_validate(location), invite_url=invite_url
+            location=LocationResponse.model_validate(location),
+            invite_url=invite_url,
+            email_sent=email_sent,
         ),
         "errors": None,
     }

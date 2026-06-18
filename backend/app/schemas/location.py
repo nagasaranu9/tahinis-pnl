@@ -71,6 +71,7 @@ class AcceptInviteRequest(BaseModel):
 class InviteLocationOwnerResponse(BaseModel):
     location: LocationResponse
     invite_url: str
+    email_sent: bool = False
 
 
 class CreateLocationRequest(BaseModel):
