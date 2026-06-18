@@ -3,10 +3,10 @@ from celery.schedules import crontab
 from app.workers.celery_app import celery_app
 
 celery_app.conf.beat_schedule = {
-    # ── Near-realtime Toast sync every 5 minutes ─────────────────────────────
-    "toast-sync-5min": {
+    # ── Near-realtime Toast sync every minute ────────────────────────────────
+    "toast-sync-1min": {
         "task": "toast.daily_sync_all_locations",
-        "schedule": crontab(minute="*/5"),
+        "schedule": crontab(minute="*"),
     },
     # ── Daily syncs (UTC) ─────────────────────────────────────────────────────
     "toast-sync-daily": {
