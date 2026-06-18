@@ -110,6 +110,16 @@ export default function ToastIntegrationPage() {
                   <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
                   Sync now
                 </button>
+                {!status.historical_import_complete && (
+                  <button
+                    onClick={() => triggerSync({ location_id: locationId, sync_type: "historical" })}
+                    disabled={syncing}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-primary text-primary rounded-md hover:bg-primary/10 disabled:opacity-50 transition-colors"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+                    Run historical import
+                  </button>
+                )}
                 <button
                   onClick={() => disconnect(locationId)}
                   disabled={disconnecting}
@@ -139,7 +149,7 @@ export default function ToastIntegrationPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Historical import</p>
-              <p>{status.historical_import_complete ? "Complete" : "In progress"}</p>
+              <p>{status.historical_import_complete ? "Complete" : "Not started — click “Run historical import”"}</p>
             </div>
           </div>
         )}

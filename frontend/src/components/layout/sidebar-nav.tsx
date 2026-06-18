@@ -103,11 +103,14 @@ export function SidebarNav() {
     <aside className="w-60 flex flex-col bg-card h-full shrink-0 border-r border-border/60">
       {/* Logo header — centered, no text */}
       <div className="py-6 px-4 flex flex-col items-center gap-3 border-b border-border/60">
-        <Link href="/dashboard" className="cursor-pointer flex items-center justify-center w-12 h-12 rounded-lg bg-muted hover:bg-muted/80 transition-colors">
-          <svg width="28" height="28" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M50 15C35 15 25 25 25 40C25 50 30 55 35 60C32 65 28 75 28 85L72 85C72 75 68 65 65 60C70 55 75 50 75 40C75 25 65 15 50 15Z" fill="currentColor" className="text-red-600" />
-            <circle cx="50" cy="30" r="4" fill="white" />
-          </svg>
+        <Link href="/dashboard" className="cursor-pointer flex items-center justify-center w-14 h-14">
+          <img
+            src="/tahinis-icon.png"
+            alt="Tahini's"
+            width={56}
+            height={56}
+            className="w-14 h-14 object-contain"
+          />
         </Link>
 
         {/* Location info */}
