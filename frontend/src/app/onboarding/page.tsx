@@ -33,6 +33,7 @@ export default function OnboardingPage() {
   const router = useRouter();
   const locationId = useAuthStore((s) => s.getLocationId());
   const accessToken = useAuthStore((s) => s.accessToken);
+  const hasHydrated = useAuthStore((s) => s.hasHydrated);
 
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -58,6 +59,7 @@ export default function OnboardingPage() {
   }, [locationId]);
 
   useEffect(() => {
+    if (!hasHydrated) return; // wait for persisted token before guarding
     if (!accessToken) {
       router.replace("/login");
       return;
@@ -67,7 +69,7 @@ export default function OnboardingPage() {
       return;
     }
     refresh();
-  }, [accessToken, locationId, router, refresh]);
+  }, [hasHydrated, accessToken, locationId, router, refresh]);
 
   async function connectToast(e: React.FormEvent) {
     e.preventDefault();

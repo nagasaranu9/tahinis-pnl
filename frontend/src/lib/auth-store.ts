@@ -5,6 +5,8 @@ import type { JWTPayload, Role } from "@/types/auth";
 interface AuthState {
   accessToken: string | null;
   refreshToken: string | null;
+  hasHydrated: boolean;
+  setHasHydrated: (v: boolean) => void;
   setTokens: (accessToken: string, refreshToken: string) => void;
   clearTokens: () => void;
   getRole: () => Role | null;
@@ -27,6 +29,9 @@ export const useAuthStore = create<AuthState>()(
     (set, get) => ({
       accessToken: null,
       refreshToken: null,
+      hasHydrated: false,
+
+      setHasHydrated: (v) => set({ hasHydrated: v }),
 
       setTokens: (accessToken, refreshToken) =>
         set({ accessToken, refreshToken }),
@@ -57,6 +62,16 @@ export const useAuthStore = create<AuthState>()(
         return parseJwt(token)?.location_id ?? null;
       },
     }),
-    { name: "tahinis-auth" }
+    {
+      name: "tahinis-auth",
+      // Only persist the tokens, never the transient hydration flag.
+      partialize: (state) => ({
+        accessToken: state.accessToken,
+        refreshToken: state.refreshToken,
+      }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
+    }
   )
 );
