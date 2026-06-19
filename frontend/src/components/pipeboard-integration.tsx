@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import { CheckCircle, Unplug, Zap, AlertCircle, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   usePipeboardStatus,
   usePipeboardConnect,
@@ -23,7 +21,7 @@ export function PipeboardIntegration() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  if (statusLoading) return <div className="text-sm text-muted-foreground">Loading…</div>;
+  if (statusLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
 
   return (
     <div className="space-y-6">
@@ -33,9 +31,9 @@ export function PipeboardIntegration() {
           <div className="flex items-center gap-3">
             {status?.connected ? (
               <>
-                <CheckCircle className="h-5 w-5 text-green-500" />
+                <CheckCircle className="h-5 w-5 text-green-400" />
                 <div>
-                  <p className="font-medium">Pipeboard Connected</p>
+                  <p className="font-medium text-sm">Pipeboard connected</p>
                   <p className="text-xs text-muted-foreground">
                     Google Ads customer {status.pipeboard_account_id}
                   </p>
@@ -48,25 +46,23 @@ export function PipeboardIntegration() {
               </>
             ) : (
               <>
-                <AlertCircle className="h-5 w-5 text-yellow-500" />
+                <AlertCircle className="h-5 w-5 text-yellow-400" />
                 <div>
-                  <p className="font-medium">Not Connected</p>
+                  <p className="font-medium text-sm">Not connected</p>
                   <p className="text-xs text-muted-foreground">Connect Pipeboard to sync Google Ads data</p>
                 </div>
               </>
             )}
           </div>
           {status?.connected && (
-            <Button
-              size="sm"
-              variant="outline"
+            <button
               onClick={() => disconnect()}
               disabled={disconnecting}
-              className="gap-1"
+              className="flex items-center gap-1 px-2 py-1 text-xs border border-destructive text-destructive rounded hover:bg-destructive/10 disabled:opacity-50"
             >
-              <Unplug className="h-4 w-4" />
+              <Unplug className="h-3 w-3" />
               {disconnecting ? "Disconnecting…" : "Disconnect"}
-            </Button>
+            </button>
           )}
         </div>
       </div>
@@ -75,36 +71,40 @@ export function PipeboardIntegration() {
       {!status?.connected && (
         <div className="border border-border rounded-lg bg-card p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-2">Pipeboard API Token</label>
-            <p className="text-xs text-muted-foreground mb-3">
-              Get your token at <a href="https://pipeboard.co/api-tokens" target="_blank" rel="noopener noreferrer" className="underline">pipeboard.co/api-tokens</a>
+            <h3 className="font-semibold">Connect Pipeboard</h3>
+            <p className="text-xs text-muted-foreground mt-1 mb-3">
+              Get your API token at{" "}
+              <a
+                href="https://pipeboard.co/api-tokens"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline"
+              >
+                pipeboard.co/api-tokens
+              </a>
             </p>
-            <Input
+          </div>
+          <div className="grid gap-3 max-w-md">
+            <input
               type="password"
-              placeholder="Enter your Pipeboard API token"
+              placeholder="Pipeboard API token"
               value={apiToken}
               onChange={(e) => setApiToken(e.target.value)}
-              className="mb-3"
+              className="px-3 py-2 text-sm rounded-md border border-border bg-background"
             />
             {connectError && (
-              <p className="text-xs text-destructive mb-3">
-                {(connectError as any)?.message || "Connection failed"}
+              <p className="text-xs text-destructive">
+                {(connectError as Error)?.message || "Connection failed"}
               </p>
             )}
-            <Button
+            <button
               onClick={() => connect({ api_token: apiToken, platform: "google_ads" })}
               disabled={!apiToken || connecting}
-              className="w-full"
+              className="flex items-center justify-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md font-semibold hover:opacity-90 disabled:opacity-50 w-fit"
             >
-              {connecting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Connecting…
-                </>
-              ) : (
-                "Connect Pipeboard"
-              )}
-            </Button>
+              {connecting && <Loader2 className="h-4 w-4 animate-spin" />}
+              {connecting ? "Connecting…" : "Connect"}
+            </button>
           </div>
         </div>
       )}
@@ -112,34 +112,34 @@ export function PipeboardIntegration() {
       {/* Manual Sync */}
       {status?.connected && (
         <div className="border border-border rounded-lg bg-card p-6 space-y-4">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2">
             <Zap className="h-5 w-5" />
-            <h3 className="font-medium">Manual Sync</h3>
+            <h3 className="font-semibold">Manual sync</h3>
           </div>
-          <p className="text-xs text-muted-foreground mb-4">
-            Backfill Google Ads data for a custom date range. Leave blank to sync recent data.
+          <p className="text-xs text-muted-foreground">
+            Backfill Google Ads data for a date range. Leave blank to sync recent data.
           </p>
-          <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="grid grid-cols-2 gap-3 max-w-md">
             <div>
               <label className="block text-xs font-medium mb-1">From</label>
-              <Input
+              <input
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                placeholder="2026-01-01"
+                className="w-full px-3 py-2 text-sm rounded-md border border-border bg-background"
               />
             </div>
             <div>
               <label className="block text-xs font-medium mb-1">To</label>
-              <Input
+              <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                placeholder="2026-06-19"
+                className="w-full px-3 py-2 text-sm rounded-md border border-border bg-background"
               />
             </div>
           </div>
-          <Button
+          <button
             onClick={() =>
               manualSync({
                 date_from: dateFrom || undefined,
@@ -148,36 +148,28 @@ export function PipeboardIntegration() {
               })
             }
             disabled={syncPending}
-            className="w-full"
+            className="flex items-center justify-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md font-semibold hover:opacity-90 disabled:opacity-50 w-fit"
           >
-            {syncPending ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Syncing…
-              </>
-            ) : (
-              "Trigger Sync"
-            )}
-          </Button>
+            {syncPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            {syncPending ? "Syncing…" : "Trigger sync"}
+          </button>
         </div>
       )}
 
       {/* Sync Job History */}
       {syncJobs.length > 0 && (
         <div className="border border-border rounded-lg bg-card p-6">
-          <h3 className="font-medium mb-4">Recent Sync Jobs</h3>
-          <div className="space-y-3">
+          <h3 className="font-semibold mb-4">Recent sync jobs</h3>
+          <div className="space-y-2">
             {syncJobs.slice(0, 5).map((job) => (
-              <div key={job.id} className="flex items-center justify-between text-sm p-3 bg-muted/50 rounded">
+              <div
+                key={job.id}
+                className="flex items-center justify-between text-sm p-3 bg-muted/50 rounded"
+              >
                 <div>
-                  <p className="font-medium">
-                    {job.status === "complete" && "✓"}
-                    {job.status === "failed" && "✗"}
-                    {job.status === "running" && "⧗"}
-                    {job.status === "pending" && "⟳"} {job.job_type}
-                  </p>
+                  <p className="font-medium capitalize">{job.job_type}</p>
                   <p className="text-xs text-muted-foreground">
-                    {job.date_from} to {job.date_to}
+                    {job.date_from} → {job.date_to}
                   </p>
                 </div>
                 <div className="text-right">
