@@ -239,7 +239,10 @@ class PnLCalculator:
             ),
         ]
         if location_id:
-            conds.append(Expense.location_id == location_id)
+            from sqlalchemy import or_ as _or
+            conds.append(
+                _or(Expense.location_id == location_id, Expense.location_id.is_(None))
+            )
         rows = await self._db.execute(select(Expense).where(and_(*conds)))
         return list(rows.scalars().all())
 
