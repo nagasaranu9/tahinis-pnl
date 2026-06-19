@@ -52,6 +52,7 @@ def sync_pipeboard_historical(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     pipeboard_platform: Optional[str] = None,
+    job_id: Optional[str] = None,
 ) -> dict:
     """Backfill historical metrics (chunked by CHUNK_DAYS)."""
     return asyncio.run(
@@ -61,6 +62,7 @@ def sync_pipeboard_historical(
             date_from,
             date_to,
             pipeboard_platform,
+            job_id,
         )
     )
 
@@ -141,11 +143,13 @@ async def _sync_historical(
     date_from: Optional[str],
     date_to: Optional[str],
     pipeboard_platform: Optional[str],
+    job_id: Optional[str] = None,
 ) -> dict:
     """Backfill historical date range (chunked)."""
     from app.db.repositories.pipeboard_repo import PipeboardRepository
     from app.services.pipeboard.sync_service import PipeboardSyncService
     from app.services.pipeboard.backfill_service import PipeboardBackfillService
+    from datetime import UTC as _UTC
 
     async with get_db_context() as db:
         repo = PipeboardRepository(db)
@@ -153,17 +157,26 @@ async def _sync_historical(
         backfill_service = PipeboardBackfillService(db)
 
         tenant_uuid = uuid.UUID(tenant_id)
+        job_uuid = uuid.UUID(job_id) if job_id else None
+
+        # Mark job running
+        if job_uuid:
+            await repo.update_sync_job(job_uuid, status="running", started_at=datetime.now(_UTC))
 
         # Check account active
         account = await repo.get_active_pipeboard_account(tenant_uuid)
         if not account:
             logger.warning("no_active_account", tenant_id=tenant_id)
+            if job_uuid:
+                await repo.update_sync_job(job_uuid, status="failed", error_message="no_active_account", completed_at=datetime.now(_UTC))
             return {"success": False, "error": "no_active_account"}
 
         try:
             # Decrypt the stored Pipeboard API token
             access_token = sync_service.get_api_token(account)
             if not access_token:
+                if job_uuid:
+                    await repo.update_sync_job(job_uuid, status="failed", error_message="auth_failed", completed_at=datetime.now(_UTC))
                 return {"success": False, "error": "auth_failed"}
 
             # Parse date range
@@ -187,6 +200,14 @@ async def _sync_historical(
                 platform_filter=pipeboard_platform,
             )
 
+            if job_uuid:
+                await repo.update_sync_job(
+                    job_uuid,
+                    status="complete",
+                    metrics_synced=metrics_count,
+                    completed_at=datetime.now(_UTC),
+                )
+
             logger.info(
                 "pipeboard_historical_sync_complete",
                 tenant_id=tenant_id,
@@ -200,6 +221,8 @@ async def _sync_historical(
 
         except Exception as e:
             logger.error("pipeboard_historical_sync_failed", tenant_id=tenant_id, error=str(e))
+            if job_uuid:
+                await repo.update_sync_job(job_uuid, status="failed", error_message=str(e)[:500], completed_at=datetime.now(_UTC))
             raise self.retry(exc=e)
 
 

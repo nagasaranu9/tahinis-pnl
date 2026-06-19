@@ -242,6 +242,7 @@ async def trigger_manual_sync(
             body.date_from,
             body.date_to,
             body.pipeboard_platform,
+            str(job.id),
         ],
         queue="sync",
     )
