@@ -58,10 +58,14 @@ class PnLCalculator:
     ) -> PnLReportResponse:
         orders = await self._load_orders(tenant_id, period_start, period_end, location_id)
         expenses = await self._load_expenses(tenant_id, period_start, period_end, location_id)
+        pipeboard_expenses = await self._load_pipeboard_metrics(tenant_id, period_start, period_end, location_id)
         location = await self._load_location(tenant_id, location_id) if location_id else None
         bank_statement_verified = await self._has_bank_statement(
             tenant_id, period_start, period_end, location_id
         )
+
+        # Merge Pipeboard metrics into expenses
+        all_expenses = expenses + pipeboard_expenses
 
         # ------------------------------------------------------------------
         # Revenue
@@ -83,7 +87,7 @@ class PnLCalculator:
         # Expenses by category
         # ------------------------------------------------------------------
         category_totals: dict[str, list[Expense]] = defaultdict(list)
-        for exp in expenses:
+        for exp in all_expenses:
             cat = exp.category or "Uncategorized"
             category_totals[cat].append(exp)
 
@@ -166,7 +170,8 @@ class PnLCalculator:
             tenant_id=str(tenant_id),
             net_revenue=str(net_revenue),
             orders=len(orders),
-            expenses=len(expenses),
+            expenses=len(all_expenses),
+            pipeboard_expenses=len(pipeboard_expenses),
         )
 
         return PnLReportResponse(
@@ -178,7 +183,7 @@ class PnLCalculator:
             line_items=line_items,
             expense_breakdown=breakdown,
             order_count=sum(1 for o in orders if not o.is_void),
-            expense_count=len(expenses),
+            expense_count=len(all_expenses),
             bank_statement_verified=bank_statement_verified,
             bank_statement_warning=(
                 None
@@ -250,6 +255,75 @@ class PnLCalculator:
             )
         )
         return rows.scalar_one_or_none()
+
+    async def _load_pipeboard_metrics(
+        self,
+        tenant_id: uuid.UUID,
+        period_start: datetime,
+        period_end: datetime,
+        location_id: uuid.UUID | None,
+    ) -> list:
+        """Load Pipeboard metrics as synthetic expenses with category mapping applied."""
+        from app.db.models.external_platform import PipeboardDailyMetric, PipeboardCampaign
+        from app.db.repositories.pipeboard_repo import PipeboardRepository
+
+        period_start_str = period_start.strftime("%Y-%m-%d")
+        period_end_str = period_end.strftime("%Y-%m-%d")
+
+        conds = [
+            PipeboardDailyMetric.tenant_id == tenant_id,
+            PipeboardDailyMetric.metric_date >= period_start_str,
+            PipeboardDailyMetric.metric_date <= period_end_str,
+        ]
+
+        rows = await self._db.execute(select(PipeboardDailyMetric).where(and_(*conds)))
+        metrics = list(rows.scalars().all())
+
+        if not metrics:
+            return []
+
+        # Load campaigns for mapping
+        campaign_map = {}
+        camp_rows = await self._db.execute(
+            select(PipeboardCampaign).where(PipeboardCampaign.tenant_id == tenant_id)
+        )
+        for camp in camp_rows.scalars().all():
+            campaign_map[camp.id] = camp
+
+        # Get category mappings
+        repo = PipeboardRepository(self._db)
+
+        # Convert metrics to synthetic expense objects
+        synthetic_expenses = []
+        platform_spend: dict[str, Decimal] = defaultdict(Decimal)
+
+        for metric in metrics:
+            campaign = campaign_map.get(metric.campaign_id)
+            if not campaign:
+                continue
+
+            # Get category mapping for this campaign
+            mapping = await repo.get_category_mapping(
+                tenant_id=tenant_id,
+                pipeboard_platform=campaign.pipeboard_platform,
+                campaign_type=campaign.campaign_type,
+            )
+
+            category = mapping.expense_category if mapping else "Marketing"
+
+            # Track spend by platform for platform breakdown
+            platform_spend[campaign.pipeboard_platform] += metric.spend
+
+            # Create synthetic expense-like object
+            synthetic_exp = type("_PB", (), {
+                "amount": metric.spend,
+                "category": category,
+                "vendor_name": f"{campaign.name} ({campaign.pipeboard_platform})",
+            })()
+
+            synthetic_expenses.append(synthetic_exp)
+
+        return synthetic_expenses
 
     async def _has_bank_statement(
         self,
