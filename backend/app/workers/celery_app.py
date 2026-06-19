@@ -17,6 +17,7 @@ celery_app = Celery(
         "app.workers.tasks.external_platforms",
         "app.workers.tasks.ai_insights",
         "app.workers.tasks.reviews_sync",
+        "app.workers.tasks.pipeboard_tasks",
     ],
 )
 
@@ -46,6 +47,7 @@ celery_app.conf.update(
         "app.workers.tasks.email_sync.*": {"queue": "sync"},
         "app.workers.tasks.external_platforms.*": {"queue": "sync"},
         "app.workers.tasks.reviews_sync.*": {"queue": "sync"},
+        "app.workers.tasks.pipeboard_tasks.*": {"queue": "sync"},
     },
     # NOTE: beat_schedule lives solely in app.workers.celery_beat (single source of
     # truth). Launch beat with `-A app.workers.celery_beat beat`. Do not redefine the

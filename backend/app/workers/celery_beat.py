@@ -26,6 +26,11 @@ celery_app.conf.beat_schedule = {
         "task": "external.daily_external_sync_all_tenants",
         "schedule": crontab(hour=7, minute=0),
     },
+    "pipeboard-sync-daily": {
+        # Covers Pipeboard (Google Ads, Meta Ads, TikTok Ads) for all tenants
+        "task": "pipeboard.daily_sync_all_tenants",
+        "schedule": crontab(hour=7, minute=30),
+    },
     "reconciliation-daily": {
         # weekly_reconciliation_all_tenants builds its own (run_id, tenant_id,
         # period) per tenant — run_reconciliation itself requires those as

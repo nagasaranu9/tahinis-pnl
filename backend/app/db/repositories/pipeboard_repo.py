@@ -88,6 +88,16 @@ class PipeboardRepository:
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_all_active_accounts(self) -> list[PipeboardAccount]:
+        """Get all active Pipeboard accounts across all tenants."""
+        stmt = (
+            select(PipeboardAccount)
+            .filter(PipeboardAccount.is_active is True)
+            .order_by(PipeboardAccount.tenant_id, PipeboardAccount.created_at.desc())
+        )
+        result = await self._db.execute(stmt)
+        return result.scalars().all()
+
     async def update_pipeboard_account_tokens(
         self,
         account_id: uuid.UUID,
