@@ -93,6 +93,16 @@ export function usePipeboardSyncJobs(status?: string) {
   });
 }
 
+export function usePipeboardDeleteSyncJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (jobId: string) => {
+      await apiClient.delete(`${BASE}/sync-jobs/${jobId}`);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["pipeboard-sync-jobs"] }),
+  });
+}
+
 export function usePipeboardAlerts() {
   return useQuery({
     queryKey: ["pipeboard-alerts"],

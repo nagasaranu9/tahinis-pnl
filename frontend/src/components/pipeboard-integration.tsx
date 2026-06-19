@@ -8,6 +8,7 @@ import {
   usePipeboardDisconnect,
   usePipeboardManualSync,
   usePipeboardSyncJobs,
+  usePipeboardDeleteSyncJob,
 } from "@/hooks/use-pipeboard";
 
 export function PipeboardIntegration() {
@@ -16,6 +17,7 @@ export function PipeboardIntegration() {
   const { mutate: disconnect, isPending: disconnecting } = usePipeboardDisconnect();
   const { mutate: manualSync, isPending: syncPending } = usePipeboardManualSync();
   const { data: syncJobs = [] } = usePipeboardSyncJobs();
+  const { mutate: deleteSyncJob, isPending: deleting } = usePipeboardDeleteSyncJob();
 
   const [apiToken, setApiToken] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -172,9 +174,24 @@ export function PipeboardIntegration() {
                     {job.date_from} → {job.date_to}
                   </p>
                 </div>
-                <div className="text-right">
-                  <p className="text-xs">{job.metrics_synced} metrics</p>
-                  <p className="text-xs text-muted-foreground capitalize">{job.status}</p>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <p className="text-xs">{job.metrics_synced} metrics</p>
+                    <p className="text-xs text-muted-foreground capitalize">{job.status}</p>
+                  </div>
+                  <button
+                    onClick={() => deleteSyncJob(job.id)}
+                    disabled={deleting}
+                    className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-40 cursor-pointer"
+                    title="Delete job"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                      <path d="M10 11v6M14 11v6" />
+                      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                    </svg>
+                  </button>
                 </div>
               </div>
             ))}

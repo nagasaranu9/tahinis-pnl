@@ -353,6 +353,11 @@ class PnLCalculator:
             ),
         ]
         if location_id:
-            base_conds.append(Document.location_id == location_id)
+            # Match documents scoped to this location OR documents with no location
+            # (bank statements are typically uploaded tenant-wide, not per-location).
+            from sqlalchemy import or_ as sa_or
+            base_conds.append(
+                sa_or(Document.location_id == location_id, Document.location_id.is_(None))
+            )
         result = await self._db.execute(select(Document.id).where(and_(*base_conds)).limit(1))
         return result.scalar_one_or_none() is not None

@@ -352,6 +352,21 @@ class PipeboardRepository:
         result = await self._db.execute(stmt)
         return result.scalars().all()
 
+    async def delete_sync_job(
+        self,
+        tenant_id: uuid.UUID,
+        job_id: uuid.UUID,
+    ) -> bool:
+        """Delete a sync job. Returns True if deleted, False if not found."""
+        from sqlalchemy import delete as sa_delete
+        result = await self._db.execute(
+            sa_delete(PipeboardSyncJob).where(
+                PipeboardSyncJob.tenant_id == tenant_id,
+                PipeboardSyncJob.id == job_id,
+            )
+        )
+        return result.rowcount > 0
+
     # Category mapping operations
 
     async def upsert_category_mapping(

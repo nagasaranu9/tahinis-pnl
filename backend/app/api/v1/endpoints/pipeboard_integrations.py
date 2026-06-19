@@ -339,6 +339,24 @@ async def get_audit_logs(
     ]
 
 
+@router.delete("/sync-jobs/{job_id}")
+async def delete_sync_job(
+    job_id: uuid.UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete a sync job record (any status). Owner/manager only."""
+    current_user.require_role("owner", "manager")
+
+    from app.db.repositories.pipeboard_repo import PipeboardRepository
+
+    repo = PipeboardRepository(db)
+    deleted = await repo.delete_sync_job(current_user.tenant_id, job_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Sync job not found")
+    return {"success": True}
+
+
 @router.get("/sync-jobs", response_model=list[SyncJobResponse])
 async def get_sync_jobs(
     status: Optional[str] = Query(None, description="Filter by status: pending/running/complete/failed"),
