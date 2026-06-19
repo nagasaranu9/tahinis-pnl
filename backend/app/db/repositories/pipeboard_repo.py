@@ -314,6 +314,26 @@ class PipeboardRepository:
                 job.completed_at = completed_at
             await self._db.commit()
 
+    async def get_sync_jobs(
+        self,
+        tenant_id: uuid.UUID,
+        status: Optional[str] = None,
+        limit: int = 50,
+    ) -> list[PipeboardSyncJob]:
+        """Get sync jobs for tenant, optionally filtered by status."""
+        conds = [PipeboardSyncJob.tenant_id == tenant_id]
+        if status:
+            conds.append(PipeboardSyncJob.status == status)
+
+        stmt = (
+            select(PipeboardSyncJob)
+            .where(*conds)
+            .order_by(PipeboardSyncJob.created_at.desc())
+            .limit(limit)
+        )
+        result = await self._db.execute(stmt)
+        return result.scalars().all()
+
     # Category mapping operations
 
     async def upsert_category_mapping(
@@ -374,6 +394,36 @@ class PipeboardRepository:
         )
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_category_mappings_for_tenant(
+        self,
+        tenant_id: uuid.UUID,
+    ) -> list[PipeboardCategoryMapping]:
+        """Get all category mappings for tenant."""
+        stmt = (
+            select(PipeboardCategoryMapping)
+            .filter(PipeboardCategoryMapping.tenant_id == tenant_id)
+            .order_by(PipeboardCategoryMapping.pipeboard_platform, PipeboardCategoryMapping.pipeboard_campaign_type)
+        )
+        result = await self._db.execute(stmt)
+        return result.scalars().all()
+
+    async def delete_category_mapping(
+        self,
+        mapping_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+    ) -> None:
+        """Delete category mapping (tenant-scoped)."""
+        stmt = select(PipeboardCategoryMapping).filter(
+            PipeboardCategoryMapping.id == mapping_id,
+            PipeboardCategoryMapping.tenant_id == tenant_id,
+        )
+        result = await self._db.execute(stmt)
+        mapping = result.scalar_one_or_none()
+
+        if mapping:
+            await self._db.delete(mapping)
+            await self._db.commit()
 
     # Alert operations
 

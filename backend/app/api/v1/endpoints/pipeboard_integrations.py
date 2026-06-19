@@ -33,6 +33,7 @@ from app.schemas.pipeboard_schemas import (
     OAuthCallbackRequest,
     OAuthCallbackResponse,
     PipeboardAccountStatus,
+    SyncJobResponse,
 )
 from app.services.pipeboard.sync_service import PipeboardSyncService
 
@@ -177,10 +178,19 @@ async def list_category_mappings(
     from app.db.repositories.pipeboard_repo import PipeboardRepository
 
     repo = PipeboardRepository(db)
+    mappings = await repo.get_category_mappings_for_tenant(current_user.tenant_id)
 
-    # TODO: implement list_category_mappings in repo
-    # For now return empty list
-    return []
+    return [
+        CategoryMappingResponse(
+            id=str(mapping.id),
+            pipeboard_platform=mapping.pipeboard_platform,
+            pipeboard_campaign_type=mapping.pipeboard_campaign_type,
+            expense_category=mapping.expense_category,
+            created_at=mapping.created_at,
+            updated_at=mapping.updated_at,
+        )
+        for mapping in mappings
+    ]
 
 
 @router.post("/category-mappings", response_model=CategoryMappingResponse)
@@ -216,6 +226,30 @@ async def create_category_mapping(
     except Exception as e:
         logger.error("category_mapping_failed", error=str(e), tenant_id=current_user.tenant_id)
         raise HTTPException(status_code=400, detail=f"Failed to create mapping: {str(e)}")
+
+
+@router.delete("/category-mappings/{mapping_id}")
+async def delete_category_mapping(
+    mapping_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete category mapping."""
+    require_role(current_user, ["owner", "manager"])
+
+    from app.db.repositories.pipeboard_repo import PipeboardRepository
+
+    repo = PipeboardRepository(db)
+
+    try:
+        await repo.delete_category_mapping(
+            mapping_id=uuid.UUID(mapping_id),
+            tenant_id=current_user.tenant_id,
+        )
+        return {"success": True, "message": "Mapping deleted"}
+    except Exception as e:
+        logger.error("delete_mapping_failed", error=str(e))
+        raise HTTPException(status_code=400, detail=f"Failed to delete mapping: {str(e)}")
 
 
 @router.post("/sync/manual")
@@ -321,4 +355,38 @@ async def get_audit_logs(
             created_at=log.created_at,
         )
         for log in logs
+    ]
+
+
+@router.get("/sync-jobs", response_model=list[SyncJobResponse])
+async def get_sync_jobs(
+    status: Optional[str] = Query(None, description="Filter by status: pending/running/complete/failed"),
+    limit: int = Query(50, le=500),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[SyncJobResponse]:
+    """Get sync job history for tenant."""
+    require_role(current_user, ["owner", "manager", "viewer"])
+
+    from app.db.repositories.pipeboard_repo import PipeboardRepository
+
+    repo = PipeboardRepository(db)
+    jobs = await repo.get_sync_jobs(current_user.tenant_id, status=status, limit=limit)
+
+    return [
+        SyncJobResponse(
+            id=str(job.id),
+            job_type=job.job_type,
+            status=job.status,
+            pipeboard_platform=job.pipeboard_platform,
+            date_from=job.date_from,
+            date_to=job.date_to,
+            metrics_synced=job.metrics_synced,
+            campaigns_synced=job.campaigns_synced,
+            error_message=job.error_message,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            triggered_by=str(job.triggered_by) if job.triggered_by else None,
+        )
+        for job in jobs
     ]
