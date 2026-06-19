@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     GOOGLE_OAUTH_CLIENT_ID: str = ""
     GOOGLE_OAUTH_CLIENT_SECRET: str = ""
 
+    # Pipeboard (Google/Meta/TikTok Ads via MCP). Token is per-tenant in DB.
+    PIPEBOARD_ADAPTER: str = "mock"  # "http" in prod, "mock" for dev/tests
+
     # Microsoft (Outlook only — no OneDrive)
     MICROSOFT_OAUTH_CLIENT_ID: str = ""
     MICROSOFT_OAUTH_CLIENT_SECRET: str = ""

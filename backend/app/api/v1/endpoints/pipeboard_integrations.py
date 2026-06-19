@@ -27,10 +27,10 @@ from app.schemas.pipeboard_schemas import (
     AuditLogResponse,
     CategoryMappingRequest,
     CategoryMappingResponse,
+    ConnectTokenRequest,
     DisconnectRequest,
     DismissAlertRequest,
     ManualSyncRequest,
-    OAuthCallbackRequest,
     OAuthCallbackResponse,
     PipeboardAccountStatus,
     SyncJobResponse,
@@ -41,84 +41,36 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
-# Config from env
-PIPEBOARD_CLIENT_ID = os.getenv("PIPEBOARD_CLIENT_ID", "")
-PIPEBOARD_CLIENT_SECRET = os.getenv("PIPEBOARD_CLIENT_SECRET", "")
-PIPEBOARD_REDIRECT_URI = os.getenv("PIPEBOARD_REDIRECT_URI", "http://localhost:3000/integrations/pipeboard/callback")
-PIPEBOARD_ADAPTER = os.getenv("PIPEBOARD_ADAPTER", "mock")
-
-
-@router.post("/oauth/authorize")
-async def get_oauth_authorize_url(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Get OAuth authorization URL.
-
-    Returns URL user should visit to authorize.
-    """
-    require_role(current_user, ["owner", "manager"])
-
-    service = PipeboardSyncService(db)
-    state = f"{current_user.tenant_id}_{uuid.uuid4().hex[:8]}"
-
-    try:
-        auth_url = await service._adapter.get_oauth_authorize_url(
-            client_id=PIPEBOARD_CLIENT_ID,
-            redirect_uri=PIPEBOARD_REDIRECT_URI,
-            state=state,
-        )
-        return {
-            "authorize_url": auth_url,
-            "state": state,
-        }
-    except Exception as e:
-        logger.error("authorize_url_failed", error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to generate authorize URL")
-
-
-@router.get("/oauth/callback")
-async def handle_oauth_callback(
-    code: str = Query(...),
-    state: str = Query(...),
+@router.post("/connect", response_model=OAuthCallbackResponse)
+async def connect_with_token(
+    body: ConnectTokenRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> OAuthCallbackResponse:
-    """Handle OAuth callback from Pipeboard.
+    """Connect Pipeboard with an API token.
 
-    Exchanges code for tokens and creates PipeboardAccount.
+    Token is validated against the platform's MCP server (list accounts),
+    then stored encrypted per tenant. Get a token at https://pipeboard.co/api-tokens.
     """
     require_role(current_user, ["owner", "manager"])
 
-    # Verify state includes tenant_id
-    try:
-        state_tenant_id = uuid.UUID(state.split("_")[0])
-        if state_tenant_id != current_user.tenant_id:
-            raise ValueError("state_tenant_mismatch")
-    except (IndexError, ValueError):
-        raise HTTPException(status_code=400, detail="Invalid state parameter")
-
     service = PipeboardSyncService(db)
-
     try:
-        account = await service.handle_oauth_callback(
+        account = await service.connect_with_token(
             tenant_id=current_user.tenant_id,
-            code=code,
-            state=state,
-            client_id=PIPEBOARD_CLIENT_ID,
-            client_secret=PIPEBOARD_CLIENT_SECRET,
-            redirect_uri=PIPEBOARD_REDIRECT_URI,
+            api_token=body.api_token,
+            platform=body.platform or "google_ads",
         )
-
         return OAuthCallbackResponse(
             success=True,
             account_id=str(account.id),
             message="Successfully connected to Pipeboard",
         )
-
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error("oauth_callback_error", error=str(e), tenant_id=current_user.tenant_id)
-        raise HTTPException(status_code=400, detail=f"OAuth failed: {str(e)}")
+        logger.error("pipeboard_connect_error", error=str(e), tenant_id=current_user.tenant_id)
+        raise HTTPException(status_code=400, detail=f"Connect failed: {str(e)}")
 
 
 @router.get("/status", response_model=PipeboardAccountStatus)

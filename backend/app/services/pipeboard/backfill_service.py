@@ -23,9 +23,10 @@ class PipeboardBackfillService:
     """Handles chunked backfill, rate limiting, metric storage."""
 
     def __init__(self, db: AsyncSession):
+        from app.core.config import settings
         self._db = db
         self._repo = PipeboardRepository(db)
-        self._adapter: PipeboardAdapter = PipeboardAdapterFactory.create("mock")
+        self._adapter: PipeboardAdapter = PipeboardAdapterFactory.create(settings.PIPEBOARD_ADAPTER)
 
     async def sync_date_range(
         self,
@@ -86,7 +87,7 @@ class PipeboardBackfillService:
             for platform in platforms:
                 try:
                     campaigns = await self._adapter.fetch_campaigns(
-                        access_token=access_token,
+                        api_token=access_token,
                         pipeboard_platform=platform,
                     )
 
@@ -123,7 +124,7 @@ class PipeboardBackfillService:
             for platform in platforms:
                 try:
                     metrics_data = await self._adapter.fetch_daily_metrics(
-                        access_token=access_token,
+                        api_token=access_token,
                         pipeboard_platform=platform,
                         start_date=start_date.isoformat(),
                         end_date=end_date.isoformat(),

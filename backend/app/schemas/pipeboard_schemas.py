@@ -8,11 +8,13 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
-class OAuthCallbackRequest(BaseModel):
-    """OAuth callback payload."""
+class ConnectTokenRequest(BaseModel):
+    """Connect Pipeboard via API token (https://pipeboard.co/api-tokens)."""
 
-    code: str = Field(..., description="Authorization code from Pipeboard")
-    state: str = Field(..., description="State param for CSRF validation")
+    api_token: str = Field(..., min_length=8, description="Pipeboard API token")
+    platform: Optional[str] = Field(
+        default="google_ads", description="google_ads | meta_ads | tiktok_ads"
+    )
 
 
 class OAuthCallbackResponse(BaseModel):

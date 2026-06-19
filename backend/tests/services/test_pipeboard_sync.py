@@ -15,106 +15,49 @@ from app.services.pipeboard.alert_service import PipeboardAlertService, AlertTyp
 from app.core.security import encrypt_value, decrypt_value
 
 
-class TestTokenRefresh:
-    """Test token refresh with 5-min expiry buffer."""
+class TestTokenConnect:
+    """Test API-token connection (no OAuth flow)."""
 
-    async def test_token_not_expired_within_buffer(self, db: AsyncSession):
-        """Token with >5min until expiry should not refresh."""
+    async def test_connect_with_token_creates_account(self, db: AsyncSession):
+        """Valid token → account created, token stored encrypted."""
+        service = PipeboardSyncService(db)  # mock adapter via settings
+        tenant_id = uuid.uuid4()
+
+        account = await service.connect_with_token(
+            tenant_id=tenant_id,
+            api_token="pb_test_token_123",
+            platform="google_ads",
+        )
+
+        assert account.is_active is True
+        # Mock adapter reports customer id 4104711801.
+        assert account.pipeboard_account_id == "4104711801"
+
+    async def test_get_api_token_roundtrips(self, db: AsyncSession):
+        """Stored token decrypts back to original value."""
+        service = PipeboardSyncService(db)
+        tenant_id = uuid.uuid4()
+
+        account = await service.connect_with_token(
+            tenant_id=tenant_id,
+            api_token="pb_secret_xyz",
+            platform="google_ads",
+        )
+        assert service.get_api_token(account) == "pb_secret_xyz"
+
+    async def test_get_api_token_none_when_missing(self, db: AsyncSession):
+        """No stored token → None."""
         service = PipeboardSyncService(db)
         repo = PipeboardRepository(db)
-
         tenant_id = uuid.uuid4()
         account = await repo.upsert_pipeboard_account(
             tenant_id=tenant_id,
-            pipeboard_account_id="test_acct_001",
-            access_token_encrypted=encrypt_value("valid_token_123"),
-            refresh_token_encrypted=encrypt_value("refresh_token_xyz"),
-            token_expiry=datetime.now(UTC) + timedelta(minutes=30),
+            pipeboard_account_id="acct_no_token",
+            access_token_encrypted=None,
+            refresh_token_encrypted=None,
+            token_expiry=datetime.now(UTC) + timedelta(days=1),
         )
-
-        token = await service.get_valid_access_token(
-            account,
-            client_id="test_client",
-            client_secret="test_secret",
-        )
-
-        # Should return original token without refresh
-        assert token == "valid_token_123"
-
-    async def test_token_expired_within_buffer_triggers_refresh(self, db: AsyncSession):
-        """Token with <5min until expiry should trigger refresh."""
-        service = PipeboardSyncService(db)
-        repo = PipeboardRepository(db)
-
-        tenant_id = uuid.uuid4()
-        account = await repo.upsert_pipeboard_account(
-            tenant_id=tenant_id,
-            pipeboard_account_id="test_acct_002",
-            access_token_encrypted=encrypt_value("expired_token_456"),
-            refresh_token_encrypted=encrypt_value("refresh_token_abc"),
-            token_expiry=datetime.now(UTC) + timedelta(minutes=2),  # <5min
-        )
-
-        token = await service.get_valid_access_token(
-            account,
-            client_id="test_client",
-            client_secret="test_secret",
-        )
-
-        # Mock adapter returns "mock_access_token_refreshed"
-        assert token == "mock_access_token_refreshed"
-
-    async def test_token_refresh_marks_account_inactive_on_failure(self, db: AsyncSession):
-        """Failed refresh should mark account inactive."""
-        service = PipeboardSyncService(db)
-        repo = PipeboardRepository(db)
-
-        tenant_id = uuid.uuid4()
-        account = await repo.upsert_pipeboard_account(
-            tenant_id=tenant_id,
-            pipeboard_account_id="test_acct_003",
-            access_token_encrypted=encrypt_value("token_999"),
-            refresh_token_encrypted=None,  # No refresh token
-            token_expiry=datetime.now(UTC) + timedelta(minutes=1),
-        )
-
-        token = await service.get_valid_access_token(
-            account,
-            client_id="test_client",
-            client_secret="test_secret",
-        )
-
-        # Should return None on failure
-        assert token is None
-
-        # Account should be marked inactive
-        updated = await repo.get_pipeboard_account(account.id)
-        assert updated.is_active is False
-        assert updated.last_sync_error is not None
-
-    async def test_concurrent_refresh_calls_serialize_via_lock(self, db: AsyncSession):
-        """Concurrent refresh calls should serialize via lock."""
-        service = PipeboardSyncService(db)
-        repo = PipeboardRepository(db)
-
-        tenant_id = uuid.uuid4()
-        account = await repo.upsert_pipeboard_account(
-            tenant_id=tenant_id,
-            pipeboard_account_id="test_acct_004",
-            access_token_encrypted=encrypt_value("token_concurrent"),
-            refresh_token_encrypted=encrypt_value("refresh_concurrent"),
-            token_expiry=datetime.now(UTC) + timedelta(minutes=2),
-        )
-
-        # Simulate concurrent calls
-        tasks = [
-            service.get_valid_access_token(account, "client", "secret")
-            for _ in range(3)
-        ]
-        tokens = await asyncio.gather(*tasks)
-
-        # All should return valid token (mock always succeeds)
-        assert all(t is not None for t in tokens)
+        assert service.get_api_token(account) is None
 
 
 class TestCategoryMappingPriority:

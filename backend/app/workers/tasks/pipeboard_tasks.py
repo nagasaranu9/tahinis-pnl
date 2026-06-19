@@ -85,12 +85,8 @@ async def _sync_incremental(self, tenant_id: str) -> dict:
             return {"success": False, "error": "no_active_account"}
 
         try:
-            # Get valid access token (refreshes if needed)
-            access_token = await sync_service.get_valid_access_token(
-                account,
-                client_id=settings.PIPEBOARD_CLIENT_ID,
-                client_secret=settings.PIPEBOARD_CLIENT_SECRET,
-            )
+            # Decrypt the stored Pipeboard API token
+            access_token = sync_service.get_api_token(account)
             if not access_token:
                 logger.error("failed_to_get_access_token", account_id=str(account.id))
                 return {"success": False, "error": "auth_failed"}
@@ -165,12 +161,8 @@ async def _sync_historical(
             return {"success": False, "error": "no_active_account"}
 
         try:
-            # Get valid access token
-            access_token = await sync_service.get_valid_access_token(
-                account,
-                client_id=settings.PIPEBOARD_CLIENT_ID,
-                client_secret=settings.PIPEBOARD_CLIENT_SECRET,
-            )
+            # Decrypt the stored Pipeboard API token
+            access_token = sync_service.get_api_token(account)
             if not access_token:
                 return {"success": False, "error": "auth_failed"}
 

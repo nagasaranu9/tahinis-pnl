@@ -1,19 +1,34 @@
-"""Pipeboard adapter.
+"""Pipeboard adapter — MCP (Model Context Protocol) client.
 
-Handles OAuth token refresh, API calls, campaign/metric fetch.
-Token expiry check includes 5-min buffer to refresh early.
-Concurrent refresh protected by lock.
+Pipeboard exposes one MCP server per ad platform (Streamable HTTP transport):
+    https://google-ads.mcp.pipeboard.co/
+    https://meta-ads.mcp.pipeboard.co/
+    https://tiktok-ads.mcp.pipeboard.co/
+
+Auth = a single Pipeboard API token (https://pipeboard.co/api-tokens), passed as
+`Authorization: Bearer <token>` AND `?token=<token>`. There is NO OAuth client /
+refresh-token flow — that was a wrong earlier assumption. The token is long-lived
+and the same token unlocks every platform the user connected on pipeboard.co.
+
+Flow per platform:
+    1. open MCP session (initialize -> notifications/initialized)
+    2. tools/call list_<platform>_customers   -> customer/account ids
+    3. tools/call get_<platform>_campaigns     -> campaign master rows
+    4. tools/call get_<platform>_campaign_metrics(time_breakdown="day")
+                                               -> daily segmented_metrics rows
+
+Tool names + response shapes verified live against google-ads on 2026-06-19.
+Meta/TikTok use the same protocol but different tool names — wired but unverified.
 """
 from __future__ import annotations
 
-import asyncio
 import json
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Optional
-from urllib.parse import urlencode
 
 import httpx
 import structlog
@@ -21,6 +36,9 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# DTOs (unchanged — downstream backfill/sync/pnl depend on these shapes)
+# ---------------------------------------------------------------------------
 @dataclass
 class PipeboardCampaignData:
     """Campaign master record."""
@@ -58,327 +76,284 @@ class PipeboardData:
     daily_metrics: list[PipeboardDailyMetricData] = field(default_factory=list)
 
 
-@dataclass
-class TokenRefreshResult:
-    """Result of token refresh."""
-    access_token: str
-    refresh_token: str
-    token_expiry: datetime
-    success: bool
-    error: Optional[str] = None
+# ---------------------------------------------------------------------------
+# MCP transport
+# ---------------------------------------------------------------------------
+class PipeboardMcpError(Exception):
+    """Raised when an MCP call fails or returns isError."""
 
 
+class _PipeboardMcpClient:
+    """Minimal MCP JSON-RPC client over Pipeboard Streamable HTTP.
+
+    Stateless servers (session_id=None) — each call opens a fresh handshake-free
+    request; we still send `initialize` once per client to be protocol-correct.
+    """
+
+    PROTOCOL_VERSION = "2025-03-26"
+
+    def __init__(self, base_url: str, api_token: str, timeout: int = 60):
+        self._url = base_url
+        self._token = api_token
+        self._timeout = timeout
+
+    def _headers(self) -> dict:
+        return {
+            "Authorization": f"Bearer {self._token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+
+    @staticmethod
+    def _parse_body(text: str) -> dict:
+        """Pipeboard answers as JSON or SSE (`data: {...}`). Handle both."""
+        text = text.strip()
+        if not text:
+            return {}
+        if text.startswith("{"):
+            return json.loads(text)
+        payload = None
+        for line in text.splitlines():
+            line = line.strip()
+            if line.startswith("data:"):
+                payload = line[len("data:"):].strip()
+        if payload:
+            return json.loads(payload)
+        raise PipeboardMcpError(f"Unrecognized MCP body: {text[:300]}")
+
+    async def _rpc(self, client: httpx.AsyncClient, method: str,
+                   params: dict | None = None, notify: bool = False) -> dict:
+        body: dict = {"jsonrpc": "2.0", "method": method}
+        if not notify:
+            body["id"] = str(uuid.uuid4())
+        if params is not None:
+            body["params"] = params
+        resp = await client.post(
+            self._url, params={"token": self._token}, json=body, headers=self._headers()
+        )
+        if notify:
+            return {}
+        resp.raise_for_status()
+        return self._parse_body(resp.text)
+
+    async def call_tool(self, tool_name: str, arguments: dict | None = None) -> dict:
+        """Open session, call one tool, return the decoded inner JSON payload.
+
+        Pipeboard tools return result.content[0].text holding a JSON *string*,
+        so we double-decode. Raises PipeboardMcpError on isError.
+        """
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            # Protocol-correct handshake (server is stateless, so cheap).
+            await self._rpc(client, "initialize", {
+                "protocolVersion": self.PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {"name": "tahinis-pnl", "version": "1.0.0"},
+            })
+            await self._rpc(client, "notifications/initialized", {}, notify=True)
+
+            out = await self._rpc(client, "tools/call", {
+                "name": tool_name,
+                "arguments": arguments or {},
+            })
+
+        result = out.get("result", {})
+        content = result.get("content", [])
+        text = content[0].get("text", "{}") if content else "{}"
+        if result.get("isError"):
+            raise PipeboardMcpError(f"{tool_name} error: {text}")
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # Some tools return plain text; wrap it.
+            return {"_raw": text}
+
+
+# ---------------------------------------------------------------------------
+# Date-range helper — map an explicit [start, end] window onto the smallest
+# Pipeboard preset that covers it, then filter daily rows back to the window.
+# Avoids guessing a custom date_range string format.
+# ---------------------------------------------------------------------------
+_PRESETS = [
+    ("TODAY", 0),
+    ("YESTERDAY", 1),
+    ("LAST_7_DAYS", 7),
+    ("LAST_14_DAYS", 14),
+    ("LAST_30_DAYS", 30),
+    ("LAST_90_DAYS", 90),
+]
+
+
+def _preset_for_window(start: date, end: date) -> str:
+    """Smallest preset whose lookback (from today) covers `start`."""
+    days_back = (date.today() - start).days
+    for name, span in _PRESETS:
+        if span >= days_back:
+            return name
+    return "LAST_90_DAYS"  # max preset; older data unsupported via presets
+
+
+# ---------------------------------------------------------------------------
+# Adapter
+# ---------------------------------------------------------------------------
 class PipeboardAdapter(ABC):
-    """Abstract Pipeboard adapter."""
+    @abstractmethod
+    async def fetch_campaigns(self, api_token: str, pipeboard_platform: str) -> list[PipeboardCampaignData]:
+        ...
 
     @abstractmethod
-    async def get_oauth_authorize_url(
-        self,
-        client_id: str,
-        redirect_uri: str,
-        state: str,
-    ) -> str:
-        """Build OAuth authorize URL."""
+    async def fetch_daily_metrics(self, api_token: str, pipeboard_platform: str,
+                                  start_date: str, end_date: str) -> list[PipeboardDailyMetricData]:
+        ...
 
     @abstractmethod
-    async def exchange_code_for_token(
-        self,
-        client_id: str,
-        client_secret: str,
-        code: str,
-        redirect_uri: str,
-    ) -> dict:
-        """Exchange auth code for tokens. Returns {access_token, refresh_token, expires_in}."""
+    async def list_accounts(self, api_token: str, pipeboard_platform: str) -> list[dict]:
+        """Return [{id, currency_code, ...}] — used to validate token on connect."""
+        ...
 
-    @abstractmethod
-    async def refresh_access_token(
-        self,
-        client_id: str,
-        client_secret: str,
-        refresh_token: str,
-    ) -> TokenRefreshResult:
-        """Refresh expired access token."""
 
-    @abstractmethod
-    async def fetch_campaigns(
-        self,
-        access_token: str,
-        pipeboard_platform: str,
-    ) -> list[PipeboardCampaignData]:
-        """Fetch campaigns for platform."""
-
-    @abstractmethod
-    async def fetch_daily_metrics(
-        self,
-        access_token: str,
-        pipeboard_platform: str,
-        start_date: str,
-        end_date: str,
-    ) -> list[PipeboardDailyMetricData]:
-        """Fetch daily metrics for platform and date range (YYYY-MM-DD)."""
+# Platform -> (mcp host subdomain, tool-name infix, currency default)
+_PLATFORM_CFG = {
+    "google_ads": ("google-ads", "google_ads", "CAD"),
+    "meta_ads": ("meta-ads", "meta_ads", "CAD"),
+    "tiktok_ads": ("tiktok-ads", "tiktok_ads", "CAD"),
+}
 
 
 class PipeboardHttpAdapter(PipeboardAdapter):
-    """Production Pipeboard API adapter."""
+    """Production adapter — talks to live Pipeboard MCP servers."""
 
-    BASE_URL = "https://api.pipeboard.ai"
-    OAUTH_BASE_URL = "https://oauth.pipeboard.ai"
-    TOKEN_EXPIRY_BUFFER = 300  # 5 minutes in seconds
+    HOST_TEMPLATE = "https://{sub}.mcp.pipeboard.co/"
 
-    def __init__(self, timeout: int = 30):
+    def __init__(self, timeout: int = 60):
         self._timeout = timeout
-        self._token_refresh_lock = asyncio.Lock()
 
-    async def get_oauth_authorize_url(
-        self,
-        client_id: str,
-        redirect_uri: str,
-        state: str,
-    ) -> str:
-        """Build OAuth authorize URL."""
-        params = {
-            "client_id": client_id,
-            "redirect_uri": redirect_uri,
-            "response_type": "code",
-            "state": state,
-            "scope": "campaigns:read metrics:read",
-        }
-        return f"{self.OAUTH_BASE_URL}/authorize?{urlencode(params)}"
+    def _client(self, api_token: str, platform: str) -> _PipeboardMcpClient:
+        sub, _, _ = _PLATFORM_CFG[platform]
+        return _PipeboardMcpClient(self.HOST_TEMPLATE.format(sub=sub), api_token, self._timeout)
 
-    async def exchange_code_for_token(
-        self,
-        client_id: str,
-        client_secret: str,
-        code: str,
-        redirect_uri: str,
-    ) -> dict:
-        """Exchange auth code for tokens."""
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self.OAUTH_BASE_URL}/token",
-                data={
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                    "redirect_uri": redirect_uri,
-                },
+    def _infix(self, platform: str) -> str:
+        return _PLATFORM_CFG[platform][1]
+
+    def _currency(self, platform: str) -> str:
+        return _PLATFORM_CFG[platform][2]
+
+    async def list_accounts(self, api_token: str, pipeboard_platform: str) -> list[dict]:
+        if pipeboard_platform not in _PLATFORM_CFG:
+            raise PipeboardMcpError(f"Unsupported platform: {pipeboard_platform}")
+        client = self._client(api_token, pipeboard_platform)
+        infix = self._infix(pipeboard_platform)
+        data = await client.call_tool(f"list_{infix}_customers")
+        return data.get("customers", [])
+
+    async def fetch_campaigns(self, api_token: str, pipeboard_platform: str) -> list[PipeboardCampaignData]:
+        client = self._client(api_token, pipeboard_platform)
+        infix = self._infix(pipeboard_platform)
+
+        campaigns: list[PipeboardCampaignData] = []
+        for cust in await self.list_accounts(api_token, pipeboard_platform):
+            customer_id = str(cust.get("id"))
+            data = await client.call_tool(
+                f"get_{infix}_campaigns", {"customer_id": customer_id}
             )
-            resp.raise_for_status()
-            body = resp.json()
+            for c in data.get("campaigns", []):
+                budget = c.get("budget")
+                campaigns.append(PipeboardCampaignData(
+                    pipeboard_platform=pipeboard_platform,
+                    pipeboard_campaign_id=str(c["id"]),
+                    name=c.get("name", ""),
+                    status=c.get("status", "ENABLED"),
+                    campaign_type=c.get("type"),
+                    daily_budget_limit=Decimal(str(budget)) if budget is not None else None,
+                ))
+        return campaigns
 
-            # Pipeboard returns: access_token, refresh_token, expires_in (seconds)
-            return {
-                "access_token": body["access_token"],
-                "refresh_token": body.get("refresh_token"),
-                "expires_in": body.get("expires_in", 3600),
-            }
+    async def fetch_daily_metrics(self, api_token: str, pipeboard_platform: str,
+                                  start_date: str, end_date: str) -> list[PipeboardDailyMetricData]:
+        client = self._client(api_token, pipeboard_platform)
+        infix = self._infix(pipeboard_platform)
+        currency = self._currency(pipeboard_platform)
 
-    async def refresh_access_token(
-        self,
-        client_id: str,
-        client_secret: str,
-        refresh_token: str,
-    ) -> TokenRefreshResult:
-        """Refresh expired access token."""
-        async with self._token_refresh_lock:
-            try:
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
-                    resp = await client.post(
-                        f"{self.OAUTH_BASE_URL}/token",
-                        data={
-                            "grant_type": "refresh_token",
-                            "refresh_token": refresh_token,
-                            "client_id": client_id,
-                            "client_secret": client_secret,
-                        },
-                    )
-                    resp.raise_for_status()
-                    body = resp.json()
+        start = date.fromisoformat(start_date)
+        end = date.fromisoformat(end_date)
+        preset = _preset_for_window(start, end)
 
-                    access_token = body["access_token"]
-                    new_refresh = body.get("refresh_token", refresh_token)
-                    expires_in = body.get("expires_in", 3600)
-                    token_expiry = datetime.now(UTC) + timedelta(seconds=expires_in)
+        metrics: list[PipeboardDailyMetricData] = []
+        for cust in await self.list_accounts(api_token, pipeboard_platform):
+            customer_id = str(cust.get("id"))
+            cur = cust.get("currency_code", currency)
+            if not cust.get("can_query_metrics", True):
+                continue
 
-                    return TokenRefreshResult(
-                        access_token=access_token,
-                        refresh_token=new_refresh,
-                        token_expiry=token_expiry,
-                        success=True,
-                    )
-            except Exception as e:
-                logger.error("pipeboard_token_refresh_failed", error=str(e))
-                return TokenRefreshResult(
-                    access_token="",
-                    refresh_token="",
-                    token_expiry=datetime.now(UTC),
-                    success=False,
-                    error=str(e),
-                )
-
-    async def fetch_campaigns(
-        self,
-        access_token: str,
-        pipeboard_platform: str,
-    ) -> list[PipeboardCampaignData]:
-        """Fetch campaigns for platform."""
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.get(
-                f"{self.BASE_URL}/campaigns",
-                params={"platform": pipeboard_platform},
-                headers={"Authorization": f"Bearer {access_token}"},
+            # Per-campaign so each daily row is attributable. Campaigns without
+            # spend in-window simply return no segmented rows.
+            campaigns_data = await client.call_tool(
+                f"get_{infix}_campaigns", {"customer_id": customer_id}
             )
-            resp.raise_for_status()
-            items = resp.json().get("campaigns", [])
-
-            campaigns = []
-            for item in items:
-                campaigns.append(
-                    PipeboardCampaignData(
+            for c in campaigns_data.get("campaigns", []):
+                campaign_id = str(c["id"])
+                result = await client.call_tool(f"get_{infix}_campaign_metrics", {
+                    "customer_id": customer_id,
+                    "campaign_ids": [campaign_id],
+                    "date_range": preset,
+                    "time_breakdown": "day",
+                })
+                for row in result.get("segmented_metrics", []):
+                    row_date = row.get("date")
+                    if not row_date or not (start_date <= row_date <= end_date):
+                        continue
+                    cost = Decimal(str(row.get("cost", 0)))
+                    conv_value = row.get("conversions_value")
+                    roas = (Decimal(str(conv_value)) / cost) if (conv_value and cost > 0) else None
+                    metrics.append(PipeboardDailyMetricData(
                         pipeboard_platform=pipeboard_platform,
-                        pipeboard_campaign_id=item["id"],
-                        name=item["name"],
-                        status=item.get("status", "ENABLED"),
-                        campaign_type=item.get("type"),
-                        daily_budget_limit=Decimal(str(item.get("daily_budget", 0))),
-                        lifetime_budget_limit=Decimal(str(item.get("lifetime_budget", 0))),
-                        spend_to_date=Decimal(str(item.get("spend_to_date", 0))),
-                    )
-                )
-            return campaigns
-
-    async def fetch_daily_metrics(
-        self,
-        access_token: str,
-        pipeboard_platform: str,
-        start_date: str,
-        end_date: str,
-    ) -> list[PipeboardDailyMetricData]:
-        """Fetch daily metrics for platform and date range."""
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.get(
-                f"{self.BASE_URL}/metrics",
-                params={
-                    "platform": pipeboard_platform,
-                    "date_from": start_date,
-                    "date_to": end_date,
-                    "granularity": "daily",
-                },
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-            resp.raise_for_status()
-            items = resp.json().get("metrics", [])
-
-            metrics = []
-            for item in items:
-                metrics.append(
-                    PipeboardDailyMetricData(
-                        pipeboard_platform=pipeboard_platform,
-                        pipeboard_campaign_id=item["campaign_id"],
-                        metric_date=item["date"],
-                        spend=Decimal(str(item.get("spend", 0))),
-                        impressions=int(item.get("impressions", 0)),
-                        clicks=int(item.get("clicks", 0)),
-                        conversions=Decimal(str(item.get("conversions"))) if item.get("conversions") else None,
-                        conversion_value=Decimal(str(item.get("conversion_value"))) if item.get("conversion_value") else None,
-                        ctr=Decimal(str(item.get("ctr"))) if item.get("ctr") else None,
-                        cpc=Decimal(str(item.get("cpc"))) if item.get("cpc") else None,
-                        roas=Decimal(str(item.get("roas"))) if item.get("roas") else None,
-                        currency_code=item.get("currency_code", "CAD"),
-                    )
-                )
-            return metrics
+                        pipeboard_campaign_id=campaign_id,
+                        metric_date=row_date,
+                        spend=cost,
+                        impressions=int(row.get("impressions", 0)),
+                        clicks=int(row.get("clicks", 0)),
+                        conversions=Decimal(str(row["conversions"])) if row.get("conversions") is not None else None,
+                        conversion_value=Decimal(str(conv_value)) if conv_value is not None else None,
+                        ctr=Decimal(str(row["ctr"])) if row.get("ctr") is not None else None,
+                        cpc=Decimal(str(row["average_cpc"])) if row.get("average_cpc") is not None else None,
+                        roas=roas,
+                        currency_code=cur,
+                    ))
+        return metrics
 
 
 class MockPipeboardAdapter(PipeboardAdapter):
-    """Mock adapter for development."""
+    """Mock adapter for development / tests — no network."""
 
-    async def get_oauth_authorize_url(
-        self,
-        client_id: str,
-        redirect_uri: str,
-        state: str,
-    ) -> str:
-        """Mock OAuth URL."""
-        return f"{redirect_uri}?code=mock_code&state={state}"
+    async def list_accounts(self, api_token: str, pipeboard_platform: str) -> list[dict]:
+        return [{"id": "4104711801", "currency_code": "CAD", "can_query_metrics": True}]
 
-    async def exchange_code_for_token(
-        self,
-        client_id: str,
-        client_secret: str,
-        code: str,
-        redirect_uri: str,
-    ) -> dict:
-        """Mock token response."""
-        return {
-            "access_token": "mock_access_token_12345",
-            "refresh_token": "mock_refresh_token_12345",
-            "expires_in": 3600,
-        }
-
-    async def refresh_access_token(
-        self,
-        client_id: str,
-        client_secret: str,
-        refresh_token: str,
-    ) -> TokenRefreshResult:
-        """Mock token refresh."""
-        return TokenRefreshResult(
-            access_token="mock_access_token_refreshed",
-            refresh_token=refresh_token,
-            token_expiry=datetime.now(UTC) + timedelta(hours=1),
-            success=True,
-        )
-
-    async def fetch_campaigns(
-        self,
-        access_token: str,
-        pipeboard_platform: str,
-    ) -> list[PipeboardCampaignData]:
-        """Mock campaigns."""
+    async def fetch_campaigns(self, api_token: str, pipeboard_platform: str) -> list[PipeboardCampaignData]:
         return [
             PipeboardCampaignData(
                 pipeboard_platform=pipeboard_platform,
-                pipeboard_campaign_id="cmp_001",
-                name="Tahinis Brand Campaign",
-                status="ENABLED",
-                campaign_type="SEARCH",
-                daily_budget_limit=Decimal("100"),
-                spend_to_date=Decimal("2500"),
-            ),
-            PipeboardCampaignData(
-                pipeboard_platform=pipeboard_platform,
-                pipeboard_campaign_id="cmp_002",
-                name="Tahinis Performance Max",
+                pipeboard_campaign_id="23913438713",
+                name="Game Day Platters",
                 status="ENABLED",
                 campaign_type="PERFORMANCE_MAX",
-                daily_budget_limit=Decimal("200"),
-                spend_to_date=Decimal("5000"),
+                daily_budget_limit=Decimal("20"),
             ),
         ]
 
-    async def fetch_daily_metrics(
-        self,
-        access_token: str,
-        pipeboard_platform: str,
-        start_date: str,
-        end_date: str,
-    ) -> list[PipeboardDailyMetricData]:
-        """Mock daily metrics."""
+    async def fetch_daily_metrics(self, api_token: str, pipeboard_platform: str,
+                                  start_date: str, end_date: str) -> list[PipeboardDailyMetricData]:
         return [
             PipeboardDailyMetricData(
                 pipeboard_platform=pipeboard_platform,
-                pipeboard_campaign_id="cmp_001",
+                pipeboard_campaign_id="23913438713",
                 metric_date=start_date,
-                spend=Decimal("50.00"),
-                impressions=500,
-                clicks=25,
-                conversions=Decimal("2.0"),
-                conversion_value=Decimal("50.00"),
-                ctr=Decimal("0.05"),
-                cpc=Decimal("2.00"),
-                roas=Decimal("1.00"),
+                spend=Decimal("20.03"),
+                impressions=3756,
+                clicks=115,
+                conversions=Decimal("47"),
+                conversion_value=Decimal("47"),
+                ctr=Decimal("0.0306"),
+                cpc=Decimal("0.1742"),
+                roas=Decimal("2.35"),
             ),
         ]
 
@@ -386,7 +361,6 @@ class MockPipeboardAdapter(PipeboardAdapter):
 class PipeboardAdapterFactory:
     @staticmethod
     def create(adapter_type: str = "mock") -> PipeboardAdapter:
-        """Create adapter instance."""
         if adapter_type == "http":
             return PipeboardHttpAdapter()
         return MockPipeboardAdapter()
