@@ -180,6 +180,8 @@ class PipeboardRepository:
         result = await self._db.execute(stmt)
         campaign = result.scalar_one_or_none()
 
+        from datetime import UTC
+        now = datetime.now(UTC)
         if campaign:
             campaign.name = name
             campaign.status = status
@@ -187,6 +189,7 @@ class PipeboardRepository:
             campaign.daily_budget_limit = daily_budget_limit
             campaign.lifetime_budget_limit = lifetime_budget_limit
             campaign.spend_to_date = spend_to_date
+            campaign.updated_at = now
         else:
             campaign = PipeboardCampaign(
                 tenant_id=tenant_id,
@@ -199,6 +202,8 @@ class PipeboardRepository:
                 daily_budget_limit=daily_budget_limit,
                 lifetime_budget_limit=lifetime_budget_limit,
                 spend_to_date=spend_to_date,
+                created_at=now,
+                updated_at=now,
             )
             self._db.add(campaign)
 
@@ -232,6 +237,8 @@ class PipeboardRepository:
         result = await self._db.execute(stmt)
         metric = result.scalar_one_or_none()
 
+        from datetime import UTC
+        now = datetime.now(UTC)
         if metric:
             metric.spend = spend
             metric.impressions = impressions
@@ -241,6 +248,7 @@ class PipeboardRepository:
             metric.ctr = ctr
             metric.cpc = cpc
             metric.roas = roas
+            metric.updated_at = now
         else:
             metric = PipeboardDailyMetric(
                 tenant_id=tenant_id,
@@ -255,6 +263,8 @@ class PipeboardRepository:
                 cpc=cpc,
                 roas=roas,
                 currency_code=currency_code,
+                created_at=now,
+                updated_at=now,
             )
             self._db.add(metric)
 
@@ -449,6 +459,8 @@ class PipeboardRepository:
         account_id: Optional[uuid.UUID] = None,
     ) -> PipeboardAlert:
         """Create dashboard alert."""
+        from datetime import UTC
+        now = datetime.now(UTC)
         alert = PipeboardAlert(
             tenant_id=tenant_id,
             account_id=account_id,
@@ -456,6 +468,8 @@ class PipeboardRepository:
             severity=severity,
             title=title,
             message=message,
+            created_at=now,
+            updated_at=now,
         )
         self._db.add(alert)
         await self._db.commit()
@@ -507,6 +521,8 @@ class PipeboardRepository:
         triggered_by: Optional[uuid.UUID] = None,
     ) -> PipeboardAuditLog:
         """Create immutable audit log entry."""
+        from datetime import UTC
+        now = datetime.now(UTC)
         log = PipeboardAuditLog(
             tenant_id=tenant_id,
             account_id=account_id,
@@ -515,6 +531,8 @@ class PipeboardRepository:
             message=message,
             error_detail=error_detail,
             triggered_by=triggered_by,
+            created_at=now,
+            updated_at=now,
         )
         self._db.add(log)
         await self._db.commit()
