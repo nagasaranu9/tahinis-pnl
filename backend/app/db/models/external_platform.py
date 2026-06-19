@@ -8,7 +8,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -199,7 +199,7 @@ class PipeboardSyncJob(Base, TenantMixin, TimestampMixin):
 
     __tablename__ = "pipeboard_sync_jobs"
     __table_args__ = (
-        {"indexes": [{"name": "ix_pipeboard_sync_tenant_status", "columns": ["tenant_id", "status"]}]},
+        Index("ix_pipeboard_sync_tenant_status", "tenant_id", "status"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
