@@ -243,7 +243,12 @@ class PipeboardHttpAdapter(PipeboardAdapter):
         client = self._client(api_token, pipeboard_platform)
         infix = self._infix(pipeboard_platform)
         data = await client.call_tool(f"list_{infix}_customers")
-        return data.get("customers", [])
+        logger.info("pipeboard_list_accounts_raw", platform=pipeboard_platform, keys=list(data.keys()), data=str(data)[:500])
+        customers = data.get("customers", data.get("accounts", data.get("data", [])))
+        if isinstance(customers, dict):
+            customers = [customers]
+        logger.info("pipeboard_list_accounts_result", platform=pipeboard_platform, count=len(customers))
+        return customers
 
     async def fetch_campaigns(self, api_token: str, pipeboard_platform: str) -> list[PipeboardCampaignData]:
         client = self._client(api_token, pipeboard_platform)
@@ -251,10 +256,12 @@ class PipeboardHttpAdapter(PipeboardAdapter):
 
         campaigns: list[PipeboardCampaignData] = []
         for cust in await self.list_accounts(api_token, pipeboard_platform):
-            customer_id = str(cust.get("id"))
+            customer_id = str(cust.get("id") or cust.get("customer_id") or "")
+            logger.info("pipeboard_fetch_campaigns", platform=pipeboard_platform, customer_id=customer_id, cust_keys=list(cust.keys()))
             data = await client.call_tool(
                 f"get_{infix}_campaigns", {"customer_id": customer_id}
             )
+            logger.info("pipeboard_campaigns_raw", platform=pipeboard_platform, keys=list(data.keys()), data=str(data)[:500])
             for c in data.get("campaigns", []):
                 budget = c.get("budget")
                 campaigns.append(PipeboardCampaignData(
