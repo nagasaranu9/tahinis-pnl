@@ -148,7 +148,7 @@ async def _dispatch_daily_sync() -> dict:
         # within seconds, so anything still pending after 10 min is an orphan
         # left by a worker that died mid-flight (its Redis message is gone). Mark
         # them failed so they stop blocking new dispatch and show honestly in UI.
-        stale_cutoff = datetime.now(UTC) - timedelta(minutes=10)
+        stale_cutoff = datetime.now(UTC) - timedelta(minutes=60)
         await db.execute(
             update(ToastSyncJob)
             .where(

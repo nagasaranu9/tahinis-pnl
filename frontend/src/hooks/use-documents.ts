@@ -66,6 +66,19 @@ export function useDeleteDocument() {
   });
 }
 
+export function useDeleteAllDocuments() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await apiClient.delete<{ data: { deleted: number } }>("/api/v1/documents");
+      return data.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["documents"] });
+    },
+  });
+}
+
 export function useCorrectLineItem(documentId: string) {
   const qc = useQueryClient();
   return useMutation({

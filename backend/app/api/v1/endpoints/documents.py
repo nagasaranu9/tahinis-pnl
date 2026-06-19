@@ -115,6 +115,34 @@ async def get_document(document_id: uuid.UUID, user: CurrentUserDep, db: AsyncSe
     return {"data": _to_response(doc, include_url=True), "errors": None}
 
 
+@router.delete("", response_model=APIResponse[dict])
+async def delete_all_documents(user: ManagerDep, db: AsyncSessionDep) -> dict:
+    """Delete ALL documents for this tenant. Irreversible — DB records removed, S3 files stay."""
+    repo = DocumentRepository(db)
+    from sqlalchemy import select, delete as sa_delete
+    from app.db.models.document import Document
+    ids_result = await db.execute(
+        select(Document.id).where(Document.tenant_id == user.tenant_id)
+    )
+    ids = [r[0] for r in ids_result.fetchall()]
+    if ids:
+        await db.execute(
+            sa_delete(Document).where(
+                Document.tenant_id == user.tenant_id
+            )
+        )
+        await AuditRepository(db).log(
+            tenant_id=user.tenant_id,
+            action="document.bulk_deleted",
+            user_id=user.user_id,
+            entity_type="document",
+            entity_id=user.tenant_id,
+            old_value={"count": len(ids)},
+        )
+    await db.commit()
+    return {"data": {"deleted": len(ids)}, "errors": None}
+
+
 @router.delete("/{document_id}", response_model=APIResponse[None])
 async def delete_document(document_id: uuid.UUID, user: ManagerDep, db: AsyncSessionDep) -> dict:
     repo = DocumentRepository(db)
