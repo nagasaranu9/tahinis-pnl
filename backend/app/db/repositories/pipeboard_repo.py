@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.external_platform import (
     PipeboardAccount,
+    PipeboardAlert,
+    PipeboardAuditLog,
     PipeboardCampaign,
     PipeboardCategoryMapping,
     PipeboardDailyMetric,
@@ -372,3 +374,102 @@ class PipeboardRepository:
         )
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
+
+    # Alert operations
+
+    async def create_alert(
+        self,
+        tenant_id: uuid.UUID,
+        alert_type: str,
+        severity: str,
+        title: str,
+        message: str,
+        account_id: Optional[uuid.UUID] = None,
+    ) -> PipeboardAlert:
+        """Create dashboard alert."""
+        alert = PipeboardAlert(
+            tenant_id=tenant_id,
+            account_id=account_id,
+            alert_type=alert_type,
+            severity=severity,
+            title=title,
+            message=message,
+        )
+        self._db.add(alert)
+        await self._db.commit()
+        await self._db.refresh(alert)
+        return alert
+
+    async def get_active_alerts(
+        self,
+        tenant_id: uuid.UUID,
+    ) -> list[PipeboardAlert]:
+        """Get non-dismissed alerts for tenant."""
+        stmt = (
+            select(PipeboardAlert)
+            .filter(
+                PipeboardAlert.tenant_id == tenant_id,
+                PipeboardAlert.is_dismissed.is_(False),
+            )
+            .order_by(PipeboardAlert.created_at.desc())
+        )
+        result = await self._db.execute(stmt)
+        return result.scalars().all()
+
+    async def dismiss_alert(
+        self,
+        alert_id: uuid.UUID,
+        dismissed_by: Optional[uuid.UUID] = None,
+    ) -> None:
+        """Dismiss an alert."""
+        stmt = select(PipeboardAlert).filter(PipeboardAlert.id == alert_id)
+        result = await self._db.execute(stmt)
+        alert = result.scalar_one_or_none()
+
+        if alert:
+            alert.is_dismissed = True
+            alert.dismissed_at = datetime.now()
+            alert.dismissed_by = dismissed_by
+            await self._db.commit()
+
+    # Audit log operations
+
+    async def create_audit_log(
+        self,
+        tenant_id: uuid.UUID,
+        event_type: str,
+        message: str,
+        severity: str = "info",
+        account_id: Optional[uuid.UUID] = None,
+        error_detail: Optional[str] = None,
+        triggered_by: Optional[uuid.UUID] = None,
+    ) -> PipeboardAuditLog:
+        """Create immutable audit log entry."""
+        log = PipeboardAuditLog(
+            tenant_id=tenant_id,
+            account_id=account_id,
+            event_type=event_type,
+            severity=severity,
+            message=message,
+            error_detail=error_detail,
+            triggered_by=triggered_by,
+        )
+        self._db.add(log)
+        await self._db.commit()
+        await self._db.refresh(log)
+        return log
+
+    async def get_audit_logs(
+        self,
+        tenant_id: uuid.UUID,
+        limit: int = 100,
+    ) -> list[PipeboardAuditLog]:
+        """Get recent audit logs for tenant."""
+        stmt = (
+            select(PipeboardAuditLog)
+            .filter(PipeboardAuditLog.tenant_id == tenant_id)
+            .order_by(PipeboardAuditLog.created_at.desc())
+            .limit(limit)
+        )
+        result = await self._db.execute(stmt)
+        return result.scalars().all()

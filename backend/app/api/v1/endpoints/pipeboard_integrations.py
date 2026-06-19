@@ -23,9 +23,12 @@ from app.core.auth import get_current_user, require_role
 from app.core.database import get_db
 from app.schemas.auth import User
 from app.schemas.pipeboard_schemas import (
+    AlertResponse,
+    AuditLogResponse,
     CategoryMappingRequest,
     CategoryMappingResponse,
     DisconnectRequest,
+    DismissAlertRequest,
     ManualSyncRequest,
     OAuthCallbackRequest,
     OAuthCallbackResponse,
@@ -240,3 +243,82 @@ async def trigger_manual_sync(
         "message": "Sync job created",
         "job_id": str(uuid.uuid4()),
     }
+
+
+@router.get("/alerts", response_model=list[AlertResponse])
+async def get_alerts(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[AlertResponse]:
+    """Get active (non-dismissed) alerts for tenant."""
+    require_role(current_user, ["owner", "manager", "viewer"])
+
+    from app.db.repositories.pipeboard_repo import PipeboardRepository
+
+    repo = PipeboardRepository(db)
+    alerts = await repo.get_active_alerts(current_user.tenant_id)
+
+    return [
+        AlertResponse(
+            id=str(alert.id),
+            alert_type=alert.alert_type,
+            severity=alert.severity,
+            title=alert.title,
+            message=alert.message,
+            is_dismissed=alert.is_dismissed,
+            created_at=alert.created_at,
+        )
+        for alert in alerts
+    ]
+
+
+@router.post("/alerts/dismiss")
+async def dismiss_alert(
+    body: DismissAlertRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Dismiss an alert."""
+    require_role(current_user, ["owner", "manager"])
+
+    from app.db.repositories.pipeboard_repo import PipeboardRepository
+
+    repo = PipeboardRepository(db)
+
+    try:
+        await repo.dismiss_alert(
+            alert_id=uuid.UUID(body.alert_id),
+            dismissed_by=current_user.user_id,
+        )
+        return {"success": True, "message": "Alert dismissed"}
+    except Exception as e:
+        logger.error("dismiss_alert_failed", error=str(e))
+        raise HTTPException(status_code=400, detail=f"Failed to dismiss alert: {str(e)}")
+
+
+@router.get("/audit-logs", response_model=list[AuditLogResponse])
+async def get_audit_logs(
+    limit: int = Query(100, le=1000),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[AuditLogResponse]:
+    """Get audit log entries for tenant."""
+    require_role(current_user, ["owner", "manager"])
+
+    from app.db.repositories.pipeboard_repo import PipeboardRepository
+
+    repo = PipeboardRepository(db)
+    logs = await repo.get_audit_logs(current_user.tenant_id, limit=limit)
+
+    return [
+        AuditLogResponse(
+            id=str(log.id),
+            event_type=log.event_type,
+            severity=log.severity,
+            message=log.message,
+            error_detail=log.error_detail,
+            account_id=str(log.account_id) if log.account_id else None,
+            created_at=log.created_at,
+        )
+        for log in logs
+    ]

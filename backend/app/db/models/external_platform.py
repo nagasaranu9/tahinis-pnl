@@ -223,3 +223,46 @@ class PipeboardSyncJob(Base, TenantMixin, TimestampMixin):
     triggered_by: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)  # user_id
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class PipeboardAlert(Base, TenantMixin):
+    """Dashboard alert for Pipeboard integration issues."""
+
+    __tablename__ = "pipeboard_alerts"
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    account_id: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+
+    alert_type: Mapped[str] = mapped_column(String(50), nullable=False)  # sync_failed / auth_failed / sync_stale / etc
+    severity: Mapped[str] = mapped_column(String(20), nullable=False)  # info / warning / error / critical
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+
+    is_dismissed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    dismissed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    dismissed_by: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)  # user_id
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+
+class PipeboardAuditLog(Base, TenantMixin):
+    """Immutable audit log for Pipeboard events (auth, sync, config changes)."""
+
+    __tablename__ = "pipeboard_audit_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    account_id: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False)  # oauth_connect / sync_start / sync_complete / auth_failed / etc
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="info")  # info / warning / error
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    error_detail: Mapped[Optional[str]] = mapped_column(Text)
+
+    triggered_by: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)  # user_id for manual actions
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, index=True)

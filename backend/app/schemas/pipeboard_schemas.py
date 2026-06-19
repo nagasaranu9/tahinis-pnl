@@ -116,3 +116,33 @@ class DisconnectRequest(BaseModel):
     """Request disconnect."""
 
     confirm: bool = Field(..., description="Must be true to confirm disconnect")
+
+
+class AlertResponse(BaseModel):
+    """Dashboard alert."""
+
+    id: str
+    alert_type: str
+    severity: str  # info / warning / error / critical
+    title: str
+    message: str
+    is_dismissed: bool
+    created_at: datetime
+
+
+class AuditLogResponse(BaseModel):
+    """Audit log entry."""
+
+    id: str
+    event_type: str
+    severity: str
+    message: str
+    error_detail: Optional[str]
+    account_id: Optional[str]
+    created_at: datetime
+
+
+class DismissAlertRequest(BaseModel):
+    """Request to dismiss an alert."""
+
+    alert_id: str
