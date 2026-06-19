@@ -32,6 +32,7 @@ import {
 } from "recharts";
 import { usePnLReport, useDailyBreakdown } from "@/hooks/use-pnl";
 import { useReconciliationFlags } from "@/hooks/use-reconciliation";
+import { usePipeboardStatus } from "@/hooks/use-pipeboard";
 import { useAIInsights } from "@/hooks/use-ai-insights";
 import { useLocationStore } from "@/lib/location-store";
 import { useQueryClient } from "@tanstack/react-query";
@@ -418,6 +419,7 @@ export default function DashboardPage() {
     location_id: locationParam,
   });
 
+  const { data: pipeboardStatus, isLoading: pipeboardLoading } = usePipeboardStatus();
   const { data: flags, isLoading: flagsLoading } = useReconciliationFlags({ unresolved_only: true });
   const { data: allFlags } = useReconciliationFlags({ unresolved_only: false });
   const { data: insights, isLoading: insightsLoading } = useAIInsights({ include_dismissed: false });
@@ -1096,6 +1098,56 @@ export default function DashboardPage() {
             </Link>
           )}
         </div>
+      </SectionCard>
+
+      {/* ── Marketing / Pipeboard (Google Ads spend) ── */}
+      <SectionCard
+        title="Marketing — Google Ads"
+        href="/marketing"
+        linkLabel="Manage"
+        loading={pipeboardLoading}
+      >
+        {pipeboardStatus?.connected ? (
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">Status</span>
+              <span className="text-xs text-green-500 font-medium flex items-center gap-1.5">
+                <CheckCircle2 className="h-3 w-3" /> Connected
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">Google Ads customer</span>
+              <span className="font-mono font-medium text-foreground">
+                {pipeboardStatus.pipeboard_account_id ?? "—"}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">Last sync</span>
+              <span className="font-medium text-foreground">
+                {pipeboardStatus.last_sync_at
+                  ? new Date(pipeboardStatus.last_sync_at).toLocaleString("en-CA")
+                  : "Not yet synced"}
+              </span>
+            </div>
+            {pipeboardStatus.last_sync_error && (
+              <p className="text-xs text-red-400 pt-1">{pipeboardStatus.last_sync_error}</p>
+            )}
+            <div className="pt-2 border-t border-border">
+              <Link href="/marketing" className="text-xs text-primary hover:underline cursor-pointer">
+                View campaign spend &amp; sync →
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2 text-sm">
+            <p className="text-muted-foreground">
+              Connect Pipeboard to flow Google Ads spend into your P&amp;L marketing line.
+            </p>
+            <Link href="/marketing" className="text-xs text-primary hover:underline cursor-pointer">
+              + Connect Google Ads →
+            </Link>
+          </div>
+        )}
       </SectionCard>
 
       {/* ── Connect Integrations Strip (replaces empty Google cards) ── */}
