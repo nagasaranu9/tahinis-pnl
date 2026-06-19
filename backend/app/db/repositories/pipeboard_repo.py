@@ -86,7 +86,7 @@ class PipeboardRepository:
             select(PipeboardAccount)
             .filter(
                 PipeboardAccount.tenant_id == tenant_id,
-                PipeboardAccount.is_active is True,
+                PipeboardAccount.is_active == True,
             )
             .order_by(PipeboardAccount.created_at.desc())
             .limit(1)
@@ -98,7 +98,7 @@ class PipeboardRepository:
         """Get all active Pipeboard accounts across all tenants."""
         stmt = (
             select(PipeboardAccount)
-            .filter(PipeboardAccount.is_active is True)
+            .filter(PipeboardAccount.is_active == True)
             .order_by(PipeboardAccount.tenant_id, PipeboardAccount.created_at.desc())
         )
         result = await self._db.execute(stmt)
