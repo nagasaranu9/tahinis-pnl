@@ -216,17 +216,47 @@ async def trigger_manual_sync(
     current_user.require_role("owner", "manager")
 
     from app.db.repositories.pipeboard_repo import PipeboardRepository
-    from datetime import date
+    from app.workers.tasks.pipeboard_tasks import sync_pipeboard_historical
 
     repo = PipeboardRepository(db)
 
-    # TODO: validate account is connected
-    # TODO: create sync job
+    # Validate account is connected
+    account = await repo.get_active_pipeboard_account(current_user.tenant_id)
+    if not account:
+        raise HTTPException(status_code=400, detail="No active Pipeboard account")
+
+    # Create sync job record
+    job = await repo.create_sync_job(
+        tenant_id=current_user.tenant_id,
+        job_type="historical",
+        pipeboard_platform=body.pipeboard_platform,
+        date_from=body.date_from,
+        date_to=body.date_to,
+        triggered_by=current_user.user_id,
+    )
+
+    # Queue Celery task
+    sync_pipeboard_historical.apply_async(
+        args=[
+            str(current_user.tenant_id),
+            body.date_from,
+            body.date_to,
+            body.pipeboard_platform,
+        ],
+        queue="sync",
+    )
+
+    logger.info(
+        "manual_sync_triggered",
+        tenant_id=current_user.tenant_id,
+        job_id=str(job.id),
+        date_range=f"{body.date_from} to {body.date_to}",
+    )
 
     return {
         "success": True,
         "message": "Sync job created",
-        "job_id": str(uuid.uuid4()),
+        "job_id": str(job.id),
     }
 
 
