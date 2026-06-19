@@ -44,7 +44,8 @@
       "Bash(grep -i \"error\\\\|failed\\\\|exception\\\\|fatal\\\\|traceback\" /Users/n/Downloads/docker-logs-2026-06-16T21-12-00.963Z.csv | head -30)",
       "Bash(git add *)",
       "Bash(git commit -m 'Fix migration 0015: make table creation idempotent with IF NOT EXISTS check *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(find /Users/n/claude -name \"*pipeboard*\" -type f)"
     ]
   }
 }
