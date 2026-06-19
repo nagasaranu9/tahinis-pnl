@@ -4,10 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { Megaphone, ArrowRight, Star, TrendingUp, BarChart3, CheckCircle, Unplug } from "lucide-react";
 import ReviewsPage from "../reviews/page";
+import { PipeboardIntegration } from "@/components/pipeboard-integration";
 import {
-  useGoogleAdsStatus,
-  useGoogleAdsConnect,
-  useGoogleAdsDisconnect,
   useMetaAdsStatus,
   useMetaAdsConnect,
   useMetaAdsDisconnect,
@@ -42,81 +40,6 @@ function ComingSoon({ title, description }: { title: string; description: string
   );
 }
 
-function GoogleAdsConnector() {
-  const { data: status, isLoading } = useGoogleAdsStatus();
-  const { mutate: connect, isPending: connecting, error } = useGoogleAdsConnect();
-  const { mutate: disconnect, isPending: disconnecting } = useGoogleAdsDisconnect();
-  const [customerId, setCustomerId] = useState("");
-  const [developerToken, setDeveloperToken] = useState("");
-  const [refreshToken, setRefreshToken] = useState("");
-
-  if (isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
-
-  if (status?.connected) {
-    return (
-      <div className="border border-border rounded-lg bg-card p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm">
-            <CheckCircle className="h-4 w-4 text-green-400" />
-            <span className="font-medium">Google Ads connected</span>
-            <span className="text-muted-foreground">— customer {status.account_id}</span>
-          </div>
-          <button
-            onClick={() => disconnect()}
-            disabled={disconnecting}
-            className="flex items-center gap-1 px-2 py-1 text-xs border border-destructive text-destructive rounded hover:bg-destructive/10 disabled:opacity-50"
-          >
-            <Unplug className="h-3 w-3" />
-            Disconnect
-          </button>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Campaign spend, impressions, clicks, conversions, and ROAS sync daily into your P&L marketing line.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="border border-border rounded-lg bg-card p-6 space-y-4">
-      <div>
-        <h3 className="font-semibold">Connect Google Ads</h3>
-        <p className="text-xs text-muted-foreground mt-1">
-          From Google Ads → Tools &amp; Settings → API Center, grab your developer token, customer ID, and a refresh token for this account.
-        </p>
-      </div>
-      <div className="grid gap-3 max-w-md">
-        <input
-          value={customerId}
-          onChange={(e) => setCustomerId(e.target.value)}
-          placeholder="Customer ID (e.g. 123-456-7890)"
-          className="px-3 py-2 text-sm rounded-md border border-border bg-background"
-        />
-        <input
-          value={developerToken}
-          onChange={(e) => setDeveloperToken(e.target.value)}
-          placeholder="Developer token"
-          className="px-3 py-2 text-sm rounded-md border border-border bg-background"
-        />
-        <input
-          value={refreshToken}
-          onChange={(e) => setRefreshToken(e.target.value)}
-          placeholder="Refresh token"
-          type="password"
-          className="px-3 py-2 text-sm rounded-md border border-border bg-background"
-        />
-        {error && <p className="text-xs text-destructive">Connection failed. Check your credentials.</p>}
-        <button
-          onClick={() => connect({ customer_id: customerId, developer_token: developerToken, refresh_token: refreshToken })}
-          disabled={connecting || !customerId || !developerToken || !refreshToken}
-          className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md font-semibold hover:opacity-90 disabled:opacity-50 w-fit"
-        >
-          {connecting ? "Connecting…" : "Connect"}
-        </button>
-      </div>
-    </div>
-  );
-}
 
 function MetaAdsConnector() {
   const { data: status, isLoading } = useMetaAdsStatus();
@@ -217,7 +140,7 @@ export default function MarketingPage() {
       </div>
 
       {tab === "reviews" && <ReviewsPage />}
-      {tab === "googleAds" && <GoogleAdsConnector />}
+      {tab === "googleAds" && <PipeboardIntegration />}
       {tab === "metaAds" && <MetaAdsConnector />}
       {tab === "spendAnalytics" && (
         <ComingSoon
