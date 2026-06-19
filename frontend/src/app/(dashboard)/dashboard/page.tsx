@@ -32,10 +32,11 @@ import {
 } from "recharts";
 import { usePnLReport, useDailyBreakdown } from "@/hooks/use-pnl";
 import { useReconciliationFlags } from "@/hooks/use-reconciliation";
-import { usePipeboardStatus } from "@/hooks/use-pipeboard";
+import { usePipeboardStatus, usePlatformMetrics } from "@/hooks/use-pipeboard";
 import { useAIInsights } from "@/hooks/use-ai-insights";
 import { useLocationStore } from "@/lib/location-store";
 import { useQueryClient } from "@tanstack/react-query";
+import { MarketingMetricsTile } from "@/components/marketing-metrics-tile";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -420,6 +421,7 @@ export default function DashboardPage() {
   });
 
   const { data: pipeboardStatus, isLoading: pipeboardLoading } = usePipeboardStatus();
+  const { data: platformMetrics = [], isLoading: metricsLoading } = usePlatformMetrics();
   const { data: flags, isLoading: flagsLoading } = useReconciliationFlags({ unresolved_only: true });
   const { data: allFlags } = useReconciliationFlags({ unresolved_only: false });
   const { data: insights, isLoading: insightsLoading } = useAIInsights({ include_dismissed: false });
@@ -1149,6 +1151,15 @@ export default function DashboardPage() {
           </div>
         )}
       </SectionCard>
+
+      {/* ── Marketing Metrics Tiles ── */}
+      {pipeboardStatus?.connected && platformMetrics.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {platformMetrics.map((metric) => (
+            <MarketingMetricsTile key={metric.platform} {...metric} />
+          ))}
+        </div>
+      )}
 
       {/* ── Connect Integrations Strip (replaces empty Google cards) ── */}
       <div className="border border-dashed border-border rounded-lg px-5 py-4 flex flex-wrap items-center gap-x-6 gap-y-2">

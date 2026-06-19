@@ -29,6 +29,17 @@ export interface SyncJob {
   triggered_by: string | null;
 }
 
+export interface PlatformMetrics {
+  platform: string;
+  spend: number;
+  revenue: number;
+  roas: number;
+  cpa: number;
+  ctr: number;
+  status: 'healthy' | 'watch' | 'alert';
+  lastUpdated: string | null;
+}
+
 export function usePipeboardStatus() {
   return useQuery({
     queryKey: ["pipeboard-status"],
@@ -108,6 +119,21 @@ export function usePipeboardAlerts() {
     queryKey: ["pipeboard-alerts"],
     queryFn: async () => {
       const { data } = await apiClient.get<any[]>(`${BASE}/alerts`);
+      return data;
+    },
+  });
+}
+
+export function usePlatformMetrics(dateRange?: { from?: string; to?: string }) {
+  return useQuery({
+    queryKey: ["platform-metrics", dateRange],
+    queryFn: async () => {
+      const qs = new URLSearchParams();
+      if (dateRange?.from) qs.set("date_from", dateRange.from);
+      if (dateRange?.to) qs.set("date_to", dateRange.to);
+      const { data } = await apiClient.get<PlatformMetrics[]>(
+        `${BASE}/platform-metrics?${qs}`
+      );
       return data;
     },
   });
