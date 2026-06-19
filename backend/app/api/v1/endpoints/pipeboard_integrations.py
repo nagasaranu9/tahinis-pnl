@@ -19,9 +19,8 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import get_current_user, require_role
-from app.core.database import get_db
-from app.schemas.auth import User
+from app.core.deps import CurrentUser, get_current_user
+from app.db.session import get_db
 from app.schemas.pipeboard_schemas import (
     AlertResponse,
     AuditLogResponse,
@@ -44,7 +43,7 @@ router = APIRouter()
 @router.post("/connect", response_model=OAuthCallbackResponse)
 async def connect_with_token(
     body: ConnectTokenRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> OAuthCallbackResponse:
     """Connect Pipeboard with an API token.
@@ -52,7 +51,7 @@ async def connect_with_token(
     Token is validated against the platform's MCP server (list accounts),
     then stored encrypted per tenant. Get a token at https://pipeboard.co/api-tokens.
     """
-    require_role(current_user, ["owner", "manager"])
+    current_user.require_role("owner", "manager")
 
     service = PipeboardSyncService(db)
     try:
@@ -75,11 +74,11 @@ async def connect_with_token(
 
 @router.get("/status", response_model=PipeboardAccountStatus)
 async def get_account_status(
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PipeboardAccountStatus:
     """Get connection status."""
-    require_role(current_user, ["owner", "manager", "viewer"])
+    current_user.require_role("owner", "manager", "viewer")
 
     service = PipeboardSyncService(db)
     status = await service.get_account_status(current_user.tenant_id)
@@ -89,11 +88,11 @@ async def get_account_status(
 @router.post("/oauth/disconnect", response_model=OAuthCallbackResponse)
 async def disconnect_account(
     body: DisconnectRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> OAuthCallbackResponse:
     """Disconnect Pipeboard account."""
-    require_role(current_user, ["owner"])
+    current_user.require_role("owner")
 
     if not body.confirm:
         raise HTTPException(status_code=400, detail="Disconnect must be confirmed")
@@ -121,11 +120,11 @@ async def disconnect_account(
 
 @router.get("/category-mappings")
 async def list_category_mappings(
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[CategoryMappingResponse]:
     """List category mappings for tenant."""
-    require_role(current_user, ["owner", "manager", "viewer"])
+    current_user.require_role("owner", "manager", "viewer")
 
     from app.db.repositories.pipeboard_repo import PipeboardRepository
 
@@ -148,11 +147,11 @@ async def list_category_mappings(
 @router.post("/category-mappings", response_model=CategoryMappingResponse)
 async def create_category_mapping(
     body: CategoryMappingRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CategoryMappingResponse:
     """Create or update category mapping."""
-    require_role(current_user, ["owner", "manager"])
+    current_user.require_role("owner", "manager")
 
     from app.db.repositories.pipeboard_repo import PipeboardRepository
 
@@ -183,11 +182,11 @@ async def create_category_mapping(
 @router.delete("/category-mappings/{mapping_id}")
 async def delete_category_mapping(
     mapping_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Delete category mapping."""
-    require_role(current_user, ["owner", "manager"])
+    current_user.require_role("owner", "manager")
 
     from app.db.repositories.pipeboard_repo import PipeboardRepository
 
@@ -207,14 +206,14 @@ async def delete_category_mapping(
 @router.post("/sync/manual")
 async def trigger_manual_sync(
     body: ManualSyncRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Trigger manual sync job.
 
     Creates sync job in pending state for Celery worker to process.
     """
-    require_role(current_user, ["owner", "manager"])
+    current_user.require_role("owner", "manager")
 
     from app.db.repositories.pipeboard_repo import PipeboardRepository
     from datetime import date
@@ -233,11 +232,11 @@ async def trigger_manual_sync(
 
 @router.get("/alerts", response_model=list[AlertResponse])
 async def get_alerts(
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[AlertResponse]:
     """Get active (non-dismissed) alerts for tenant."""
-    require_role(current_user, ["owner", "manager", "viewer"])
+    current_user.require_role("owner", "manager", "viewer")
 
     from app.db.repositories.pipeboard_repo import PipeboardRepository
 
@@ -261,11 +260,11 @@ async def get_alerts(
 @router.post("/alerts/dismiss")
 async def dismiss_alert(
     body: DismissAlertRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Dismiss an alert."""
-    require_role(current_user, ["owner", "manager"])
+    current_user.require_role("owner", "manager")
 
     from app.db.repositories.pipeboard_repo import PipeboardRepository
 
@@ -285,11 +284,11 @@ async def dismiss_alert(
 @router.get("/audit-logs", response_model=list[AuditLogResponse])
 async def get_audit_logs(
     limit: int = Query(100, le=1000),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[AuditLogResponse]:
     """Get audit log entries for tenant."""
-    require_role(current_user, ["owner", "manager"])
+    current_user.require_role("owner", "manager")
 
     from app.db.repositories.pipeboard_repo import PipeboardRepository
 
@@ -314,11 +313,11 @@ async def get_audit_logs(
 async def get_sync_jobs(
     status: Optional[str] = Query(None, description="Filter by status: pending/running/complete/failed"),
     limit: int = Query(50, le=500),
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[SyncJobResponse]:
     """Get sync job history for tenant."""
-    require_role(current_user, ["owner", "manager", "viewer"])
+    current_user.require_role("owner", "manager", "viewer")
 
     from app.db.repositories.pipeboard_repo import PipeboardRepository
 
