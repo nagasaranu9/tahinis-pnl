@@ -135,6 +135,65 @@ class ToastSyncService:
         log.info("toast_historical_import_complete", **total_counts)
         return total_counts
 
+    async def run_historical_chunk(
+        self,
+        tenant_id: uuid.UUID,
+        location_id: uuid.UUID,
+        job_id: uuid.UUID,
+        cursor: Optional[datetime] = None,
+        redis_client=None,
+    ) -> dict:
+        """Sync ONE month-window of historical data, then report the next cursor.
+
+        Returns {"counts": {...}, "next_cursor": datetime | None, "done": bool}.
+        Each chunk is its own short Celery task → survives worker restarts and
+        shows live progress. The task chains the next chunk until done is True.
+        """
+        config = await self._repo.get_sync_config(tenant_id, location_id)
+        if not config or not config.is_active:
+            raise ValueError("No active Toast config for location")
+
+        now = datetime.now(UTC)
+        default_start = datetime(2026, 1, 1, tzinfo=UTC)
+        start = config.historical_import_from or default_start
+        if start > now:
+            start = now - timedelta(days=1)
+
+        chunk_start = cursor or start
+        is_first = chunk_start == start
+
+        log = logger.bind(tenant_id=str(tenant_id), location_id=str(location_id))
+
+        # Already past the end → nothing left, finalize.
+        if chunk_start >= now:
+            await self._repo.mark_historical_complete(tenant_id, location_id)
+            await self._repo.update_last_synced(tenant_id, location_id, now)
+            await self._db.commit()
+            log.info("toast_historical_chunk_done")
+            return {"counts": {}, "next_cursor": None, "done": True}
+
+        chunk_end = min(chunk_start + timedelta(days=CHUNK_DAYS), now)
+        log.info("toast_historical_chunk", start=str(chunk_start), end=str(chunk_end))
+
+        creds = await self._load_credentials(config.integration_credential_id)
+        counts = await self._sync_range(
+            tenant_id, location_id, creds, config.toast_restaurant_guid,
+            chunk_start, chunk_end, job_id, redis_client,
+            sync_employees=is_first,
+        )
+
+        await self._repo.increment_orders_synced(job_id, counts.get("orders_synced", 0))
+        await self._db.commit()
+
+        done = chunk_end >= now
+        if done:
+            await self._repo.mark_historical_complete(tenant_id, location_id)
+            await self._repo.update_last_synced(tenant_id, location_id, now)
+            await self._db.commit()
+            log.info("toast_historical_chunk_final", **counts)
+
+        return {"counts": counts, "next_cursor": None if done else chunk_end, "done": done}
+
     # ------------------------------------------------------------------
     # Core sync
     # ------------------------------------------------------------------
