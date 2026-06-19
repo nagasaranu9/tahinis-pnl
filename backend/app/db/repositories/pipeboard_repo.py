@@ -274,6 +274,8 @@ class PipeboardRepository:
         triggered_by: Optional[uuid.UUID],
     ) -> PipeboardSyncJob:
         """Create sync job."""
+        from datetime import UTC, datetime
+        now = datetime.now(UTC)
         job = PipeboardSyncJob(
             tenant_id=tenant_id,
             job_type=job_type,
@@ -282,6 +284,8 @@ class PipeboardRepository:
             date_from=date_from,
             date_to=date_to,
             triggered_by=triggered_by,
+            created_at=now,
+            updated_at=now,
         )
         self._db.add(job)
         await self._db.commit()
@@ -359,11 +363,15 @@ class PipeboardRepository:
         if mapping:
             mapping.expense_category = expense_category
         else:
+            from datetime import UTC, datetime
+            now = datetime.now(UTC)
             mapping = PipeboardCategoryMapping(
                 tenant_id=tenant_id,
                 pipeboard_platform=pipeboard_platform,
                 pipeboard_campaign_type=pipeboard_campaign_type,
                 expense_category=expense_category,
+                created_at=now,
+                updated_at=now,
             )
             self._db.add(mapping)
 
