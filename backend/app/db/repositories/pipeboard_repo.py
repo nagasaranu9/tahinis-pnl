@@ -50,6 +50,8 @@ class PipeboardRepository:
             account.token_expiry = token_expiry
             account.is_active = is_active
         else:
+            from datetime import UTC, datetime
+            now = datetime.now(UTC)
             account = PipeboardAccount(
                 tenant_id=tenant_id,
                 pipeboard_account_id=pipeboard_account_id,
@@ -57,6 +59,8 @@ class PipeboardRepository:
                 refresh_token_encrypted=refresh_token_encrypted,
                 token_expiry=token_expiry,
                 is_active=is_active,
+                created_at=now,
+                updated_at=now,
             )
             self._db.add(account)
 
