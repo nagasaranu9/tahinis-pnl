@@ -304,6 +304,7 @@ class PipeboardHttpAdapter(PipeboardAdapter):
                     "date_range": preset,
                     "time_breakdown": "day",
                 })
+                logger.info("pipeboard_metrics_raw", platform=pipeboard_platform, campaign_id=campaign_id, keys=list(result.keys()), data=str(result)[:500])
                 for row in result.get("segmented_metrics", []):
                     row_date = row.get("date")
                     if not row_date or not (start_date <= row_date <= end_date):
