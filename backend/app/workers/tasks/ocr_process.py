@@ -100,6 +100,180 @@ async def _sync_pushoperations_payroll(
         )
 
 
+# ---------------------------------------------------------------------------
+# Bank statement expense extraction helpers
+# ---------------------------------------------------------------------------
+
+_DEBIT_SIGNALS = (
+    "pad", "pap", "payment", "debit", "purchase", "withdrawal",
+    "pre-authorized", "preauthorized", "chq", "cheque", "pos ",
+    "visa debit", "interac", "e-transfer out", "wire out",
+)
+_CREDIT_SIGNALS = (
+    "deposit", "credit", "interest earned", "payroll deposit",
+    "transfer in", "etransfer in", "e-transfer in", "refund",
+    "payroll credit", "direct deposit",
+)
+_SKIP_VENDOR_NOISE = (
+    "nsf", "service charge", "monthly fee", "overdraft fee",
+    "bank fee", "account fee", "wire fee",
+)
+
+
+def _is_debit_line(description: str, amount: "Decimal") -> bool:
+    desc = description.lower()
+    if amount < 0:
+        return True
+    if any(k in desc for k in _CREDIT_SIGNALS):
+        return False
+    if any(k in desc for k in _DEBIT_SIGNALS):
+        return True
+    return False
+
+
+def _vendor_from_description(description: str) -> str:
+    import re
+    cleaned = re.sub(r'\s+\d{4,}.*$', '', description)
+    cleaned = re.sub(r'\s+\d{2}/\d{2}.*$', '', cleaned)
+    cleaned = re.sub(r'\s+(pad|pap|debit|credit|chq)\b.*$', '', cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.strip()
+    return cleaned[:100] if cleaned else description[:100]
+
+
+async def _gmail_verify_expense(
+    db,
+    tenant_id: "uuid.UUID",
+    vendor_name: str,
+    amount: "Decimal",
+    doc_date: "datetime",
+) -> tuple[bool, str]:
+    """Look for a matching invoice/bill in Gmail email_messages and linked documents."""
+    from datetime import timedelta
+    from decimal import Decimal as _D
+    from sqlalchemy import select, or_
+    from app.db.models.email_sync import EmailMessage
+    from app.db.models.document import Document
+
+    vendor_token = " ".join(vendor_name.split()[:3]).lower()
+    date_low = doc_date - timedelta(days=30)
+    date_high = doc_date + timedelta(days=7)
+
+    # 1. Matching email sender/subject
+    try:
+        row = (await db.execute(
+            select(EmailMessage.sender, EmailMessage.subject, EmailMessage.received_at)
+            .where(
+                EmailMessage.tenant_id == tenant_id,
+                EmailMessage.received_at.between(date_low, date_high),
+                or_(
+                    EmailMessage.sender.ilike(f"%{vendor_token}%"),
+                    EmailMessage.subject.ilike(f"%{vendor_token}%"),
+                ),
+            )
+            .limit(1)
+        )).first()
+        if row:
+            return True, f"Gmail match: {row.sender or row.subject}"
+    except Exception:
+        pass
+
+    # 2. Email-sourced document matching vendor + amount ±10%
+    try:
+        tol = abs(amount) * _D("0.10")
+        doc_row = (await db.execute(
+            select(Document.vendor_name, Document.total_amount)
+            .where(
+                Document.tenant_id == tenant_id,
+                Document.source.in_(("email_gmail", "email_outlook")),
+                Document.vendor_name.ilike(f"%{vendor_token}%"),
+                Document.total_amount.between(abs(amount) - tol, abs(amount) + tol),
+                Document.document_date.between(date_low, date_high),
+            )
+            .limit(1)
+        )).first()
+        if doc_row:
+            return True, f"Email invoice: {doc_row.vendor_name} ${doc_row.total_amount}"
+    except Exception:
+        pass
+
+    return False, "No matching Gmail invoice found"
+
+
+async def _extract_bank_statement_expenses(
+    db,
+    tenant_id: "uuid.UUID",
+    document_id: "uuid.UUID",
+    location_id: "uuid.UUID | None",
+    doc_date: "datetime",
+    line_items: list,
+    currency_code: str,
+) -> int:
+    """Parse debit line items from a bank statement OCR result and create Expense
+    rows, each Gmail-verified against email_messages. Returns count created."""
+    from decimal import Decimal
+    from app.db.repositories.expense_repo import ExpenseRepository
+    from app.workers.tasks.ai_categorize import categorize_expense
+
+    expense_repo = ExpenseRepository(db)
+    created = 0
+
+    for li in line_items:
+        if not li.description:
+            continue
+        desc_lower = li.description.lower()
+        if any(k in desc_lower for k in _SKIP_VENDOR_NOISE):
+            continue
+        if not _is_debit_line(li.description, li.amount):
+            continue
+
+        vendor = _vendor_from_description(li.description)
+        amount = abs(li.amount) if li.amount is not None else None
+        if not amount or amount <= 0:
+            continue
+
+        # Dedup: same doc + same vendor → skip re-import
+        if await expense_repo.get_by_document_and_vendor(
+            tenant_id=tenant_id, document_id=document_id, vendor_name=vendor
+        ) is not None:
+            continue
+
+        gmail_verified, gmail_note = await _gmail_verify_expense(
+            db, tenant_id, vendor, amount, doc_date
+        )
+
+        expense = await expense_repo.create_from_document(
+            tenant_id=tenant_id,
+            document_id=document_id,
+            vendor_name=vendor,
+            amount=amount,
+            currency_code=currency_code,
+            location_id=location_id,
+            created_by=None,
+            expense_date=doc_date,
+        )
+        expense.ai_explanation = (
+            f"Bank statement import. Gmail verified: {'Yes' if gmail_verified else 'No'}. "
+            f"{gmail_note}. Raw: {li.description[:150]}"
+        )
+        expense.is_ai_categorized = False
+        await db.flush()
+
+        categorize_expense.apply_async(
+            kwargs={"expense_id": str(expense.id), "tenant_id": str(tenant_id)},
+            queue="ai",
+        )
+        logger.info(
+            "bank_expense_created",
+            tenant_id=str(tenant_id),
+            vendor=vendor,
+            amount=str(amount),
+            gmail_verified=gmail_verified,
+        )
+        created += 1
+
+    return created
+
+
 _BANK_STATEMENT_KEYWORDS = (
     "bank statement", "account statement", "statement of account",
     "bmo", "td bank", "rbc", "scotiabank", "cibc", "desjardins",
@@ -254,13 +428,36 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
                 document_type=classified_type,
             )
 
-            # Create Expense record from extracted document data (Phase 4)
-            # Skip bank statements and reconciliation docs — not individual expenses
-            _NON_EXPENSE_TYPES = {"bank_statement", "bank_reconciliation", "payroll_report", "other"}
+            # Bank statements: extract individual debit transactions as expenses
+            # and Gmail-verify each one. PushOps payroll fallback already ran above.
+            if classified_type == "bank_statement":
+                bank_created = await _extract_bank_statement_expenses(
+                    db,
+                    tenant_id=tenant_id,
+                    document_id=doc_id,
+                    location_id=doc.location_id,
+                    doc_date=doc_date or datetime.now(UTC),
+                    line_items=result.line_items,
+                    currency_code=result.currency_code or "CAD",
+                )
+                await db.commit()
+                logger.info(
+                    "bank_statement_expenses_extracted",
+                    document_id=document_id_str,
+                    bank_expenses_created=bank_created,
+                )
+                return {
+                    "status": "ok",
+                    "document_type": "bank_statement",
+                    "bank_expenses_created": bank_created,
+                }
+
+            # Skip other non-expense document types
+            _NON_EXPENSE_TYPES = {"bank_reconciliation", "payroll_report", "other"}
             if classified_type in _NON_EXPENSE_TYPES:
                 await db.commit()
-                logger.info("ocr_skip_expense_for_type", document_type=doc.document_type)
-                return {"status": "ok", "skipped_expense": True, "document_type": doc.document_type}
+                logger.info("ocr_skip_expense_for_type", document_type=classified_type)
+                return {"status": "ok", "skipped_expense": True, "document_type": classified_type}
 
             from app.db.repositories.expense_repo import ExpenseRepository
             expense_repo = ExpenseRepository(db)

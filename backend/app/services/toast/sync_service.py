@@ -94,7 +94,14 @@ class ToastSyncService:
             raise ValueError("No active Toast config for location")
 
         now = datetime.now(UTC)
-        start = config.historical_import_from or (now - timedelta(days=365))
+        # Default backfill floor: Jan 1 2026 (start of current fiscal year), not a
+        # rolling 365-day window. Smaller, deterministic range → less memory, no
+        # re-importing stale prior-year data the operator doesn't report on.
+        default_start = datetime(2026, 1, 1, tzinfo=UTC)
+        start = config.historical_import_from or default_start
+        # Guard: never start in the future (e.g. brand-new location created later).
+        if start > now:
+            start = now - timedelta(days=1)
         creds = await self._load_credentials(config.integration_credential_id)
 
         log = logger.bind(tenant_id=str(tenant_id), location_id=str(location_id))
@@ -116,6 +123,8 @@ class ToastSyncService:
             for k in total_counts:
                 total_counts[k] += counts.get(k, 0)
 
+            # Update running total so the UI banner shows live progress every 5s.
+            await self._repo.increment_orders_synced(job_id, counts.get("orders_synced", 0))
             await self._db.commit()
             chunk_start = chunk_end
 

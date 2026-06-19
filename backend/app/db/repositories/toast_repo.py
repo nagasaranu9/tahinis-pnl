@@ -201,6 +201,16 @@ class ToastRepository:
             update(ToastSyncJob).where(ToastSyncJob.id == job_id).values(**values)
         )
 
+    async def increment_orders_synced(self, job_id: uuid.UUID, delta: int) -> None:
+        """Atomically add delta to orders_synced for live progress during historical import."""
+        if delta <= 0:
+            return
+        await self._db.execute(
+            update(ToastSyncJob)
+            .where(ToastSyncJob.id == job_id)
+            .values(orders_synced=ToastSyncJob.orders_synced + delta)
+        )
+
     # ------------------------------------------------------------------
     # Orders — upsert on (tenant_id, toast_guid)
     # ------------------------------------------------------------------
