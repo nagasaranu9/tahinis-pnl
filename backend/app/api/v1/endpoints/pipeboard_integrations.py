@@ -358,6 +358,91 @@ async def delete_sync_job(
     return {"success": True}
 
 
+@router.get("/platform-metrics")
+async def get_platform_metrics(
+    date_from: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    date_to: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """Get aggregated metrics by platform for date range."""
+    from datetime import datetime, timedelta
+    from decimal import Decimal
+    from sqlalchemy import func, select
+
+    try:
+        if date_from and date_to:
+            start = datetime.fromisoformat(date_from).date()
+            end = datetime.fromisoformat(date_to).date()
+        else:
+            end = datetime.now().date()
+            start = end - timedelta(days=30)
+
+        from app.db.models.external_platform import (
+            PipeboardDailyMetric,
+            PipeboardCampaign,
+        )
+
+        # Fetch metrics for date range
+        metrics = await db.execute(
+            select(
+                PipeboardCampaign.pipeboard_platform,
+                func.sum(PipeboardDailyMetric.spend).label("total_spend"),
+                func.sum(PipeboardDailyMetric.conversion_value).label("total_revenue"),
+                func.avg(PipeboardDailyMetric.roas).label("avg_roas"),
+                func.avg(PipeboardDailyMetric.cpc).label("avg_cpa"),
+                func.avg(PipeboardDailyMetric.ctr).label("avg_ctr"),
+                func.max(PipeboardDailyMetric.metric_date).label("last_updated"),
+            )
+            .join(
+                PipeboardCampaign,
+                PipeboardDailyMetric.campaign_id == PipeboardCampaign.id,
+            )
+            .where(
+                PipeboardCampaign.tenant_id == current_user.tenant_id,
+                PipeboardDailyMetric.metric_date >= start.isoformat(),
+                PipeboardDailyMetric.metric_date <= end.isoformat(),
+            )
+            .group_by(PipeboardCampaign.pipeboard_platform)
+        )
+
+        result = []
+        for row in metrics:
+            platform = row.pipeboard_platform or "Unknown"
+            spend = float(row.total_spend or 0)
+            revenue = float(row.total_revenue or 0)
+            roas = float(row.avg_roas or 0)
+            cpa = float(row.avg_cpa or 0)
+            ctr = float(row.avg_ctr or 0)
+
+            # Determine status: healthy (ROAS > 5), watch (3-5), alert (< 3)
+            if roas >= 5:
+                status = "healthy"
+            elif roas >= 3:
+                status = "watch"
+            else:
+                status = "alert"
+
+            result.append(
+                {
+                    "platform": platform,
+                    "spend": spend,
+                    "revenue": revenue,
+                    "roas": roas,
+                    "cpa": cpa,
+                    "ctr": ctr,
+                    "status": status,
+                    "lastUpdated": row.last_updated,
+                }
+            )
+
+        return result
+
+    except Exception as e:
+        logger.error("platform_metrics_failed", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch metrics")
+
+
 @router.get("/sync-jobs", response_model=list[SyncJobResponse])
 async def get_sync_jobs(
     status: Optional[str] = Query(None, description="Filter by status: pending/running/complete/failed"),
