@@ -43,7 +43,12 @@ celery_app.conf.update(
     task_routes={
         "app.workers.tasks.ocr_process.*": {"queue": "ocr"},
         "app.workers.tasks.ai_categorize.*": {"queue": "ai"},
-        "app.workers.tasks.toast_sync.*": {"queue": "sync"},
+        # Orchestrator stays on "default" — if it routes to "sync" it blocks behind
+        # the heavy tasks it dispatches and piles up when concurrency slots are full.
+        "toast.daily_sync_all_locations": {"queue": "default"},
+        "toast.incremental_sync": {"queue": "sync"},
+        "toast.historical_import": {"queue": "sync"},
+        "toast.historical_chunk": {"queue": "sync"},
         "app.workers.tasks.email_sync.*": {"queue": "sync"},
         "app.workers.tasks.external_platforms.*": {"queue": "sync"},
         "app.workers.tasks.reviews_sync.*": {"queue": "sync"},

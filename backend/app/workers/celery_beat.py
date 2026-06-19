@@ -4,15 +4,14 @@ from app.workers.celery_app import celery_app
 
 celery_app.conf.beat_schedule = {
     # ── Near-realtime Toast sync every minute ────────────────────────────────
+    # Single entry — toast-sync-daily was a duplicate that fired at 2AM in the
+    # same minute as this schedule, causing two dispatch tasks to race and create
+    # two pending jobs per location (one stayed pending until the 60-min stale sweep).
     "toast-sync-1min": {
         "task": "toast.daily_sync_all_locations",
         "schedule": crontab(minute="*"),
     },
     # ── Daily syncs (UTC) ─────────────────────────────────────────────────────
-    "toast-sync-daily": {
-        "task": "toast.daily_sync_all_locations",
-        "schedule": crontab(hour=2, minute=0),
-    },
     "gmail-sync-daily": {
         "task": "email.gmail_sync_all",
         "schedule": crontab(hour=3, minute=0),
