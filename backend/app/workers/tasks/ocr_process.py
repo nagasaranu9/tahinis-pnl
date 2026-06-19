@@ -119,6 +119,33 @@ _SKIP_VENDOR_NOISE = (
     "bank fee", "account fee", "wire fee",
 )
 
+# Hard non-expense exclusions for bank statements. These are NOT operating
+# expenses and must never hit the P&L — counting them double-counts or inflates
+# opex (a restaurant's real costs are the underlying purchases, not the cash
+# movements that settle them):
+#   - account transfers (money moved between own accounts)
+#   - credit-card bill payments (the itemized purchases are the expense, not the
+#     payment that clears the card balance)
+#   - "payments and credits" summary lines (these are inflows, not outflows)
+#   - loan principal repayments (balance-sheet, not P&L; interest IS an expense
+#     and is caught separately by the Professional Services keyword map)
+_NON_EXPENSE_BANK_KEYWORDS = (
+    "trsf", "transfer", "tfr ", "tfr-", "e-transfer", "etransfer",
+    "online bill payment", "bill payment, amex", "bill payment, visa",
+    "bill payment, mastercard", "credit card payment", "cc payment",
+    "card payment", "amex", "mastercard payment", "visa payment",
+    "payments and credits", "payment and credit",
+    "loan payment", "loan principal", "mortgage principal",
+    "internal transfer", "own account", "account to account",
+)
+
+
+def _is_non_expense_bank_line(description: str) -> bool:
+    """True when a bank line is a transfer / card-bill payment / credit summary —
+    movements that must be excluded from the P&L."""
+    desc = description.lower()
+    return any(k in desc for k in _NON_EXPENSE_BANK_KEYWORDS)
+
 
 def _is_debit_line(description: str, amount: "Decimal") -> bool:
     desc = description.lower()
@@ -223,6 +250,9 @@ async def _parse_bank_transactions_with_claude(extracted_text: str, currency_cod
         "- Skip deposits, credits, interest earned, transfers in, refunds\n"
         "- Skip opening/closing balance lines\n"
         "- Skip NSF fees, bank service charges, monthly fees\n"
+        "- Skip account transfers (TRSF, TFR, transfer between accounts)\n"
+        "- Skip credit-card bill payments (Online Bill Payment to AMEX/VISA/Mastercard)\n"
+        "- Skip 'payments and credits' summary lines and loan principal repayments\n"
         "- Return [] if no debit transactions found\n\n"
         f"Bank statement text:\n{text_sample}\n\n"
         "JSON array only, no prose:"
@@ -301,6 +331,8 @@ async def _extract_bank_statement_expenses(
             desc_lower = li.description.lower()
             if any(k in desc_lower for k in _SKIP_VENDOR_NOISE):
                 continue
+            if _is_non_expense_bank_line(li.description):
+                continue
             if li.amount is None or not _is_debit_line(li.description, li.amount):
                 continue
             transactions.append({
@@ -320,6 +352,8 @@ async def _extract_bank_statement_expenses(
 
         desc_lower = desc.lower()
         if any(k in desc_lower for k in _SKIP_VENDOR_NOISE):
+            continue
+        if _is_non_expense_bank_line(desc):
             continue
 
         # Use per-transaction date when Claude extracted it; fall back to statement date.

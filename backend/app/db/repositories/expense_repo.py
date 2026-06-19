@@ -172,8 +172,12 @@ class ExpenseRepository:
         expense.ai_confidence_score = ai_confidence_score
         expense.ai_explanation = ai_explanation
         expense.is_ai_categorized = True
-        # Auto-apply if not yet user-overridden and confidence >= 0.8
-        if not expense.user_overridden and ai_confidence_score >= Decimal("0.80"):
+        # Auto-apply the suggestion whenever the user hasn't manually overridden.
+        # A suggested category (even low-confidence) is strictly better than
+        # leaving the expense Uncategorized in the P&L — the user can still
+        # override, and low confidence is surfaced in the UI. Only a real user
+        # override (user_overridden=True) is protected from being clobbered.
+        if not expense.user_overridden:
             expense.category = ai_suggested_category
         await self._db.flush()
 

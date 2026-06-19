@@ -406,14 +406,23 @@ async def get_platform_metrics(
             .group_by(PipeboardCampaign.pipeboard_platform)
         )
 
+        _PLATFORM_LABELS = {
+            "google_ads": "Google Ads",
+            "meta_ads": "Meta Ads",
+            "tiktok_ads": "TikTok Ads",
+        }
+
         result = []
         for row in metrics:
-            platform = row.pipeboard_platform or "Unknown"
+            raw_platform = row.pipeboard_platform or "Unknown"
+            platform = _PLATFORM_LABELS.get(raw_platform, raw_platform)
             spend = float(row.total_spend or 0)
             revenue = float(row.total_revenue or 0)
             roas = float(row.avg_roas or 0)
             cpa = float(row.avg_cpa or 0)
-            ctr = float(row.avg_ctr or 0)
+            # Pipeboard reports CTR as a fraction (0.0418 == 4.18%). Convert to a
+            # percentage so the dashboard tile renders it correctly.
+            ctr = float(row.avg_ctr or 0) * 100
 
             # Determine status: healthy (ROAS > 5), watch (3-5), alert (< 3)
             if roas >= 5:

@@ -305,6 +305,7 @@ class PipeboardHttpAdapter(PipeboardAdapter):
                     "time_breakdown": "day",
                 })
                 logger.info("pipeboard_metrics_raw", platform=pipeboard_platform, campaign_id=campaign_id, keys=list(result.keys()), data=str(result)[:500])
+                rows_added = 0
                 for row in result.get("segmented_metrics", []):
                     row_date = row.get("date")
                     if not row_date or not (start_date <= row_date <= end_date):
@@ -326,6 +327,40 @@ class PipeboardHttpAdapter(PipeboardAdapter):
                         roas=roas,
                         currency_code=cur,
                     ))
+                    rows_added += 1
+
+                # Fallback: Pipeboard often returns an empty `segmented_metrics`
+                # (no per-day breakdown) while still reporting real campaign totals
+                # in `aggregate_metrics` — especially for PMax campaigns. Without
+                # this, dashboards show 0 metrics even though spend exists. Persist
+                # one summary row dated at end_date so spend/ROAS surface on the
+                # P&L and marketing tiles.
+                if rows_added == 0:
+                    agg = result.get("aggregate_metrics") or {}
+                    cost = Decimal(str(agg.get("cost", 0) or 0))
+                    if cost > 0:
+                        conv_value = agg.get("conversions_value")
+                        roas = (Decimal(str(conv_value)) / cost) if (conv_value and cost > 0) else None
+                        metrics.append(PipeboardDailyMetricData(
+                            pipeboard_platform=pipeboard_platform,
+                            pipeboard_campaign_id=campaign_id,
+                            metric_date=end_date,
+                            spend=cost,
+                            impressions=int(agg.get("impressions", 0) or 0),
+                            clicks=int(agg.get("clicks", 0) or 0),
+                            conversions=Decimal(str(agg["conversions"])) if agg.get("conversions") is not None else None,
+                            conversion_value=Decimal(str(conv_value)) if conv_value is not None else None,
+                            ctr=Decimal(str(agg["average_ctr"])) if agg.get("average_ctr") is not None else None,
+                            cpc=Decimal(str(agg["average_cpc"])) if agg.get("average_cpc") is not None else None,
+                            roas=roas,
+                            currency_code=cur,
+                        ))
+                        logger.info(
+                            "pipeboard_metrics_aggregate_fallback",
+                            platform=pipeboard_platform,
+                            campaign_id=campaign_id,
+                            spend=str(cost),
+                        )
         return metrics
 
 

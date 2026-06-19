@@ -193,6 +193,39 @@ async def trigger_recategorize(
     return {"data": {"queued": True, "expense_id": str(expense_id)}, "errors": None}
 
 
+@router.post("/recategorize-all", response_model=APIResponse[dict])
+async def trigger_recategorize_all(
+    user: ManagerDep,
+    db: AsyncSessionDep,
+    limit: int = Query(1000, ge=1, le=5000),
+) -> dict:
+    """Re-run AI categorization for ALL uncategorized expenses of the tenant.
+
+    Use after improving the categorization rules to backfill existing rows. The
+    deterministic keyword map means most re-categorize for free (no AI cost)."""
+    repo = ExpenseRepository(db)
+    rows, total = await repo.list_expenses(
+        tenant_id=user.tenant_id, uncategorized_only=True, page=1, limit=limit
+    )
+
+    from app.workers.tasks.ai_categorize import categorize_expense
+    for expense in rows:
+        categorize_expense.apply_async(
+            kwargs={"expense_id": str(expense.id), "tenant_id": str(user.tenant_id)},
+            queue="ai",
+        )
+    logger.info(
+        "expense_recategorize_all_queued",
+        tenant_id=str(user.tenant_id),
+        queued=len(rows),
+        total_uncategorized=total,
+    )
+    return {
+        "data": {"queued": len(rows), "total_uncategorized": total},
+        "errors": None,
+    }
+
+
 @router.delete("/{expense_id}", status_code=204)
 async def delete_expense(expense_id: uuid.UUID, user: ManagerDep, db: AsyncSessionDep) -> None:
     repo = ExpenseRepository(db)

@@ -36,6 +36,68 @@ class CategorizationResult:
         self.explanation = explanation
 
 
+# Deterministic vendor/keyword -> category map. Matched against the vendor name
+# and line-item text BEFORE any AI call, so common Canadian restaurant bank
+# transactions categorize for free (no Anthropic credits) and never land in
+# "Uncategorized". Order matters: first substring hit wins. Keep keywords lower.
+_KEYWORD_CATEGORY_MAP: list[tuple[tuple[str, ...], str]] = [
+    # Payroll / labor
+    (("pushoperation", "pushops", "payroll", "wage", "adp ", "ceridian", "wagepoint"), "Payroll"),
+    # Utilities (telecom + hydro/gas/water)
+    (("telus", "rogers", "bell ", "bell canada", "fido", "koodo", "videotron",
+      "hydro", "enbridge", "fortis", "epcor", "toronto hydro", "alectra",
+      "utilit", "gas company", "water", "energy"), "Utilities"),
+    # Rent / lease of premises
+    (("rent", "landlord", "lease", "property mgmt", "realty", "leasing"), "Rent"),
+    # Insurance
+    (("insurance", "intact", "aviva", "wawanesa", "sonnet", "co-operators",
+      "assurance", "ins ", "ins.", "gms"), "Insurance"),
+    # Software / SaaS
+    (("toast", "quickbooks", "intuit", "shopify", "square ", "stripe", "google ",
+      "microsoft", "adobe", "zoom", "slack", "godaddy", "mailchimp", "ubereats tech",
+      "software", "saas", "subscription", "app store", "aws", "amazon web"), "Software"),
+    # Marketing / ads
+    (("google ads", "facebook", "meta platforms", "instagram", "advertis",
+      "marketing", "yelp", "groupon", "promo"), "Marketing"),
+    # Royalties / franchise fees
+    (("royalt", "franchise"), "Royalties"),
+    # Repairs & maintenance
+    (("repair", "hvac", "plumb", "electric", "maintenance", "handyman",
+      "appliance", "refrigerat"), "Repairs"),
+    # Cleaning / sanitation / linen
+    (("cleaning", "janitor", "sanitat", "ecolab", "linen", "pest control", "waste"), "Cleaning"),
+    # Packaging / disposables
+    (("packaging", "container", "disposable", "uline", "dart ", "cutlery", "napkin"), "Packaging"),
+    # Beverage suppliers
+    (("coca-cola", "coca cola", "pepsi", "beverage", "lcbo", "liquor", "brewery",
+      "coffee", "beer", "wine"), "Beverage Cost"),
+    # Food suppliers / distributors
+    (("sysco", "gordon food", "gfs", "costco", "restaurant depot", "produce",
+      "meat", "bakery", "food service", "wholesale", "distribut", "grocery",
+      "farm", "dairy", "halal", "fresh"), "Food Cost"),
+    # Professional services / bank & financing costs
+    (("interest paid", "interest charge", "bank fee", "service charge", "accounting",
+      "accountant", "lawyer", "legal", "consult", "professional", "audit", "notary",
+      "loan", "financing", "amex annual", "card fee"), "Professional Services"),
+]
+
+
+def keyword_category(vendor_name: str | None, line_item_descriptions: list[str] | None) -> str | None:
+    """Return a deterministic category if vendor/line-items match a known keyword.
+
+    No network, no AI cost. Returns None when nothing matches (caller falls back
+    to the AI categorizer)."""
+    haystack = " ".join(
+        filter(None, [vendor_name or "", " ".join(line_item_descriptions or [])])
+    ).lower()
+    if not haystack.strip():
+        return None
+    for keywords, category in _KEYWORD_CATEGORY_MAP:
+        if any(k in haystack for k in keywords):
+            return category
+    return None
+
+
 class CategorizationService:
     def __init__(self) -> None:
         self._client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
@@ -48,6 +110,16 @@ class CategorizationService:
         document_type: str | None = None,
         line_item_descriptions: list[str] | None = None,
     ) -> CategorizationResult:
+        # 1. Deterministic keyword match first — free, instant, no AI credits.
+        kw = keyword_category(vendor_name, line_item_descriptions)
+        if kw is not None:
+            return CategorizationResult(
+                category=kw,
+                confidence=Decimal("0.90"),
+                explanation=f"Matched known vendor/keyword to {kw}.",
+            )
+
+        # 2. Fall back to AI only when no keyword matched.
         user_message = self._build_user_message(
             vendor_name, amount, currency_code, document_type, line_item_descriptions
         )

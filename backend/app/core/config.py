@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     # Token encryption key (AES-256 for integration credentials)
     CREDENTIAL_ENCRYPTION_KEY: str  # 32-byte base64-encoded key
 
+    # OCR adapter selection: "auto" (Google if configured else Claude),
+    # "google" (Document AI — cheap), "claude" (Vision — pricey), "tesseract"
+    # (free local), "mock". Default "auto" avoids burning Anthropic credits when
+    # Google Document AI is configured.
+    OCR_ADAPTER: str = "auto"
+
     # Google
     GOOGLE_DOC_AI_PROJECT_ID: str = ""
     GOOGLE_DOC_AI_LOCATION: str = "us"
