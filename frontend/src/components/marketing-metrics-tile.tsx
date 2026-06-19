@@ -10,7 +10,7 @@ export interface MarketingMetricsTileProps {
   cpa: number;
   ctr: number;
   status: 'healthy' | 'watch' | 'alert';
-  lastUpdated?: string;
+  lastUpdated: string | null;
 }
 
 export function MarketingMetricsTile({
