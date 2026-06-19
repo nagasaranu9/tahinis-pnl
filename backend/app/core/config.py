@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     GOOGLE_DOC_AI_PROJECT_ID: str = ""
     GOOGLE_DOC_AI_LOCATION: str = "us"
     GOOGLE_DOC_AI_PROCESSOR_ID: str = ""
+    # Inline service-account JSON (paste full JSON as the value). Used when no
+    # GOOGLE_APPLICATION_CREDENTIALS file path is available (e.g. Railway).
+    GOOGLE_APPLICATION_CREDENTIALS_JSON: str = ""
     GOOGLE_OAUTH_CLIENT_ID: str = ""
     GOOGLE_OAUTH_CLIENT_SECRET: str = ""
 

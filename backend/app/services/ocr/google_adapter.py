@@ -16,11 +16,27 @@ class GoogleDocumentAIAdapter(OCRAdapter):
         from google.api_core.client_options import ClientOptions
         from google.cloud import documentai
 
-        client = documentai.DocumentProcessorServiceClient(
-            client_options=ClientOptions(
-                api_endpoint=f"{settings.GOOGLE_DOC_AI_LOCATION}-documentai.googleapis.com"
-            )
+        client_options = ClientOptions(
+            api_endpoint=f"{settings.GOOGLE_DOC_AI_LOCATION}-documentai.googleapis.com"
         )
+
+        # Prefer inline service-account JSON (Railway-friendly) when provided;
+        # otherwise fall back to Application Default Credentials (the
+        # GOOGLE_APPLICATION_CREDENTIALS file path).
+        if settings.GOOGLE_APPLICATION_CREDENTIALS_JSON:
+            import json
+
+            from google.oauth2 import service_account
+
+            info = json.loads(settings.GOOGLE_APPLICATION_CREDENTIALS_JSON)
+            creds = service_account.Credentials.from_service_account_info(info)
+            client = documentai.DocumentProcessorServiceClient(
+                client_options=client_options, credentials=creds
+            )
+        else:
+            client = documentai.DocumentProcessorServiceClient(
+                client_options=client_options
+            )
         processor_name = client.processor_path(
             settings.GOOGLE_DOC_AI_PROJECT_ID,
             settings.GOOGLE_DOC_AI_LOCATION,
