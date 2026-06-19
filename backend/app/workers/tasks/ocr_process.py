@@ -199,6 +199,77 @@ async def _gmail_verify_expense(
     return False, "No matching Gmail invoice found"
 
 
+async def _parse_bank_transactions_with_claude(extracted_text: str, currency_code: str) -> list[dict]:
+    """Extract debit transactions from raw bank statement OCR text via Claude haiku.
+    Google Invoice Parser returns no line_items for bank statements — this is the fallback.
+    Returns list of {description, amount (positive Decimal), date (str|None)}."""
+    import json
+    from decimal import Decimal, InvalidOperation
+    import anthropic
+    from app.core.config import settings
+
+    if not extracted_text or len(extracted_text) < 50:
+        return []
+
+    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    text_sample = extracted_text[:5000]
+
+    prompt = (
+        "Extract all debit/withdrawal transactions from this bank statement text.\n"
+        "Return ONLY a JSON array. Each element: "
+        '{"description": "vendor name", "amount": 123.45, "date": "2026-05-15"}\n'
+        "Rules:\n"
+        "- amount: positive number (the withdrawal/debit amount)\n"
+        "- Skip deposits, credits, interest earned, transfers in, refunds\n"
+        "- Skip opening/closing balance lines\n"
+        "- Skip NSF fees, bank service charges, monthly fees\n"
+        "- Return [] if no debit transactions found\n\n"
+        f"Bank statement text:\n{text_sample}\n\n"
+        "JSON array only, no prose:"
+    )
+
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            parts = raw.split("```")
+            raw = parts[1] if len(parts) > 1 else raw
+            if raw.startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip()
+        parsed = json.loads(raw)
+        if not isinstance(parsed, list):
+            return []
+
+        result = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            desc = str(item.get("description", "")).strip()
+            if not desc:
+                continue
+            try:
+                amount = Decimal(str(item.get("amount", 0))).quantize(Decimal("0.01"))
+            except InvalidOperation:
+                continue
+            if amount <= 0:
+                continue
+            result.append({
+                "description": desc,
+                "amount": amount,
+                "date": item.get("date"),
+            })
+        logger.info("bank_statement_claude_parsed", transactions=len(result))
+        return result
+    except Exception as exc:
+        logger.warning("bank_statement_claude_parse_failed", error=str(exc))
+        return []
+
+
 async def _extract_bank_statement_expenses(
     db,
     tenant_id: "uuid.UUID",
@@ -207,9 +278,12 @@ async def _extract_bank_statement_expenses(
     doc_date: "datetime",
     line_items: list,
     currency_code: str,
+    extracted_text: str = "",
 ) -> int:
-    """Parse debit line items from a bank statement OCR result and create Expense
-    rows, each Gmail-verified against email_messages. Returns count created."""
+    """Parse debit transactions from a bank statement and create Expense rows.
+
+    Google Invoice Parser returns empty line_items for bank statements — falls back
+    to Claude haiku text parsing of the raw OCR text. Returns count created."""
     from decimal import Decimal
     from app.db.repositories.expense_repo import ExpenseRepository
     from app.workers.tasks.ai_categorize import categorize_expense
@@ -217,28 +291,56 @@ async def _extract_bank_statement_expenses(
     expense_repo = ExpenseRepository(db)
     created = 0
 
-    for li in line_items:
-        if not li.description:
-            continue
-        desc_lower = li.description.lower()
-        if any(k in desc_lower for k in _SKIP_VENDOR_NOISE):
-            continue
-        if not _is_debit_line(li.description, li.amount):
-            continue
+    # Build unified transaction list. Invoice Parser populates line_items for invoices
+    # but returns nothing for bank statements — use Claude text parsing as fallback.
+    transactions: list[dict] = []
+    if line_items:
+        for li in line_items:
+            if not li.description:
+                continue
+            desc_lower = li.description.lower()
+            if any(k in desc_lower for k in _SKIP_VENDOR_NOISE):
+                continue
+            if li.amount is None or not _is_debit_line(li.description, li.amount):
+                continue
+            transactions.append({
+                "description": li.description,
+                "amount": abs(li.amount),
+                "date": None,
+            })
 
-        vendor = _vendor_from_description(li.description)
-        amount = abs(li.amount) if li.amount is not None else None
+    if not transactions and extracted_text:
+        transactions = await _parse_bank_transactions_with_claude(extracted_text, currency_code)
+
+    for tx in transactions:
+        desc = tx["description"]
+        amount: "Decimal" = tx["amount"]
         if not amount or amount <= 0:
             continue
 
-        # Dedup: same doc + same vendor → skip re-import
+        desc_lower = desc.lower()
+        if any(k in desc_lower for k in _SKIP_VENDOR_NOISE):
+            continue
+
+        # Use per-transaction date when Claude extracted it; fall back to statement date.
+        tx_date = doc_date
+        if tx.get("date"):
+            try:
+                from datetime import date as _date
+                parsed = _date.fromisoformat(str(tx["date"]))
+                tx_date = datetime(parsed.year, parsed.month, parsed.day, tzinfo=UTC)
+            except Exception:
+                pass
+
+        vendor = _vendor_from_description(desc)
+
         if await expense_repo.get_by_document_and_vendor(
             tenant_id=tenant_id, document_id=document_id, vendor_name=vendor
         ) is not None:
             continue
 
         gmail_verified, gmail_note = await _gmail_verify_expense(
-            db, tenant_id, vendor, amount, doc_date
+            db, tenant_id, vendor, amount, tx_date
         )
 
         expense = await expense_repo.create_from_document(
@@ -249,11 +351,11 @@ async def _extract_bank_statement_expenses(
             currency_code=currency_code,
             location_id=location_id,
             created_by=None,
-            expense_date=doc_date,
+            expense_date=tx_date,
         )
         expense.ai_explanation = (
             f"Bank statement import. Gmail verified: {'Yes' if gmail_verified else 'No'}. "
-            f"{gmail_note}. Raw: {li.description[:150]}"
+            f"{gmail_note}. Raw: {desc[:150]}"
         )
         expense.is_ai_categorized = False
         await db.flush()
@@ -439,6 +541,7 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
                     doc_date=doc_date or datetime.now(UTC),
                     line_items=result.line_items,
                     currency_code=result.currency_code or "CAD",
+                    extracted_text=result.extracted_text or "",
                 )
                 await db.commit()
                 logger.info(

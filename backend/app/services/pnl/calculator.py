@@ -258,13 +258,27 @@ class PnLCalculator:
         period_end: datetime,
         location_id: uuid.UUID | None,
     ) -> bool:
-        conds = [
+        from sqlalchemy import or_
+        base_conds = [
             Document.tenant_id == tenant_id,
             Document.document_type == "bank_statement",
-            Document.document_date >= period_start,
-            Document.document_date <= period_end,
+            # Google Invoice Parser doesn't extract dates from bank statements so
+            # document_date is often NULL. Fall back to created_at (upload date) so
+            # the "No bank statement" warning doesn't appear for freshly uploaded statements.
+            or_(
+                and_(
+                    Document.document_date.is_not(None),
+                    Document.document_date >= period_start,
+                    Document.document_date <= period_end,
+                ),
+                and_(
+                    Document.document_date.is_(None),
+                    Document.created_at >= period_start,
+                    Document.created_at <= period_end,
+                ),
+            ),
         ]
         if location_id:
-            conds.append(Document.location_id == location_id)
-        result = await self._db.execute(select(Document.id).where(and_(*conds)).limit(1))
+            base_conds.append(Document.location_id == location_id)
+        result = await self._db.execute(select(Document.id).where(and_(*base_conds)).limit(1))
         return result.scalar_one_or_none() is not None
