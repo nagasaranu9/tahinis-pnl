@@ -4,10 +4,11 @@ Stores daily snapshots from Google Business Profile and Google Ads.
 All records are immutable after creation (historical snapshots).
 """
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Numeric, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
