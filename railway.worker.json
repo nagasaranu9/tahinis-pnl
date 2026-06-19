@@ -5,7 +5,7 @@
     "dockerfilePath": "docker/Dockerfile.worker"
   },
   "deploy": {
-    "startCommand": "celery -A app.workers.celery_app worker --loglevel=info -Q default,sync,ocr,ai --concurrency=2",
+    "startCommand": "celery -A app.workers.celery_app worker -Q default,sync,ocr,ai --concurrency=2 --loglevel=info",
     "restartPolicyType": "on_failure",
     "restartPolicyMaxRetries": 10
   }
