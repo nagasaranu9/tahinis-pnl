@@ -396,9 +396,16 @@ async def _extract_bank_statement_expenses(
         is_rent = _is_amex_rent_payment(desc)
         vendor = "Rent (AMEX autopay)" if is_rent else _vendor_from_description(desc)
 
-        if await expense_repo.get_by_document_and_vendor(
-            tenant_id=tenant_id, document_id=document_id, vendor_name=vendor
-        ) is not None:
+        # Dedup on vendor+amount+date — a bank statement legitimately repeats the
+        # same vendor with different amounts (ALEX FOOD daily, PUSHOPERATIONS
+        # weekly), so vendor-only dedup would collapse them and drop real cost.
+        if await expense_repo.bank_line_exists(
+            tenant_id=tenant_id,
+            document_id=document_id,
+            vendor_name=vendor,
+            amount=amount,
+            expense_date=tx_date,
+        ):
             continue
 
         gmail_verified, gmail_note = await _gmail_verify_expense(
@@ -565,27 +572,27 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
                 parsed = date.fromisoformat(result.document_date)
                 doc_date = datetime(parsed.year, parsed.month, parsed.day, tzinfo=UTC)
 
-            # Bank-statement payroll fallback: if PushOperations isn't connected as
-            # a live integration, pull labor cost straight from the bank statement
-            # line items instead (PUSHOPERATIONS PAY/PAY pre-authorized payments are
-            # the actual cash that left the account for payroll — more reliable than
-            # an empty Toast labor sync). Runs for ANY document, not just ones already
-            # classified bank_statement, since OCR classification can lag/misfire.
-            await _sync_pushoperations_payroll(
-                db,
-                tenant_id=tenant_id,
-                document_id=doc_id,
-                location_id=doc.location_id,
-                expense_date=doc_date or datetime.now(UTC),
-                line_items=result.line_items,
-                currency_code=result.currency_code or "CAD",
-            )
-
             classified_type = _classify_document_type(
                 filename=doc.original_filename,
                 vendor_name=result.vendor_name,
                 extracted_text=result.extracted_text,
             )
+
+            # Payroll fallback for NON-bank documents only (e.g. a standalone
+            # payroll report). For bank statements, _extract_bank_statement_expenses
+            # below already books each PUSHOPERATIONS pre-authorized payment as its
+            # own Payroll expense with the correct per-payment amount — running this
+            # too would DOUBLE-book payroll and inflate Labor Cost.
+            if classified_type != "bank_statement":
+                await _sync_pushoperations_payroll(
+                    db,
+                    tenant_id=tenant_id,
+                    document_id=doc_id,
+                    location_id=doc.location_id,
+                    expense_date=doc_date or datetime.now(UTC),
+                    line_items=result.line_items,
+                    currency_code=result.currency_code or "CAD",
+                )
 
             await repo.update_extracted_data(
                 doc_id,

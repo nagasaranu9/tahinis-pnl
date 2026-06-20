@@ -79,6 +79,33 @@ class ExpenseRepository:
         )
         return result.scalar_one_or_none()
 
+    async def bank_line_exists(
+        self,
+        tenant_id: uuid.UUID,
+        document_id: uuid.UUID,
+        vendor_name: str,
+        amount: Decimal,
+        expense_date: datetime,
+    ) -> bool:
+        """Precise dedup for bank-statement lines: same vendor AND amount AND date.
+
+        A bank statement legitimately repeats a vendor many times (ALEX FOOD daily,
+        PUSHOPERATIONS weekly) with different amounts — deduping on vendor alone
+        collapses them to one row and destroys real cost. Only an identical
+        vendor+amount+date triple is a genuine duplicate."""
+        result = await self._db.execute(
+            select(Expense.id).where(
+                and_(
+                    Expense.tenant_id == tenant_id,
+                    Expense.document_id == document_id,
+                    Expense.vendor_name == vendor_name,
+                    Expense.amount == amount,
+                    Expense.expense_date == expense_date,
+                )
+            ).limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
     async def payroll_duplicate_exists(
         self,
         tenant_id: uuid.UUID,

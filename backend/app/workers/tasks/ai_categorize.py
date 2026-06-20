@@ -47,8 +47,15 @@ async def _categorize_async(expense_id_str: str, tenant_id_str: str) -> dict:
             try:
                 doc = await doc_repo.get(tenant_id, expense.document_id)
                 document_type = doc.document_type
-                items = await doc_repo.get_line_items(expense.document_id)
-                line_item_descriptions = [i.description for i in items if i.description]
+                # For bank statements, each expense is ONE transaction — its vendor
+                # name is the only relevant signal. Passing the document's full line
+                # items (every transaction on the statement) poisons categorization:
+                # the haystack then contains "pushoperations"/"payroll" for EVERY row,
+                # so the keyword map buckets everything into Payroll. Only pass line
+                # items for invoices/receipts where they describe that one purchase.
+                if document_type != "bank_statement":
+                    items = await doc_repo.get_line_items(expense.document_id)
+                    line_item_descriptions = [i.description for i in items if i.description]
             except Exception:
                 pass
 
