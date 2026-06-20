@@ -52,18 +52,21 @@ _KEYWORD_CATEGORY_MAP: list[tuple[tuple[str, ...], str]] = [
     # Insurance
     (("insurance", "intact", "aviva", "wawanesa", "sonnet", "co-operators",
       "assurance", "ins ", "ins.", "gms"), "Insurance"),
+    # Marketing / ads — MUST precede Software so "GOOGLE *ADS" maps to Marketing,
+    # not the generic Google/Workspace Software entries below.
+    (("google ads", "google *ads", "googleads", "facebook", "meta platforms",
+      "instagram", "advertis", "marketing", "yelp", "groupon", "promo"), "Marketing"),
     # Software / SaaS
-    (("toast", "quickbooks", "intuit", "shopify", "square ", "stripe", "google ",
+    (("toast", "quickbooks", "intuit", "shopify", "square ", "stripe",
+      "google workspace", "google cloud", "google storage", "pinnacle ip", "pinnacle",
       "microsoft", "adobe", "zoom", "slack", "godaddy", "mailchimp", "ubereats tech",
       "software", "saas", "subscription", "app store", "aws", "amazon web"), "Software"),
-    # Marketing / ads
-    (("google ads", "facebook", "meta platforms", "instagram", "advertis",
-      "marketing", "yelp", "groupon", "promo"), "Marketing"),
-    # Royalties / franchise fees
-    (("royalt", "franchise"), "Royalties"),
+    # Royalties / franchise fees (Tahinis intercompany royalty draw)
+    (("royalt", "franchise", "tahinis bus"), "Royalties"),
     # Repairs & maintenance
     (("repair", "hvac", "plumb", "electric", "maintenance", "handyman",
-      "appliance", "refrigerat"), "Repairs"),
+      "appliance", "refrigerat", "apollo fire", "fire system", "fire protection",
+      "equipements", "equipment", "resfab"), "Repairs"),
     # Cleaning / sanitation / linen
     (("cleaning", "janitor", "sanitat", "ecolab", "linen", "pest control", "waste"), "Cleaning"),
     # Packaging / disposables
@@ -72,13 +75,15 @@ _KEYWORD_CATEGORY_MAP: list[tuple[tuple[str, ...], str]] = [
     (("coca-cola", "coca cola", "pepsi", "beverage", "lcbo", "liquor", "brewery",
       "coffee", "beer", "wine"), "Beverage Cost"),
     # Food suppliers / distributors
-    (("sysco", "gordon food", "gfs", "costco", "restaurant depot", "produce",
+    (("alex food", "a1 cash and carry", "a1 cash", "cash and carry",
+      "sysco", "gordon food", "gfs", "costco", "restaurant depot", "produce",
       "meat", "bakery", "food service", "wholesale", "distribut", "grocery",
       "farm", "dairy", "halal", "fresh"), "Food Cost"),
     # Professional services / bank & financing costs
     (("interest paid", "interest charge", "bank fee", "service charge", "accounting",
       "accountant", "lawyer", "legal", "consult", "professional", "audit", "notary",
-      "loan", "financing", "amex annual", "card fee"), "Professional Services"),
+      "amex annual", "card fee", "cash mgmt fee", "cash management", "plan fee",
+      "monthly fee", "nsf", "overdraft"), "Professional Services"),
 ]
 
 

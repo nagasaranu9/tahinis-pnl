@@ -211,3 +211,22 @@ class ExpenseRepository:
         expense = await self.get(tenant_id, expense_id)
         await self._db.delete(expense)
         await self._db.flush()
+
+    async def delete_by_document(self, tenant_id: uuid.UUID, document_id: uuid.UUID) -> int:
+        """Delete all expenses sourced from a document. Used before reprocessing so
+        re-extraction starts clean (no stale/miscategorized rows from a prior run,
+        and dedup-by-vendor doesn't block recreating corrected rows). Preserves
+        user-overridden categorizations — those are manual decisions, not guesses."""
+        from sqlalchemy import and_, delete as sa_delete
+
+        result = await self._db.execute(
+            sa_delete(Expense).where(
+                and_(
+                    Expense.tenant_id == tenant_id,
+                    Expense.document_id == document_id,
+                    Expense.user_overridden == False,  # noqa: E712
+                )
+            )
+        )
+        await self._db.flush()
+        return result.rowcount or 0

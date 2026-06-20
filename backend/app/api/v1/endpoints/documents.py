@@ -165,13 +165,68 @@ async def delete_document(document_id: uuid.UUID, user: ManagerDep, db: AsyncSes
 async def reprocess_document(document_id: uuid.UUID, user: ManagerDep, db: AsyncSessionDep) -> dict:
     repo = DocumentRepository(db)
     doc = await repo.get(user.tenant_id, document_id)
+
+    # Wipe prior (non-user-overridden) expenses for this doc so re-extraction
+    # starts clean — otherwise dedup-by-vendor blocks corrected rows and stale
+    # miscategorized rows survive.
+    from app.db.repositories.expense_repo import ExpenseRepository
+    deleted = await ExpenseRepository(db).delete_by_document(user.tenant_id, document_id)
+
     await repo.update_status(document_id, "pending")
+    await db.commit()
 
     from app.workers.tasks.ocr_process import process_document
     process_document.delay(str(document_id), str(user.tenant_id))
 
+    logger.info("document_reprocess_queued", document_id=str(document_id), expenses_deleted=deleted)
     await db.refresh(doc)
     return {"data": _to_response(doc), "errors": None}
+
+
+@router.post("/reprocess-bank-statements", response_model=APIResponse[dict])
+async def reprocess_all_bank_statements(
+    user: ManagerDep,
+    db: AsyncSessionDep,
+    limit: int = Query(1000, ge=1, le=5000),
+) -> dict:
+    """Re-run OCR + categorization on every bank statement for the tenant.
+
+    Wipes prior (non-user-overridden) expenses per document, then re-queues
+    extraction so corrected categorization rules (Food Cost, Rent-via-AMEX,
+    bank-fee/interest, non-operating exclusions) apply across all months at once."""
+    from app.db.repositories.expense_repo import ExpenseRepository
+
+    doc_repo = DocumentRepository(db)
+    exp_repo = ExpenseRepository(db)
+    docs, total = await doc_repo.list(
+        user.tenant_id, document_type="bank_statement", page=1, limit=limit
+    )
+
+    from app.workers.tasks.ocr_process import process_document
+
+    deleted_total = 0
+    for doc in docs:
+        deleted_total += await exp_repo.delete_by_document(user.tenant_id, doc.id)
+        await doc_repo.update_status(doc.id, "pending")
+    await db.commit()
+
+    for doc in docs:
+        process_document.delay(str(doc.id), str(user.tenant_id))
+
+    logger.info(
+        "bank_statements_bulk_reprocess_queued",
+        tenant_id=str(user.tenant_id),
+        documents=len(docs),
+        expenses_deleted=deleted_total,
+    )
+    return {
+        "data": {
+            "queued": len(docs),
+            "total_bank_statements": total,
+            "expenses_deleted": deleted_total,
+        },
+        "errors": None,
+    }
 
 
 @router.get("/{document_id}/ocr", response_model=APIResponse[OCRResultResponse])

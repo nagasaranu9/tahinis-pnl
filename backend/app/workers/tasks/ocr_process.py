@@ -114,9 +114,12 @@ _CREDIT_SIGNALS = (
     "transfer in", "etransfer in", "e-transfer in", "refund",
     "payroll credit", "direct deposit",
 )
+# Only skip true non-transaction noise (balance/summary lines). Bank fees,
+# plan fees, cash-management fees and interest ARE real expenses (tenant-confirmed
+# → Professional Services), so they must NOT be skipped here.
 _SKIP_VENDOR_NOISE = (
-    "nsf", "service charge", "monthly fee", "overdraft fee",
-    "bank fee", "account fee", "wire fee",
+    "opening balance", "closing balance", "balance forward",
+    "previous balance", "total balance", "subtotal for",
 )
 
 # Hard non-expense exclusions for bank statements. These are NOT operating
@@ -137,12 +140,32 @@ _NON_EXPENSE_BANK_KEYWORDS = (
     "payments and credits", "payment and credit",
     "loan payment", "loan principal", "mortgage principal",
     "internal transfer", "own account", "account to account",
+    # Confirmed non-operating items (tenant-confirmed 2026-06-20):
+    #   CANACT = HST remittance (tax, not opex)
+    #   TOYOTA FINANCE / SPL LNS / *LNS/PRE = vehicle finance + BMO loan principal
+    #   TAHINIS GIFT / TAHINIS LOY = gift-card / loyalty liability clearing
+    # (TAHINIS BUS/ENT is intentionally NOT here — it's a real Royalties expense.)
+    "canact", "toyota finance", "spl lns", "lns/pre", "lns /pre",
+    "vehicle finance", "tahinis gift", "tahinis loy",
 )
+
+
+def _is_amex_rent_payment(description: str) -> bool:
+    """True for the BMO 'Online Bill Payment, AMEX CARDS' line.
+
+    Tenant-confirmed (2026-06-20): rent is charged to the AMEX card and the AMEX
+    balance is paid via BMO debit, so the AMEX bill payment IS the rent expense.
+    Other card-bill payments (National Bank MC, Visa, etc.) stay excluded."""
+    desc = description.lower()
+    return "amex" in desc and ("bill payment" in desc or "online bill" in desc)
 
 
 def _is_non_expense_bank_line(description: str) -> bool:
     """True when a bank line is a transfer / card-bill payment / credit summary —
     movements that must be excluded from the P&L."""
+    # AMEX bill payment is the exception — it's rent, a real expense.
+    if _is_amex_rent_payment(description):
+        return False
     desc = description.lower()
     return any(k in desc for k in _NON_EXPENSE_BANK_KEYWORDS)
 
@@ -249,9 +272,11 @@ async def _parse_bank_transactions_with_claude(extracted_text: str, currency_cod
         "- amount: positive number (the withdrawal/debit amount)\n"
         "- Skip deposits, credits, interest earned, transfers in, refunds\n"
         "- Skip opening/closing balance lines\n"
-        "- Skip NSF fees, bank service charges, monthly fees\n"
+        "- KEEP bank fees, plan/monthly fees, cash management fees and interest paid "
+        "(these are real expenses)\n"
         "- Skip account transfers (TRSF, TFR, transfer between accounts)\n"
-        "- Skip credit-card bill payments (Online Bill Payment to AMEX/VISA/Mastercard)\n"
+        "- Skip credit-card bill payments to VISA/Mastercard/National Bank\n"
+        "- KEEP 'Online Bill Payment, AMEX CARDS' lines (this is rent — include it)\n"
         "- Skip 'payments and credits' summary lines and loan principal repayments\n"
         "- Return [] if no debit transactions found\n\n"
         f"Bank statement text:\n{text_sample}\n\n"
@@ -366,7 +391,10 @@ async def _extract_bank_statement_expenses(
             except Exception:
                 pass
 
-        vendor = _vendor_from_description(desc)
+        # AMEX bill payment is rent (tenant-confirmed) — book it directly as a
+        # Rent expense and skip the AI guess.
+        is_rent = _is_amex_rent_payment(desc)
+        vendor = "Rent (AMEX autopay)" if is_rent else _vendor_from_description(desc)
 
         if await expense_repo.get_by_document_and_vendor(
             tenant_id=tenant_id, document_id=document_id, vendor_name=vendor
@@ -392,12 +420,16 @@ async def _extract_bank_statement_expenses(
             f"{gmail_note}. Raw: {desc[:150]}"
         )
         expense.is_ai_categorized = False
-        await db.flush()
 
-        categorize_expense.apply_async(
-            kwargs={"expense_id": str(expense.id), "tenant_id": str(tenant_id)},
-            queue="ai",
-        )
+        if is_rent:
+            expense.category = "Rent"
+            await db.flush()
+        else:
+            await db.flush()
+            categorize_expense.apply_async(
+                kwargs={"expense_id": str(expense.id), "tenant_id": str(tenant_id)},
+                queue="ai",
+            )
         logger.info(
             "bank_expense_created",
             tenant_id=str(tenant_id),
