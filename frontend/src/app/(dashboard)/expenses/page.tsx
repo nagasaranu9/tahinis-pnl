@@ -275,7 +275,7 @@ export default function ExpensesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Expenses</h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -338,8 +338,8 @@ export default function ExpensesPage() {
           No expenses found. Upload documents or connect email to start importing.
         </div>
       ) : (
-        <div className="border border-border rounded-lg overflow-hidden bg-card">
-          <table className="w-full text-sm">
+        <div className="border border-border rounded-lg overflow-x-auto bg-card">
+          <table className="w-full text-sm min-w-[640px]">
             <thead className="bg-muted/30 border-b border-border">
               <tr>
                 <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Vendor</th>
