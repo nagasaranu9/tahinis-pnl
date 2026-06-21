@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import { Star, RefreshCw, Unplug, Plug, AlertCircle, CheckCircle } from "lucide-react";
@@ -11,6 +11,7 @@ import {
   useReviewsList,
   useReviewsSync,
   useReviewsDisconnect,
+  useSetReviewLocation,
 } from "@/hooks/use-reviews";
 import type { GoogleReview } from "@/types/google-reviews";
 
@@ -64,6 +65,74 @@ function ReviewCard({ review }: { review: GoogleReview }) {
           <p className="text-xs text-muted-foreground line-clamp-2">{review.reply_comment}</p>
         </div>
       )}
+    </div>
+  );
+}
+
+function LocationPin({
+  locationId,
+  accountName,
+  locationName,
+}: {
+  locationId: string;
+  accountName: string | null;
+  locationName: string | null;
+}) {
+  const { mutate: save, isPending, isSuccess } = useSetReviewLocation();
+  const [account, setAccount] = useState(accountName ?? "");
+  const [location, setLocation] = useState(locationName ?? "");
+  const pinned = !!accountName && !!locationName;
+
+  return (
+    <div className="border border-border rounded-lg bg-card p-6 space-y-3">
+      <h3 className="text-sm font-semibold">Business Profile location</h3>
+      {!pinned && (
+        <div className="flex items-start gap-2 text-xs text-yellow-500">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <span>
+            Sync stays empty until you pin your Google account + location IDs.
+            Open your business at business.google.com and copy them from the URL
+            (format <code>accounts/123</code> and{" "}
+            <code>accounts/123/locations/456</code>).
+          </span>
+        </div>
+      )}
+      <div className="space-y-2">
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">Account name</label>
+          <input
+            value={account}
+            onChange={(e) => setAccount(e.target.value)}
+            placeholder="accounts/123456789"
+            className="mt-1 w-full text-sm border border-input rounded-md px-3 py-1.5 bg-background"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">Location name</label>
+          <input
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="accounts/123456789/locations/987654321"
+            className="mt-1 w-full text-sm border border-input rounded-md px-3 py-1.5 bg-background"
+          />
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() =>
+            save({ location_id: locationId, account_name: account.trim(), location_name: location.trim() })
+          }
+          disabled={isPending || !account.trim() || !location.trim()}
+          className="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+        >
+          {isPending ? "Saving…" : pinned ? "Update" : "Save & enable sync"}
+        </button>
+        {isSuccess && (
+          <span className="flex items-center gap-1 text-xs text-green-500">
+            <CheckCircle className="h-3.5 w-3.5" /> Saved — now click Sync Now.
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -195,6 +264,12 @@ function ReviewsContent() {
                 </div>
               </div>
             </div>
+
+            <LocationPin
+              locationId={activeConfig.location_id}
+              accountName={activeConfig.account_name}
+              locationName={activeConfig.location_name}
+            />
           </div>
 
           <div>

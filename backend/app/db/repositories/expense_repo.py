@@ -163,7 +163,13 @@ class ExpenseRepository:
             ),
         ]
         if location_id:
-            conditions.append(Expense.location_id == location_id)
+            # Match PnLCalculator: a location's view includes NULL-location rows
+            # (bank statements uploaded without a location). Otherwise the Expenses
+            # tab shows 0 while the P&L counts dozens — exactly the ghost mismatch.
+            from sqlalchemy import or_ as _or
+            conditions.append(
+                _or(Expense.location_id == location_id, Expense.location_id.is_(None))
+            )
         if category:
             conditions.append(Expense.category == category)
         if vendor_name:
@@ -253,7 +259,7 @@ class ExpenseRepository:
         re-uploading/reprocessing the source statements (e.g. duplicated/phantom
         payroll rows from an earlier ingestion). By default user-overridden rows
         are preserved — those are manual decisions, not extraction guesses."""
-        from sqlalchemy import delete as sa_delete
+        from sqlalchemy import delete as sa_delete, or_ as _or
 
         conds = [
             Expense.tenant_id == tenant_id,
@@ -261,7 +267,12 @@ class ExpenseRepository:
             Expense.expense_date <= end,
         ]
         if location_id is not None:
-            conds.append(Expense.location_id == location_id)
+            # Mirror PnLCalculator._load_expenses: a location's P&L includes both
+            # its own expenses AND tenant-wide rows with NULL location (e.g. bank
+            # statements uploaded without a location). The purge MUST match that
+            # same set or those NULL-location rows stay invisible to the Expenses
+            # list (which filters strictly by location) yet keep inflating the P&L.
+            conds.append(_or(Expense.location_id == location_id, Expense.location_id.is_(None)))
         if not include_overridden:
             conds.append(Expense.user_overridden == False)  # noqa: E712
 

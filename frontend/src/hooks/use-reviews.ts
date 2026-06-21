@@ -71,6 +71,26 @@ export function useReviewsSync() {
   });
 }
 
+export function useSetReviewLocation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: {
+      location_id: string;
+      account_name: string;
+      location_name: string;
+    }) => {
+      const { data } = await apiClient.patch<{ data: GoogleReviewConfig }>(
+        `${BASE}/config/location`,
+        body
+      );
+      return data.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["reviews-status"] });
+    },
+  });
+}
+
 export function useReviewsDisconnect() {
   const qc = useQueryClient();
   return useMutation({
