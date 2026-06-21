@@ -25,6 +25,14 @@ celery_app.conf.beat_schedule = {
         "task": "external.daily_external_sync_all_tenants",
         "schedule": crontab(hour=7, minute=0),
     },
+    "reviews-sync-hourly": {
+        # Near-realtime Google reviews: Business Profile API has no push/webhook
+        # and a hard daily quota, so hourly polling is the closest safe cadence.
+        # Runs alongside the manual "Sync now" button and the daily external sweep
+        # above. Dispatches one per-tenant sync_reviews job per active config.
+        "task": "reviews.daily_sync_all_tenants",
+        "schedule": crontab(minute=0),  # top of every hour
+    },
     "pipeboard-sync-daily": {
         # Covers Pipeboard (Google Ads, Meta Ads, TikTok Ads) for all tenants
         "task": "pipeboard.daily_sync_all_tenants",
