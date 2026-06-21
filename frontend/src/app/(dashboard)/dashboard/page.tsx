@@ -5,38 +5,33 @@ import Link from "next/link";
 import {
   TrendingUp,
   DollarSign,
-  GitMerge,
-  Bot,
-  AlertTriangle,
-  ArrowRight,
   Loader2,
   RefreshCw,
   ShoppingCart,
   Users,
   Calendar,
   ChevronDown,
+  Star,
+  Megaphone,
+  FileCheck2,
+  Wallet,
+  Timer,
+  Flame,
   CheckCircle2,
-  XCircle,
 } from "lucide-react";
-import {
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-} from "recharts";
-import { usePnLReport, useDailyBreakdown } from "@/hooks/use-pnl";
+import { usePnLReport } from "@/hooks/use-pnl";
 import { useReconciliationFlags } from "@/hooks/use-reconciliation";
-import { usePipeboardStatus, usePlatformMetrics } from "@/hooks/use-pipeboard";
-import { useAIInsights } from "@/hooks/use-ai-insights";
+import { usePlatformMetrics } from "@/hooks/use-pipeboard";
+import { useReviewsSummary } from "@/hooks/use-reviews";
+import {
+  useChannelMix,
+  useFulfillment,
+  useTopVendors,
+  useCashForecast,
+} from "@/hooks/use-dashboard";
+import { useLocations } from "@/hooks/use-locations";
 import { useLocationStore } from "@/lib/location-store";
 import { useQueryClient } from "@tanstack/react-query";
-import { MarketingMetricsTile } from "@/components/marketing-metrics-tile";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -58,25 +53,30 @@ function fmtPct(val: string | number | null | undefined): string {
   return `${n.toFixed(1)}%`;
 }
 
-function pctColor(val: string | null | undefined, thresholds: { warn: number; bad: number }): string {
+function fmtDuration(seconds: number | null | undefined): string {
+  if (seconds == null) return "—";
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  if (m === 0) return `${s}s`;
+  return `${m}m ${s}s`;
+}
+
+function pctColor(val: string | number | null | undefined, t: { warn: number; bad: number }): string {
   if (val == null) return "text-muted-foreground";
-  const n = parseFloat(val);
+  const n = typeof val === "string" ? parseFloat(val) : val;
   if (isNaN(n)) return "text-muted-foreground";
-  if (n >= thresholds.bad) return "text-red-500";
-  if (n >= thresholds.warn) return "text-yellow-500";
+  if (n >= t.bad) return "text-red-500";
+  if (n >= t.warn) return "text-yellow-500";
   return "text-green-500";
 }
 
-function profitColor(val: string | null | undefined): string {
+function profitColor(val: string | number | null | undefined): string {
   if (val == null) return "text-muted-foreground";
-  const n = parseFloat(val);
+  const n = typeof val === "string" ? parseFloat(val) : val;
   if (isNaN(n)) return "text-muted-foreground";
   if (n < 0) return "text-red-500";
-  if (n < 5) return "text-yellow-500";
   return "text-green-500";
 }
-
-// ─── Period-over-period delta ─────────────────────────────────────────────────
 
 interface Delta {
   pct: number;
@@ -95,7 +95,7 @@ function calcDelta(
   return { pct, dir: pct > 0.5 ? "up" : pct < -0.5 ? "down" : "flat" };
 }
 
-function DeltaBadge({ delta, invert = false }: { delta: Delta | null; invert?: boolean }) {
+function DeltaText({ delta, invert = false }: { delta: Delta | null; invert?: boolean }) {
   if (!delta || delta.dir === "flat") return null;
   const isGood = invert ? delta.dir === "down" : delta.dir === "up";
   const color = isGood ? "text-green-500" : "text-red-500";
@@ -107,7 +107,7 @@ function DeltaBadge({ delta, invert = false }: { delta: Delta | null; invert?: b
   );
 }
 
-// ─── Date Range ───────────────────────────────────────────────────────────────
+// ─── Date range ───────────────────────────────────────────────────────────────
 
 type PresetKey =
   | "today"
@@ -142,17 +142,12 @@ function businessDate(d: Date): string {
   return toISO(d);
 }
 
-/**
- * Returns the immediately preceding period of the same duration.
- * Uses 3-arg Date constructor throughout to avoid UTC parse bugs.
- */
 function getPrevPeriod(start: string, end: string): { start: string; end: string } {
   const [sy, sm, sd] = start.split("-").map(Number);
   const [ey, em, ed] = end.split("-").map(Number);
   const startDate = new Date(sy, sm - 1, sd);
   const endDate = new Date(ey, em - 1, ed);
   const days = Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
-  // prevEnd = day before current start; prevStart = prevEnd minus (days-1)
   const prevEnd = new Date(sy, sm - 1, sd - 1);
   const prevStart = new Date(sy, sm - 1, sd - days);
   return { start: toISO(prevStart), end: toISO(prevEnd) };
@@ -161,15 +156,14 @@ function getPrevPeriod(start: string, end: string): { start: string; end: string
 function getPreset(key: PresetKey): DateRange {
   const now = new Date();
   const today = businessDate(now);
-
   switch (key) {
     case "today":
       return { start: today, end: today, label: "Today" };
     case "yesterday": {
       const [ty, tm, td] = today.split("-").map(Number);
-      const todayBiz = new Date(ty, tm - 1, td);
-      todayBiz.setDate(todayBiz.getDate() - 1);
-      const d = toISO(todayBiz);
+      const b = new Date(ty, tm - 1, td);
+      b.setDate(b.getDate() - 1);
+      const d = toISO(b);
       return { start: d, end: d, label: "Yesterday" };
     }
     case "last7": {
@@ -229,56 +223,28 @@ const PRESETS: { key: PresetKey; label: string }[] = [
   { key: "custom", label: "Custom Range" },
 ];
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Tile primitives ──────────────────────────────────────────────────────────
 
-function HeroStatCard({
-  title,
-  value,
-  delta,
-  sub,
-  icon: Icon,
+function Tile({
+  children,
+  accent,
   href,
-  loading,
-  valueClass = "text-foreground",
-  accentColor = "border-t-primary",
-  invertDelta = false,
+  className = "",
 }: {
-  title: string;
-  value: string;
-  delta?: Delta | null;
-  sub?: string;
-  icon: React.ComponentType<{ className?: string }>;
+  children: React.ReactNode;
+  accent?: string;
   href?: string;
-  loading?: boolean;
-  valueClass?: string;
-  accentColor?: string;
-  invertDelta?: boolean;
+  className?: string;
 }) {
   const inner = (
     <div
-      className={`border border-border border-t-2 ${accentColor} rounded-lg p-5 bg-card hover:border-primary/30 transition-colors group`}
+      className={`border border-border ${accent ? `border-t-2 ${accent}` : ""} rounded-lg p-4 bg-card hover:border-primary/30 transition-colors h-full ${className}`}
     >
-      <div className="flex items-start justify-between mb-4">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</p>
-        <div className="h-8 w-8 rounded-md bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-          <Icon className="h-4 w-4 text-primary" />
-        </div>
-      </div>
-      {loading ? (
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      ) : (
-        <>
-          <p className={`text-3xl font-bold tabular-nums ${valueClass}`}>{value}</p>
-          <div className="flex items-center gap-2 mt-1.5">
-            {delta && <DeltaBadge delta={delta} invert={invertDelta} />}
-            {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
-          </div>
-        </>
-      )}
+      {children}
     </div>
   );
   return href ? (
-    <Link href={href} className="block cursor-pointer">
+    <Link href={href} className="block cursor-pointer h-full">
       {inner}
     </Link>
   ) : (
@@ -286,97 +252,45 @@ function HeroStatCard({
   );
 }
 
-function CompactStatCard({
-  title,
-  value,
-  delta,
-  sub,
+function TileHeader({
+  label,
   icon: Icon,
-  href,
-  loading,
-  valueClass = "text-foreground",
-  invertDelta = false,
 }: {
-  title: string;
-  value: string;
-  delta?: Delta | null;
-  sub?: string;
+  label: string;
   icon: React.ComponentType<{ className?: string }>;
-  href?: string;
-  loading?: boolean;
-  valueClass?: string;
-  invertDelta?: boolean;
-}) {
-  const inner = (
-    <div className="border border-border rounded-lg p-4 bg-card hover:border-primary/30 transition-colors group">
-      <div className="flex items-start justify-between mb-2">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</p>
-        <div className="h-6 w-6 rounded-md bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-          <Icon className="h-3 w-3 text-primary" />
-        </div>
-      </div>
-      {loading ? (
-        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-      ) : (
-        <>
-          <p className={`text-xl font-bold tabular-nums ${valueClass}`}>{value}</p>
-          <div className="flex items-center gap-2 mt-1">
-            {delta && <DeltaBadge delta={delta} invert={invertDelta} />}
-            {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
-          </div>
-        </>
-      )}
-    </div>
-  );
-  return href ? (
-    <Link href={href} className="block cursor-pointer">
-      {inner}
-    </Link>
-  ) : (
-    inner
-  );
-}
-
-function SectionCard({
-  title,
-  href,
-  linkLabel,
-  children,
-  loading,
-}: {
-  title: string;
-  href?: string;
-  linkLabel?: string;
-  children: React.ReactNode;
-  loading?: boolean;
 }) {
   return (
-    <div className="border border-border rounded-lg bg-card overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        {href && linkLabel && (
-          <Link href={href} className="text-xs text-primary flex items-center gap-1 hover:underline cursor-pointer">
-            {linkLabel} <ArrowRight className="h-3 w-3" />
-          </Link>
-        )}
-      </div>
-      <div className="p-5">
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading…
-          </div>
-        ) : (
-          children
-        )}
-      </div>
+    <div className="flex items-center justify-between mb-2">
+      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
+      <Icon className="h-3.5 w-3.5 text-primary" />
     </div>
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+function ComingSoon({ note }: { note?: string }) {
+  return (
+    <div className="mt-1">
+      <span className="inline-block text-[10px] font-semibold uppercase tracking-wide bg-muted text-muted-foreground px-2 py-0.5 rounded">
+        Coming soon
+      </span>
+      {note && <p className="text-xs text-muted-foreground mt-1.5 leading-snug">{note}</p>}
+    </div>
+  );
+}
+
+function RowLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[11px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-2">
+      {children}
+    </p>
+  );
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const { selectedLocationId } = useLocationStore();
+  const { locations } = useLocations();
   const qc = useQueryClient();
 
   const [activePreset, setActivePreset] = useState<PresetKey>("today");
@@ -384,7 +298,6 @@ export default function DashboardPage() {
   const [customEnd, setCustomEnd] = useState("");
   const [showDateMenu, setShowDateMenu] = useState(false);
   const [showCustom, setShowCustom] = useState(false);
-  const [showNetSeries, setShowNetSeries] = useState(true);
 
   const dateRange = useMemo<DateRange>(() => {
     if (activePreset === "custom" && customStart && customEnd) {
@@ -400,98 +313,122 @@ export default function DashboardPage() {
   );
 
   const locationParam = selectedLocationId ?? undefined;
+  const location = locations.find((l) => l.id === selectedLocationId);
+  const storeId = location?.store_id ?? location?.toast_location_id ?? null;
 
+  const rangeArgs = { date_from: dateRange.start, date_to: dateRange.end, location_id: locationParam };
+
+  // P&L — current range + prior period (deltas)
   const { data: pnl, isLoading: pnlLoading } = usePnLReport({
     period_start: dateRange.start,
     period_end: dateRange.end,
     location_id: locationParam,
   });
-
-  // Previous period — parallel fetch for PoP deltas
   const { data: prevPnl } = usePnLReport({
     period_start: prevPeriod.start,
     period_end: prevPeriod.end,
     location_id: locationParam,
   });
 
-  const { data: daily, isLoading: dailyLoading } = useDailyBreakdown({
-    period_start: dateRange.start,
-    period_end: dateRange.end,
+  // MTD + prior full month for pace
+  const thisMonth = useMemo(() => getPreset("thisMonth"), []);
+  const lastMonth = useMemo(() => getPreset("lastMonth"), []);
+  const { data: mtdPnl } = usePnLReport({
+    period_start: thisMonth.start,
+    period_end: thisMonth.end,
+    location_id: locationParam,
+  });
+  const { data: lastMonthPnl } = usePnLReport({
+    period_start: lastMonth.start,
+    period_end: lastMonth.end,
     location_id: locationParam,
   });
 
-  const { data: pipeboardStatus, isLoading: pipeboardLoading } = usePipeboardStatus();
-  const { data: platformMetrics = [], isLoading: metricsLoading } = usePlatformMetrics();
-  const { data: flags, isLoading: flagsLoading } = useReconciliationFlags({ unresolved_only: true });
+  // Operational
+  const { data: channelMix, isLoading: channelLoading } = useChannelMix(rangeArgs);
+  const { data: fulfillment, isLoading: fulfillmentLoading } = useFulfillment(rangeArgs);
+  const { data: topFood } = useTopVendors({ ...rangeArgs, category: "Food Cost", limit: 1 });
+  const { data: forecast } = useCashForecast(locationParam);
+
+  // Marketing + reviews + reconciliation
+  const { data: platformMetrics = [] } = usePlatformMetrics();
+  const { data: reviews } = useReviewsSummary(locationParam);
+  const { data: flags } = useReconciliationFlags({ unresolved_only: true });
   const { data: allFlags } = useReconciliationFlags({ unresolved_only: false });
-  const { data: insights, isLoading: insightsLoading } = useAIInsights({ include_dismissed: false });
 
   const li = pnl?.line_items;
   const prevLi = prevPnl?.line_items;
 
-  const totalImported = allFlags?.meta?.total ?? 0;
-  const unresolved = flags?.meta?.total ?? 0;
-  const matched = totalImported - unresolved;
-
-  const totalVoids = useMemo(
-    () => (daily?.points ?? []).reduce((s, p) => s + parseFloat(p.void_amount ?? "0"), 0),
-    [daily]
-  );
-
   const orderCount = pnl?.order_count ?? 0;
   const avgCheck =
     orderCount > 0 && li?.gross_revenue ? parseFloat(li.gross_revenue) / orderCount : null;
-
   const prevOrderCount = prevPnl?.order_count ?? 0;
   const prevAvgCheck =
     prevOrderCount > 0 && prevLi?.gross_revenue
       ? parseFloat(prevLi.gross_revenue) / prevOrderCount
       : null;
 
-  // PoP deltas — suppressed for "Today" (partial day vs full day = misleading)
   const suppressDelta = activePreset === "today";
-  const grossDelta = suppressDelta ? null : calcDelta(li?.gross_revenue, prevLi?.gross_revenue);
   const netDelta = suppressDelta ? null : calcDelta(li?.net_revenue, prevLi?.net_revenue);
   const profitDelta = suppressDelta ? null : calcDelta(li?.net_profit, prevLi?.net_profit);
-  const cogsDelta = suppressDelta ? null : calcDelta(li?.cogs_pct, prevLi?.cogs_pct);
-  const laborDelta = suppressDelta ? null : calcDelta(li?.labor_pct, prevLi?.labor_pct);
-  const primeDelta = suppressDelta ? null : calcDelta(li?.prime_cost_pct, prevLi?.prime_cost_pct);
   const avgCheckDelta = suppressDelta ? null : calcDelta(avgCheck, prevAvgCheck);
 
+  // Pace: MTD vs prior month run-rate to same day-of-month
+  const pace = useMemo(() => {
+    const mtd = mtdPnl?.line_items?.net_revenue
+      ? parseFloat(mtdPnl.line_items.net_revenue)
+      : null;
+    const lastTotal = lastMonthPnl?.line_items?.net_revenue
+      ? parseFloat(lastMonthPnl.line_items.net_revenue)
+      : null;
+    if (mtd == null || lastTotal == null || lastTotal === 0) return null;
+    const now = new Date();
+    const dayOfMonth = now.getDate();
+    const daysInLastMonth = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+    const expectedByNow = lastTotal * (dayOfMonth / daysInLastMonth);
+    if (expectedByNow === 0) return null;
+    return Math.round((mtd / expectedByNow) * 100);
+  }, [mtdPnl, lastMonthPnl]);
+
+  // Food cost over-target
+  const foodPct = li?.cogs_pct ? parseFloat(li.cogs_pct) : null;
+  const FOOD_TARGET = 30;
+  const foodOverPp = foodPct != null ? foodPct - FOOD_TARGET : null;
+
+  // Invoices
+  const totalImported = allFlags?.meta?.total ?? 0;
+  const unresolved = flags?.meta?.total ?? 0;
+  const matched = totalImported - unresolved;
+  const matchRate = totalImported > 0 ? (matched / totalImported) * 100 : null;
+
+  // Ads
+  const googleAds = platformMetrics.find((m) => /google/i.test(m.platform));
+  const metaAds = platformMetrics.find((m) => /meta|facebook/i.test(m.platform));
+
   const handleRefresh = useCallback(() => {
-    qc.invalidateQueries({ queryKey: ["pnl-report"] });
-    qc.invalidateQueries({ queryKey: ["pnl-daily"] });
-    qc.invalidateQueries({ queryKey: ["reconciliation-flags"] });
-    qc.invalidateQueries({ queryKey: ["ai-insights"] });
+    qc.invalidateQueries();
   }, [qc]);
-
-  const chartData = useMemo(() => {
-    if (!daily?.points?.length) return [];
-    return daily.points.map((p) => ({
-      date: p.date.slice(5), // MM-DD
-      gross: parseFloat(p.gross_revenue),
-      net: parseFloat(p.net_revenue),
-      orders: p.order_count,
-    }));
-  }, [daily]);
-
-  // Bar chart for ≤3 data points (1–3 day ranges); area chart for ≥4
-  const useBarChart = chartData.length <= 3;
 
   return (
     <div className="space-y-5 max-w-7xl">
       {/* ── Header ── */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Financial overview — {dateRange.label}
-            <span className="ml-2 text-xs opacity-50">vs prior period</span>
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-lg bg-red-500/10 flex items-center justify-center">
+            <Flame className="h-5 w-5 text-red-500" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">
+              Tahini&apos;s {storeId ? `#${storeId}` : ""} {location?.name ? `— ${location.name}` : ""}
+            </h1>
+            <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
+              <CheckCircle2 className="h-3 w-3 text-green-500" />
+              Synced · {dateRange.label}
+            </p>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Date Range Picker — styled as primary control */}
           <div className="relative">
             <button
               onClick={() => {
@@ -556,631 +493,256 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-
-          {/* Refresh — icon-only */}
           <button
             onClick={handleRefresh}
             className="p-2 rounded-md border border-border bg-card text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors cursor-pointer"
-            title="Refresh data"
+            title="Refresh"
           >
             <RefreshCw className="h-4 w-4" />
           </button>
         </div>
       </div>
 
-      {/* ── Row 1: Hero KPIs (3 primary metrics) ── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <HeroStatCard
-          title="Gross Revenue"
-          value={fmtCAD(li?.gross_revenue)}
-          delta={grossDelta}
-          sub={dateRange.label}
-          icon={TrendingUp}
-          href="/pnl"
-          loading={pnlLoading}
-          valueClass="text-primary"
-          accentColor="border-t-primary"
-        />
-        <HeroStatCard
-          title="Net Revenue"
-          value={fmtCAD(li?.net_revenue)}
-          delta={netDelta}
-          sub={li?.total_discounts ? `Disc. ${fmtCAD(li.total_discounts)}` : undefined}
-          icon={DollarSign}
-          href="/pnl"
-          loading={pnlLoading}
-          accentColor="border-t-purple-500"
-        />
-        <HeroStatCard
-          title="Net Profit"
-          value={fmtCAD(li?.net_profit)}
-          delta={profitDelta}
-          sub={li?.net_profit_pct ? `${fmtPct(li.net_profit_pct)} margin` : undefined}
-          icon={TrendingUp}
-          href="/pnl"
-          loading={pnlLoading}
-          valueClass={profitColor(li?.net_profit_pct)}
-          accentColor="border-t-green-500"
-        />
-      </div>
-
-      {/* ── Row 2: Secondary KPIs (operational metrics) ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <CompactStatCard
-          title="Food Cost %"
-          value={fmtPct(li?.cogs_pct)}
-          delta={cogsDelta}
-          sub={li?.cogs ? fmtCAD(li.cogs) : undefined}
-          icon={ShoppingCart}
-          href="/expenses"
-          loading={pnlLoading}
-          valueClass={pctColor(li?.cogs_pct, { warn: 30, bad: 38 })}
-          invertDelta
-        />
-        <CompactStatCard
-          title="Labor %"
-          value={fmtPct(li?.labor_pct)}
-          delta={laborDelta}
-          sub={li?.labor_cost ? fmtCAD(li.labor_cost) : undefined}
-          icon={Users}
-          href="/expenses"
-          loading={pnlLoading}
-          valueClass={pctColor(li?.labor_pct, { warn: 30, bad: 35 })}
-          invertDelta
-        />
-        <CompactStatCard
-          title="Prime Cost %"
-          value={fmtPct(li?.prime_cost_pct)}
-          delta={primeDelta}
-          sub="Target < 60%"
-          icon={GitMerge}
-          href="/pnl"
-          loading={pnlLoading}
-          valueClass={pctColor(li?.prime_cost_pct, { warn: 60, bad: 68 })}
-          invertDelta
-        />
-        <CompactStatCard
-          title="Avg Check"
-          value={fmtCAD(avgCheck)}
-          delta={avgCheckDelta}
-          sub={orderCount > 0 ? `${orderCount.toLocaleString("en-CA")} orders` : undefined}
-          icon={DollarSign}
-          loading={pnlLoading}
-        />
-      </div>
-
-      {/* ── Row 3: Chart (2/3) + Action Required (1/3) ── */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {/* Revenue Chart */}
-        <div className="border border-border rounded-lg bg-card overflow-hidden lg:col-span-2">
-          <div className="px-5 py-3.5 border-b border-border flex items-center justify-between flex-wrap gap-2">
-            <h2 className="text-sm font-semibold">Daily Revenue — {dateRange.label}</h2>
-            <div className="flex items-center gap-4">
-              {/* Net Revenue toggle */}
-              <button
-                onClick={() => setShowNetSeries(!showNetSeries)}
-                className={`flex items-center gap-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                  showNetSeries ? "text-purple-400" : "text-muted-foreground"
-                }`}
-              >
-                <span
-                  className={`inline-block w-4 h-0.5 rounded ${
-                    showNetSeries ? "bg-purple-400" : "bg-muted-foreground/40"
-                  }`}
-                  style={showNetSeries ? { borderTop: "1px dashed #a855f7", background: "none" } : {}}
-                />
-                Net Revenue
-              </button>
-              {dailyLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-            </div>
-          </div>
-          <div className="p-5">
-            {chartData.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-48 gap-2 text-sm text-muted-foreground">
-                <TrendingUp className="h-8 w-8 opacity-20" />
-                <p>No sales data for this period.</p>
-                <Link href="/integrations/toast" className="text-xs text-primary hover:underline cursor-pointer">
-                  Connect Toast POS to see daily revenue →
-                </Link>
-              </div>
-            ) : useBarChart ? (
-              // Bar chart for 1–3 day ranges (area with 1 dot is meaningless)
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} barGap={4}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`}
-                    width={48}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "6px",
-                      fontSize: "12px",
-                    }}
-                    formatter={(value: number, name: string) => [
-                      fmtCAD(value),
-                      name === "gross" ? "Gross Revenue" : "Net Revenue",
-                    ]}
-                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
-                  />
-                  <Bar dataKey="gross" radius={[4, 4, 0, 0]} maxBarSize={80}>
-                    {chartData.map((_, i) => (
-                      <Cell key={i} fill="hsl(var(--primary))" fillOpacity={0.85} />
-                    ))}
-                  </Bar>
-                  {showNetSeries && (
-                    <Bar dataKey="net" radius={[4, 4, 0, 0]} maxBarSize={80}>
-                      {chartData.map((_, i) => (
-                        <Cell key={i} fill="#a855f7" fillOpacity={0.6} />
-                      ))}
-                    </Bar>
-                  )}
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              // Area chart for ≥4 day ranges
-              <ResponsiveContainer width="100%" height={220}>
-                <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-                  <defs>
-                    <linearGradient id="grossGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.25} />
-                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="netGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#a855f7" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v) =>
-                      v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`
-                    }
-                    width={48}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "6px",
-                      fontSize: "12px",
-                    }}
-                    formatter={(value: number, name: string) => [
-                      fmtCAD(value),
-                      name === "gross" ? "Gross Revenue" : "Net Revenue",
-                    ]}
-                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="gross"
-                    stroke="hsl(var(--primary))"
-                    strokeWidth={2}
-                    fill="url(#grossGrad)"
-                    dot={false}
-                    activeDot={{ r: 4 }}
-                  />
-                  {showNetSeries && (
-                    <Area
-                      type="monotone"
-                      dataKey="net"
-                      stroke="#a855f7"
-                      strokeWidth={1.5}
-                      strokeDasharray="4 2"
-                      fill="url(#netGrad)"
-                      dot={false}
-                      activeDot={{ r: 3 }}
-                    />
-                  )}
-                </AreaChart>
-              </ResponsiveContainer>
-            )}
-            {chartData.length > 0 && (
-              <div className="flex items-center gap-5 mt-3 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block w-4 h-0.5 bg-primary rounded" />
-                  Gross
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block w-4 border-t-[1.5px] border-dashed border-purple-400" />
-                  Net
-                </span>
-                <span className="ml-auto opacity-50">gap = discounts + voids</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Action Required Panel */}
-        <div className="border border-border rounded-lg bg-card overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
-            <h2 className="text-sm font-semibold">Action Required</h2>
-            {unresolved > 0 && (
-              <span className="text-xs font-bold bg-red-500/10 text-red-500 px-2 py-0.5 rounded-full">
-                {unresolved}
-              </span>
-            )}
-          </div>
-          <div className="divide-y divide-border">
-            {/* Reconciliation */}
-            <div className="px-5 py-4 flex items-start gap-3">
-              {flagsLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mt-0.5 shrink-0" />
-              ) : unresolved > 0 ? (
-                <XCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
-              ) : (
-                <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0 mt-0.5" />
-              )}
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground">
-                  {unresolved > 0
-                    ? `${unresolved} reconciliation flag${unresolved !== 1 ? "s" : ""}`
-                    : "Reconciliation clear"}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {matched} matched · {totalImported} imported
-                </p>
-                {unresolved > 0 && (
-                  <Link
-                    href="/reconciliation"
-                    className="text-xs text-red-400 hover:underline mt-1 block font-medium cursor-pointer"
-                  >
-                    Review flags →
-                  </Link>
-                )}
-              </div>
-            </div>
-
-            {/* Voids alert — only shown when voids exist */}
-            {totalVoids > 0 && (
-              <div className="px-5 py-4 flex items-start gap-3">
-                <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-foreground">Voids detected</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {fmtCAD(totalVoids)} voided this period
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* AI Insights */}
-            <div className="px-5 py-4 flex items-start gap-3">
-              <Bot className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground">
-                  {insightsLoading
-                    ? "Loading…"
-                    : `${insights?.meta?.total ?? 0} AI insight${(insights?.meta?.total ?? 0) !== 1 ? "s" : ""}`}
-                </p>
-                {(insights?.data?.length ?? 0) > 0 && (
-                  <p className="text-xs text-muted-foreground mt-0.5 leading-snug line-clamp-2">
-                    {insights?.data?.[0]?.summary}
-                  </p>
-                )}
-                <Link href="/insights" className="text-xs text-primary hover:underline mt-1 block cursor-pointer">
-                  View all →
-                </Link>
-              </div>
-            </div>
-
-            {/* Toast sync status */}
-            <div className="px-5 py-4 flex items-start gap-3">
-              <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-foreground">Toast POS synced</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {orderCount} orders this period
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Row 4: P&L Summary + AI Insights ── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <SectionCard title="P&L Summary" href="/pnl" linkLabel="Full report" loading={pnlLoading}>
-          <div className="space-y-2 text-sm font-mono">
-            {[
-              { label: "Gross Revenue", val: li?.gross_revenue },
-              { label: "Total Discounts", val: li?.total_discounts, neg: true },
-              { label: "Voids", val: totalVoids > 0 ? String(totalVoids) : null, neg: true },
-              { label: "Net Revenue", val: li?.net_revenue, bold: true },
-              { label: "COGS", val: li?.cogs, neg: true },
-              { label: "Labor Cost", val: li?.labor_cost, neg: true },
-              { label: "Operating Expenses", val: li?.operating_expenses, neg: true },
-            ].map(({ label, val, neg, bold }) => (
-              <div
-                key={label}
-                className={`flex justify-between gap-4 ${
-                  bold ? "font-bold border-t border-border pt-2 mt-1" : ""
-                }`}
-              >
-                <span className={bold ? "text-foreground" : "text-muted-foreground"}>{label}</span>
-                <span className={neg ? "text-red-400" : "text-foreground"}>
-                  {neg && val && parseFloat(val as string) > 0
-                    ? `(${fmtCAD(val)})`
-                    : fmtCAD(val)}
-                </span>
-              </div>
-            ))}
-            <div className="flex justify-between gap-4 font-bold border-t-2 border-border pt-2 mt-1">
-              <span>Net Profit</span>
-              <span className={profitColor(li?.net_profit_pct)}>{fmtCAD(li?.net_profit)}</span>
-            </div>
-            {/* Banner: no expense data = P&L incomplete */}
-            {!li?.cogs && !li?.labor_cost && !pnlLoading && (
-              <div className="mt-3 flex items-start gap-2 rounded-md bg-yellow-500/10 border border-yellow-500/20 px-3 py-2.5">
-                <AlertTriangle className="h-3.5 w-3.5 text-yellow-500 shrink-0 mt-0.5" />
-                <div className="text-xs text-yellow-600 dark:text-yellow-400">
-                  <span className="font-semibold">No expense data.</span>{" "}
-                  COGS and Labor show as zero — P&L is incomplete.{" "}
-                  <Link href="/documents" className="underline hover:no-underline">
-                    Upload invoices →
-                  </Link>
-                </div>
-              </div>
-            )}
-            {/* Banner: no bank statement on file = unreconciled P&L */}
-            {!pnlLoading && pnl && !pnl.bank_statement_verified && (
-              <div className="mt-3 flex items-start gap-2 rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2.5">
-                <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0 mt-0.5" />
-                <div className="text-xs text-red-600 dark:text-red-400">
-                  <span className="font-semibold">No bank statement for this period.</span>{" "}
-                  This P&L is unreconciled and may not be accurate.{" "}
-                  <Link href="/documents" className="underline hover:no-underline">
-                    Upload bank statement →
-                  </Link>
-                </div>
-              </div>
-            )}
-          </div>
-        </SectionCard>
-
-        <SectionCard
-          title="AI Insights"
-          href="/insights"
-          linkLabel={`View all (${insightsLoading ? "…" : insights?.meta?.total ?? 0})`}
-          loading={insightsLoading}
-        >
-          {!insights?.data?.length ? (
-            <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground py-6">
-              <Bot className="h-8 w-8 opacity-20" />
-              <p className="text-sm">No insights yet.</p>
-              <Link href="/insights" className="text-xs text-primary hover:underline cursor-pointer">
-                Generate insights →
-              </Link>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {insights.data.slice(0, 4).map((insight) => (
-                <div key={insight.id} className="flex gap-2.5">
-                  <Bot className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm text-foreground leading-snug">{insight.summary}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Confidence:{" "}
-                      {insight.confidence_score != null
-                        ? `${(parseFloat(String(insight.confidence_score)) * 100).toFixed(0)}%`
-                        : "—"}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </SectionCard>
-      </div>
-
-      {/* ── Row 5: Expense Categories + Toast POS ── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <SectionCard title="Expense Categories" href="/expenses" linkLabel="All expenses" loading={pnlLoading}>
-          {!pnl?.expense_breakdown?.length ? (
-            <p className="text-sm text-muted-foreground">No expenses recorded.</p>
-          ) : (
-            <div className="space-y-3">
-              {[...pnl.expense_breakdown]
-                .sort((a, b) => parseFloat(String(b.total)) - parseFloat(String(a.total)))
-                .slice(0, 6)
-                .map((cat) => {
-                  const total = parseFloat(String(cat.total));
-                  const netRev = li?.net_revenue ? parseFloat(String(li.net_revenue)) : 0;
-                  const pct = netRev > 0 ? (total / netRev) * 100 : 0;
-                  return (
-                    <div key={cat.category} className="space-y-1">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">{cat.category}</span>
-                        <span className="font-mono font-medium text-foreground">{fmtCAD(total)}</span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className="h-full bg-primary/60 rounded-full transition-all"
-                          style={{ width: `${Math.min(pct, 100).toFixed(1)}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          )}
-        </SectionCard>
-
-        {/* Toast POS — only show rows with actual data */}
-        <SectionCard title="Toast POS" href="/integrations/toast" linkLabel="Configure">
-          <div className="space-y-2 text-sm">
-            {(
-              [
-                {
-                  label: "Transactions",
-                  value: orderCount > 0 ? orderCount.toLocaleString("en-CA") : null,
-                },
-                { label: "Avg Check", value: avgCheck != null ? fmtCAD(avgCheck) : null },
-                {
-                  label: "Discounts",
-                  value: li?.total_discounts ? fmtCAD(li.total_discounts) : null,
-                },
-                { label: "Voids", value: totalVoids > 0 ? fmtCAD(totalVoids) : null },
-              ] as { label: string; value: string | null }[]
-            )
-              .filter((row) => row.value !== null)
-              .map(({ label, value }) => (
-                <div key={label} className="flex justify-between items-center">
-                  <span className="text-muted-foreground">{label}</span>
-                  <span className="font-mono font-medium text-foreground">{value}</span>
-                </div>
-              ))}
-            {orderCount === 0 && (
-              <p className="text-sm text-muted-foreground">No transactions in this period.</p>
-            )}
-            <div className="pt-2 border-t border-border">
-              <span className="text-xs text-green-500 font-medium flex items-center gap-1.5">
-                <CheckCircle2 className="h-3 w-3" /> Toast sync active
-              </span>
-            </div>
-          </div>
-        </SectionCard>
-      </div>
-
-      {/* ── Reconciliation — full-width stat boxes ── */}
-      <SectionCard
-        title="Reconciliation"
-        href="/reconciliation"
-        linkLabel="Review flags"
-        loading={flagsLoading}
-      >
-        <div className="grid grid-cols-3 gap-4 text-center">
-          {[
-            { label: "Invoices Imported", value: totalImported, accent: false },
-            { label: "Matched", value: matched, accent: false },
-            { label: "Unmatched / Flags", value: unresolved, accent: unresolved > 0 },
-          ].map(({ label, value, accent }) => (
-            <div key={label}>
-              <p
-                className={`text-2xl font-bold tabular-nums ${
-                  accent ? "text-red-400" : "text-foreground"
-                }`}
-              >
-                {value}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">{label}</p>
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 pt-3 border-t border-border">
-          {unresolved === 0 ? (
-            <p className="text-xs text-green-500 font-medium">All clear — no flags to review.</p>
-          ) : (
-            <Link
-              href="/reconciliation"
-              className="text-xs text-red-400 font-medium hover:underline cursor-pointer"
-            >
-              {unresolved} flag{unresolved !== 1 ? "s" : ""} need review →
-            </Link>
-          )}
-        </div>
-      </SectionCard>
-
-      {/* ── Marketing / Pipeboard (Google Ads spend) ── */}
-      <SectionCard
-        title="Marketing — Google Ads"
-        href="/marketing"
-        linkLabel="Manage"
-        loading={pipeboardLoading}
-      >
-        {pipeboardStatus?.connected ? (
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Status</span>
-              <span className="text-xs text-green-500 font-medium flex items-center gap-1.5">
-                <CheckCircle2 className="h-3 w-3" /> Connected
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Google Ads customer</span>
-              <span className="font-mono font-medium text-foreground">
-                {pipeboardStatus.pipeboard_account_id ?? "—"}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Last sync</span>
-              <span className="font-medium text-foreground">
-                {pipeboardStatus.last_sync_at
-                  ? new Date(pipeboardStatus.last_sync_at).toLocaleString("en-CA")
-                  : "Not yet synced"}
-              </span>
-            </div>
-            {pipeboardStatus.last_sync_error && (
-              <p className="text-xs text-red-400 pt-1">{pipeboardStatus.last_sync_error}</p>
-            )}
-            <div className="pt-2 border-t border-border">
-              <Link href="/marketing" className="text-xs text-primary hover:underline cursor-pointer">
-                View campaign spend &amp; sync →
-              </Link>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-2 text-sm">
-            <p className="text-muted-foreground">
-              Connect Pipeboard to flow Google Ads spend into your P&amp;L marketing line.
+      {/* ── Row 1: Hero metrics ── */}
+      <div>
+        <RowLabel>Hero metrics</RowLabel>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Tile accent="border-t-primary" href="/pnl">
+            <TileHeader label="Net Sales" icon={TrendingUp} />
+            <p className="text-2xl font-bold tabular-nums text-primary">{pnlLoading ? "…" : fmtCAD(li?.net_revenue)}</p>
+            <div className="mt-1"><DeltaText delta={netDelta} /> <span className="text-xs text-muted-foreground">{dateRange.label}</span></div>
+          </Tile>
+          <Tile accent="border-t-purple-500" href="/pnl">
+            <TileHeader label="MTD Sales" icon={DollarSign} />
+            <p className="text-2xl font-bold tabular-nums">{fmtCAD(mtdPnl?.line_items?.net_revenue)}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {pace != null ? `Pace ${pace}% of last month` : "Pace —"}
             </p>
-            <Link href="/marketing" className="text-xs text-primary hover:underline cursor-pointer">
-              + Connect Google Ads →
-            </Link>
-          </div>
-        )}
-      </SectionCard>
-
-      {/* ── Marketing Metrics Tiles ── */}
-      {pipeboardStatus?.connected && platformMetrics.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {platformMetrics.map((metric) => (
-            <MarketingMetricsTile key={metric.platform} {...metric} />
-          ))}
+          </Tile>
+          <Tile accent="border-t-green-500" href="/pnl">
+            <TileHeader label="Prime Cost" icon={ShoppingCart} />
+            <p className={`text-2xl font-bold tabular-nums ${pctColor(li?.prime_cost_pct, { warn: 60, bad: 68 })}`}>
+              {fmtPct(li?.prime_cost_pct)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">Target &lt; 60%</p>
+          </Tile>
+          <Tile accent="border-t-red-500" href="/pnl">
+            <TileHeader label="Net Profit" icon={TrendingUp} />
+            <p className={`text-2xl font-bold tabular-nums ${profitColor(li?.net_profit)}`}>{fmtCAD(li?.net_profit)}</p>
+            <div className="mt-1"><DeltaText delta={profitDelta} /> {li?.net_profit_pct && <span className="text-xs text-muted-foreground">{fmtPct(li.net_profit_pct)} margin</span>}</div>
+          </Tile>
         </div>
-      )}
-
-      {/* ── Connect Integrations Strip (replaces empty Google cards) ── */}
-      <div className="border border-dashed border-border rounded-lg px-5 py-4 flex flex-wrap items-center gap-x-6 gap-y-2">
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider shrink-0">
-          Connect:
-        </span>
-        <Link
-          href="/integrations"
-          className="text-xs text-primary hover:underline font-medium cursor-pointer"
-        >
-          + Google Business Profile (Reviews &amp; Ratings)
-        </Link>
-        <Link
-          href="/integrations"
-          className="text-xs text-primary hover:underline font-medium cursor-pointer"
-        >
-          + Google Ads (Campaign Spend &amp; ROAS)
-        </Link>
       </div>
 
-      {/* Click-away to close date menu */}
+      {/* ── Row 2: Toast POS ── */}
+      <div>
+        <RowLabel>Toast POS</RowLabel>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <Tile className="lg:col-span-2">
+            <TileHeader label="Revenue by Channel" icon={ShoppingCart} />
+            {channelLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            ) : !channelMix?.channels?.length ? (
+              <p className="text-sm text-muted-foreground">No orders in this period.</p>
+            ) : (
+              <>
+                <div className="flex h-3.5 rounded overflow-hidden my-2">
+                  {channelMix.channels.map((c, i) => (
+                    <div
+                      key={c.channel}
+                      style={{ width: `${c.pct}%`, background: CHANNEL_COLORS[i % CHANNEL_COLORS.length] }}
+                      title={`${c.channel} ${c.pct}%`}
+                    />
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  {channelMix.channels.slice(0, 4).map((c, i) => (
+                    <span key={c.channel} className="flex items-center gap-1.5">
+                      <span className="inline-block w-2 h-2 rounded-sm" style={{ background: CHANNEL_COLORS[i % CHANNEL_COLORS.length] }} />
+                      {c.channel} {c.pct}%
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
+          </Tile>
+          <Tile>
+            <TileHeader label="Avg Check Size" icon={DollarSign} />
+            <p className="text-2xl font-bold tabular-nums">{fmtCAD(avgCheck)}</p>
+            <div className="mt-1"><DeltaText delta={avgCheckDelta} /> {orderCount > 0 && <span className="text-xs text-muted-foreground">{orderCount.toLocaleString("en-CA")} orders</span>}</div>
+          </Tile>
+        </div>
+      </div>
+
+      {/* ── Row 3: Food & Labor ── */}
+      <div>
+        <RowLabel>Food &amp; labor</RowLabel>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Tile href="/expenses">
+            <TileHeader label="Food Cost" icon={ShoppingCart} />
+            <p className={`text-2xl font-bold tabular-nums ${pctColor(foodPct, { warn: 32, bad: 38 })}`}>{fmtPct(foodPct)}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {foodOverPp != null && foodOverPp > 0
+                ? `Over by ${foodOverPp.toFixed(1)}pp vs ${FOOD_TARGET}% target`
+                : foodOverPp != null
+                ? `${Math.abs(foodOverPp).toFixed(1)}pp under target`
+                : "—"}
+            </p>
+            {topFood?.vendors?.[0] && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Top supplier: <span className="text-foreground font-medium">{topFood.vendors[0].vendor}</span> ({fmtCAD(topFood.vendors[0].total)})
+              </p>
+            )}
+          </Tile>
+          <Tile>
+            <TileHeader label="Labor Cost" icon={Users} />
+            <p className="text-2xl font-bold tabular-nums text-muted-foreground">—</p>
+            <ComingSoon note="Hours, headcount & avg wage land once the PushOperations integration is live." />
+          </Tile>
+        </div>
+      </div>
+
+      {/* ── Row 4: Reviews & Ads ── */}
+      <div>
+        <RowLabel>Reviews &amp; ads</RowLabel>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Tile href="/reviews">
+            <TileHeader label="Google Rating" icon={Star} />
+            {reviews?.average_rating != null ? (
+              <>
+                <p className="text-2xl font-bold tabular-nums text-yellow-500">
+                  {reviews.average_rating.toFixed(1)} ★
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {reviews.total_review_count.toLocaleString("en-CA")} reviews
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-muted-foreground">—</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  <Link href="/integrations" className="text-primary hover:underline">Connect Google Business →</Link>
+                </p>
+              </>
+            )}
+          </Tile>
+          <Tile href="/marketing">
+            <TileHeader label="Google Ads" icon={Megaphone} />
+            {googleAds ? (
+              <>
+                <p className="text-2xl font-bold tabular-nums">{googleAds.roas ? `${googleAds.roas.toFixed(1)}x` : "—"}</p>
+                <p className="text-xs text-muted-foreground mt-1">{fmtCAD(googleAds.spend)} spend</p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-muted-foreground">—</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  <Link href="/marketing" className="text-primary hover:underline">Connect Google Ads →</Link>
+                </p>
+              </>
+            )}
+          </Tile>
+          <Tile href="/marketing">
+            <TileHeader label="Meta Ads" icon={Megaphone} />
+            {metaAds ? (
+              <>
+                <p className="text-2xl font-bold tabular-nums">{metaAds.roas ? `${metaAds.roas.toFixed(1)}x` : "—"}</p>
+                <p className="text-xs text-muted-foreground mt-1">{fmtCAD(metaAds.spend)} spend</p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-muted-foreground">—</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  <Link href="/marketing" className="text-primary hover:underline">Connect Meta Ads →</Link>
+                </p>
+              </>
+            )}
+          </Tile>
+        </div>
+      </div>
+
+      {/* ── Row 5: Invoices & Forecast ── */}
+      <div>
+        <RowLabel>Invoices &amp; forecast</RowLabel>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Tile href="/reconciliation">
+            <TileHeader label="Invoice Match Rate" icon={FileCheck2} />
+            <p className={`text-2xl font-bold tabular-nums ${matchRate != null ? pctColor(100 - (matchRate ?? 100), { warn: 10, bad: 25 }) : "text-muted-foreground"}`}>
+              {matchRate != null ? fmtPct(matchRate) : "—"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {matched} matched · {unresolved} flagged · {totalImported} imported
+            </p>
+          </Tile>
+          <Tile>
+            <TileHeader label="7-Day Cash Forecast" icon={Wallet} />
+            {forecast ? (
+              <>
+                <p className={`text-2xl font-bold tabular-nums ${forecast.projected_net_flow >= 0 ? "text-green-500" : "text-red-500"}`}>
+                  {forecast.projected_net_flow >= 0 ? "+" : ""}{fmtCAD(forecast.projected_net_flow)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Projected net flow · {fmtCAD(forecast.avg_daily_sales)}/day sales run-rate
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-muted-foreground">—</p>
+                <p className="text-xs text-muted-foreground mt-1">Run-rate projection</p>
+              </>
+            )}
+          </Tile>
+        </div>
+      </div>
+
+      {/* ── Row 6: Fulfillment time ── */}
+      <div>
+        <RowLabel>Operations</RowLabel>
+        <Tile>
+          <TileHeader label="Avg Fulfillment Time" icon={Timer} />
+          {fulfillmentLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : !fulfillment || fulfillment.avg_seconds == null ? (
+            <>
+              <p className="text-2xl font-bold text-muted-foreground">—</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                No timed orders in this period (needs Toast open/close timestamps).
+              </p>
+            </>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <p className="text-3xl font-bold tabular-nums">{fmtDuration(fulfillment.avg_seconds)}</p>
+                <p className="text-xs mt-1">
+                  Target {fmtDuration(fulfillment.target_seconds)} ·{" "}
+                  {fulfillment.avg_seconds <= fulfillment.target_seconds ? (
+                    <span className="text-green-500 font-medium">
+                      {fmtDuration(fulfillment.target_seconds - fulfillment.avg_seconds)} faster
+                    </span>
+                  ) : (
+                    <span className="text-red-500 font-medium">
+                      {fmtDuration(fulfillment.avg_seconds - fulfillment.target_seconds)} slower
+                    </span>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Fastest {fmtDuration(fulfillment.fastest_seconds)} · Slowest {fmtDuration(fulfillment.slowest_seconds)} · {fulfillment.sample_size} orders
+                </p>
+              </div>
+              <div className="md:col-span-2 space-y-1.5">
+                {fulfillment.by_channel.map((c) => (
+                  <div key={c.channel} className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">{c.channel}</span>
+                    <span className="font-mono font-medium text-foreground">{fmtDuration(c.avg_seconds)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Tile>
+      </div>
+
+      {/* Click-away */}
       {showDateMenu && (
         <div
           className="fixed inset-0 z-40"
@@ -1193,3 +755,5 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+const CHANNEL_COLORS = ["#378ADD", "#7F77DD", "#1D9E75", "#EF9F27", "#D85A30"];

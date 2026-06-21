@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     ai_insights,
     auth,
+    dashboard,
     documents,
     email_integrations,
     expenses,
@@ -35,3 +36,4 @@ api_router.include_router(pipeboard_integrations.router, prefix="/integrations/p
 api_router.include_router(email_integrations.router, prefix="/integrations", tags=["email-drive"])
 api_router.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
 api_router.include_router(reviews.router, prefix="/reviews", tags=["reviews"])
+api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
