@@ -62,7 +62,8 @@ export function useFulfillment(p: RangeParams) {
 }
 
 export interface TopVendors {
-  vendors: { vendor: string; total: number; count: number }[];
+  vendors: { vendor: string; total: number; count: number; pct: number }[];
+  grand_total?: number;
 }
 
 export function useTopVendors(p: RangeParams & { category?: string; limit?: number }) {

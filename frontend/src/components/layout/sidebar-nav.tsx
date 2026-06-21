@@ -25,6 +25,8 @@ import {
   LayoutGrid,
   Moon,
   Sun,
+  Menu,
+  X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -64,6 +66,7 @@ export function SidebarNav() {
   const { theme, setTheme } = useTheme();
   const { getRole, getLocationId, clearTokens, refreshToken } = useAuthStore();
   const [mounted, setMounted] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const role = getRole();
   const isAdmin = getLocationId() === null;
@@ -75,6 +78,11 @@ export function SidebarNav() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Close the mobile drawer whenever the route changes.
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   const { data: flags } = useReconciliationFlags({ unresolved_only: true });
   const unresolvedCount = flags?.meta?.total ?? 0;
@@ -100,7 +108,48 @@ export function SidebarNav() {
   };
 
   return (
-    <aside className="w-60 flex flex-col bg-card h-full shrink-0 border-r border-border/60">
+    <>
+      {/* Mobile top bar with hamburger (hidden on lg+) */}
+      <div className="lg:hidden fixed top-0 inset-x-0 z-50 h-12 flex items-center gap-2 px-3 bg-card border-b border-border/60">
+        <button
+          onClick={() => setMobileOpen(true)}
+          className="p-1.5 -ml-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+          aria-label="Open menu"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+        <img src="/tahinis-icon.png" alt="Tahini's" className="w-7 h-7 object-contain" />
+        {selectedLocation && (
+          <span className="text-xs font-medium text-foreground truncate">
+            {selectedLocation.store_id ? `#${selectedLocation.store_id} · ` : ""}
+            {selectedLocation.name}
+          </span>
+        )}
+      </div>
+      {/* Backdrop when drawer open */}
+      {mobileOpen && (
+        <div
+          className="lg:hidden fixed inset-0 z-50 bg-black/50"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden
+        />
+      )}
+
+      <aside
+        className={cn(
+          "w-60 flex flex-col bg-card h-full shrink-0 border-r border-border/60",
+          "fixed inset-y-0 left-0 z-50 transition-transform duration-200 lg:static lg:translate-x-0",
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        {/* Close button (mobile only) */}
+        <button
+          onClick={() => setMobileOpen(false)}
+          className="lg:hidden absolute top-3 right-3 p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+          aria-label="Close menu"
+        >
+          <X className="h-4 w-4" />
+        </button>
       {/* Logo header — centered, no text */}
       <div className="py-6 px-4 flex flex-col items-center gap-3 border-b border-border/60">
         <Link href="/dashboard" className="cursor-pointer flex items-center justify-center w-14 h-14">
@@ -209,5 +258,6 @@ export function SidebarNav() {
         </button>
       </div>
     </aside>
+    </>
   );
 }

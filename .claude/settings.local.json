@@ -46,7 +46,9 @@
       "Bash(git commit -m 'Fix migration 0015: make table creation idempotent with IF NOT EXISTS check *)",
       "Bash(git push *)",
       "Bash(find /Users/n/claude -name \"*pipeboard*\" -type f)",
-      "Bash(python3 -m py_compile app/api/v1/endpoints/expenses.py)"
+      "Bash(python3 -m py_compile app/api/v1/endpoints/expenses.py)",
+      "mcp__visualize__show_widget",
+      "Bash(python3 -m py_compile app/api/v1/endpoints/dashboard.py app/api/v1/router.py)"
     ]
   }
 }
