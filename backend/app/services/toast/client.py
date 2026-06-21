@@ -305,6 +305,16 @@ class ToastClient:
             return data[0]
         return {}
 
+    # ------------------------------------------------------------------
+    # Dining options (channel names: Dine In / Take Out / Uber / Skip / ...)
+    # ------------------------------------------------------------------
+
+    async def get_dining_options(self) -> list[dict[str, Any]]:
+        """Dining-option config. Orders reference these by guid only, so we
+        resolve guid→name here to label revenue by channel."""
+        data = await self._request("GET", "/config/v2/diningOptions")
+        return data if isinstance(data, list) else []
+
 
 # ------------------------------------------------------------------
 # Helpers

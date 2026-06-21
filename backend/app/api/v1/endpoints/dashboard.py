@@ -70,13 +70,27 @@ _DELIVERY_SOURCE_LABELS = {
 }
 
 
+def _clean_dining(name: str) -> str:
+    """Strip Toast noise: leading '**' (third-party tag) and store-number
+    prefix like '1941 - '."""
+    n = name.strip().lstrip("*").strip()
+    # Drop a leading "<digits> - " store prefix.
+    if " - " in n:
+        head, rest = n.split(" - ", 1)
+        if head.strip().isdigit():
+            n = rest.strip()
+    return n
+
+
 def _channel_label(dining_option: str | None, order_source: str | None) -> str:
-    src = (order_source or "").strip().lower()
+    # Channel lives in dining_option (Toast: Dine In / Take Out / **Uber /
+    # **Skip / **Doordash / **Tacit PU). order_source is a secondary signal.
+    haystack = f"{dining_option or ''} {order_source or ''}".lower()
     for key, label in _DELIVERY_SOURCE_LABELS.items():
-        if key in src:
+        if key in haystack:
             return label
     if dining_option and dining_option.strip():
-        return dining_option.strip()
+        return _clean_dining(dining_option)
     if order_source and order_source.strip():
         return order_source.strip()
     return "Unknown"

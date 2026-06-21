@@ -150,6 +150,22 @@ async def trigger_manual_sync(
     return {"data": ToastSyncJobResponse.model_validate(job), "errors": None}
 
 
+@router.post("/backfill-channels", response_model=APIResponse[dict])
+async def backfill_channels(
+    location_id: uuid.UUID,
+    user: ManagerDep,
+    db: AsyncSessionDep,
+) -> dict:
+    """Repopulate dining_option (revenue-by-channel labels) on existing orders
+    from stored raw_data + dining-options config. No orders-API refetch."""
+    from app.services.toast.sync_service import ToastSyncService
+
+    svc = ToastSyncService(db)
+    result = await svc.backfill_dining_options(user.tenant_id, location_id)
+    logger.info("toast_backfill_channels", location_id=str(location_id), **result)
+    return {"data": result, "errors": None}
+
+
 @router.get("/sync-jobs", response_model=PaginatedResponse[ToastSyncJobResponse])
 async def list_sync_jobs(
     user: CurrentUserDep,

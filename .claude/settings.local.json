@@ -48,7 +48,9 @@
       "Bash(find /Users/n/claude -name \"*pipeboard*\" -type f)",
       "Bash(python3 -m py_compile app/api/v1/endpoints/expenses.py)",
       "mcp__visualize__show_widget",
-      "Bash(python3 -m py_compile app/api/v1/endpoints/dashboard.py app/api/v1/router.py)"
+      "Bash(python3 -m py_compile app/api/v1/endpoints/dashboard.py app/api/v1/router.py)",
+      "Bash(python3 -m py_compile app/services/toast/sync_service.py app/services/toast/client.py app/api/v1/endpoints/toast_integrations.py app/api/v1/endpoints/dashboard.py)",
+      "Bash(grep -nA12 \"_load_credentials\" app/services/toast/sync_service.py)"
     ]
   }
 }

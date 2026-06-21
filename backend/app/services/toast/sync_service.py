@@ -198,6 +198,62 @@ class ToastSyncService:
     # Core sync
     # ------------------------------------------------------------------
 
+    async def backfill_dining_options(
+        self, tenant_id: uuid.UUID, location_id: uuid.UUID,
+    ) -> dict:
+        """Repopulate dining_option on existing orders (channel labels) from
+        their stored raw_data, resolving guid→name via the dining-options
+        config. Fixes rows synced before guid resolution existed, without
+        re-hitting the orders API (upsert is ON CONFLICT DO NOTHING)."""
+        from sqlalchemy import select, update as sql_update
+
+        from app.db.models.toast import ToastOrder
+
+        config = await self._repo.get_sync_config(tenant_id, location_id)
+        if not config or not config.is_active:
+            raise ValueError("No active Toast config for location")
+        creds = await self._load_credentials(config.integration_credential_id)
+
+        dining_map: dict[str, str] = {}
+        async with ToastClient(
+            client_id=creds["client_id"],
+            client_secret=creds["client_secret"],
+            restaurant_guid=config.toast_restaurant_guid,
+            location_id=location_id,
+        ) as client:
+            for opt in await client.get_dining_options():
+                if opt.get("guid") and opt.get("name"):
+                    dining_map[opt["guid"]] = opt["name"]
+
+        rows = (await self._db.execute(
+            select(ToastOrder.id, ToastOrder.raw_data).where(
+                ToastOrder.tenant_id == tenant_id,
+                ToastOrder.location_id == location_id,
+            )
+        )).all()
+
+        updated = 0
+        for row in rows:
+            try:
+                raw = json.loads(row.raw_data) if row.raw_data else {}
+            except (ValueError, TypeError):
+                continue
+            opt = raw.get("diningOption") or {}
+            name = _dict_get(opt, "name")
+            if not name:
+                name = dining_map.get(_dict_get(opt, "guid") or "")
+            if not name:
+                continue
+            await self._db.execute(
+                sql_update(ToastOrder).where(ToastOrder.id == row.id).values(dining_option=name)
+            )
+            updated += 1
+
+        await self._db.commit()
+        logger.info("toast_backfill_dining_options", scanned=len(rows), updated=updated,
+                    map_size=len(dining_map))
+        return {"scanned": len(rows), "updated": updated, "dining_options": len(dining_map)}
+
     async def _sync_range(
         self,
         tenant_id: uuid.UUID,
@@ -221,10 +277,22 @@ class ToastSyncService:
             location_id=location_id,
             redis_client=redis_client,
         ) as client:
+            # Dining-option guid→name map (channel labels live here; orders
+            # reference dining options by guid only).
+            dining_map: dict[str, str] = {}
+            try:
+                for opt in await client.get_dining_options():
+                    guid = opt.get("guid")
+                    name = opt.get("name")
+                    if guid and name:
+                        dining_map[guid] = name
+            except Exception as exc:  # config call is best-effort
+                logger.warning("toast_dining_options_fetch_failed", error=str(exc))
+
             # Orders
             raw_orders = await client.get_orders(date_from, date_to)
             for raw in raw_orders:
-                await self._upsert_order(tenant_id, location_id, raw)
+                await self._upsert_order(tenant_id, location_id, raw, dining_map)
                 orders_count += 1
 
             # Employees (first chunk of historical, or every incremental)
@@ -256,8 +324,14 @@ class ToastSyncService:
     # ------------------------------------------------------------------
 
     async def _upsert_order(
-        self, tenant_id: uuid.UUID, location_id: uuid.UUID, raw: dict
+        self, tenant_id: uuid.UUID, location_id: uuid.UUID, raw: dict,
+        dining_map: dict[str, str] | None = None,
     ) -> uuid.UUID:
+        # Resolve channel: prefer embedded name, else guid→name from config map.
+        dining_opt = raw.get("diningOption") or {}
+        dining_name = _dict_get(dining_opt, "name")
+        if not dining_name and dining_map:
+            dining_name = dining_map.get(_dict_get(dining_opt, "guid") or "")
         order_row = {
             "id": uuid.uuid4(),
             "tenant_id": tenant_id,
@@ -270,7 +344,7 @@ class ToastSyncService:
             "business_date": str(raw.get("businessDate", "")),
             "display_number": raw.get("displayNumber"),
             "order_source": _dict_get(raw.get("source"), "sourceType"),
-            "dining_option": _dict_get(raw.get("diningOption"), "name"),
+            "dining_option": dining_name,
             "table_name": raw.get("tableName"),
             "server_guid": _dict_get(raw.get("server"), "guid"),
             "amount": _sum_check_field(raw, "totalAmount"),
