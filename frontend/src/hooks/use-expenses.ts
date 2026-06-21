@@ -111,3 +111,25 @@ export function useDeleteExpense() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["expenses"] }),
   });
 }
+
+export function usePurgeExpenseRange() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      start: string;
+      end: string;
+      locationId?: string;
+    }) => {
+      const qs = new URLSearchParams({ start: params.start, end: params.end });
+      if (params.locationId) qs.set("location_id", params.locationId);
+      const { data } = await apiClient.post<{ data: { deleted: number } }>(
+        `${BASE}/purge-range?${qs.toString()}`
+      );
+      return data.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+      qc.invalidateQueries({ queryKey: ["pnl"] });
+    },
+  });
+}

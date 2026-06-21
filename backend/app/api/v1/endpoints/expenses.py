@@ -226,6 +226,59 @@ async def trigger_recategorize_all(
     }
 
 
+@router.post("/purge-range", response_model=APIResponse[dict])
+async def purge_expenses_in_range(
+    user: ManagerDep,
+    db: AsyncSessionDep,
+    start: date = Query(..., description="Inclusive start date (YYYY-MM-DD)"),
+    end: date = Query(..., description="Inclusive end date (YYYY-MM-DD)"),
+    location_id: uuid.UUID | None = Query(None),
+    include_overridden: bool = Query(
+        False, description="Also delete user-overridden expenses (default keeps them)"
+    ),
+) -> dict:
+    """Delete all expenses in a date range to reset a corrupted reporting period.
+
+    Use before re-uploading/reprocessing statements when a month was poisoned by
+    duplicated or phantom rows (e.g. inflated payroll). Originals/documents are
+    untouched — only Expense rows are removed. User-overridden rows are preserved
+    unless include_overridden is set."""
+    start_dt = datetime(start.year, start.month, start.day, tzinfo=UTC)
+    end_dt = datetime(end.year, end.month, end.day, 23, 59, 59, tzinfo=UTC)
+
+    repo = ExpenseRepository(db)
+    deleted = await repo.delete_in_range(
+        tenant_id=user.tenant_id,
+        start=start_dt,
+        end=end_dt,
+        location_id=location_id,
+        include_overridden=include_overridden,
+    )
+    await AuditRepository(db).log(
+        tenant_id=user.tenant_id,
+        action="expense.purge_range",
+        user_id=user.user_id,
+        entity_type="expense",
+        entity_id=None,
+        new_value={
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "location_id": str(location_id) if location_id else None,
+            "include_overridden": include_overridden,
+            "deleted": deleted,
+        },
+    )
+    await db.commit()
+    logger.info(
+        "expense_purge_range",
+        tenant_id=str(user.tenant_id),
+        start=start.isoformat(),
+        end=end.isoformat(),
+        deleted=deleted,
+    )
+    return {"data": {"deleted": deleted}, "errors": None}
+
+
 @router.delete("/{expense_id}", status_code=204)
 async def delete_expense(expense_id: uuid.UUID, user: ManagerDep, db: AsyncSessionDep) -> None:
     repo = ExpenseRepository(db)

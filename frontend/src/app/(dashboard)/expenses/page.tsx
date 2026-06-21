@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { format } from "date-fns";
-import { AlertCircle, Bot, CheckCircle, Paperclip, Plus, RefreshCw, Trash2, User, X } from "lucide-react";
+import { AlertCircle, Bot, CheckCircle, Eraser, Paperclip, Plus, RefreshCw, Trash2, User, X } from "lucide-react";
 import { EXPENSE_CATEGORIES } from "@/types/expense";
 import {
   useExpenses,
@@ -10,6 +10,7 @@ import {
   useRecategorize,
   useDeleteExpense,
   useCreateManualExpense,
+  usePurgeExpenseRange,
 } from "@/hooks/use-expenses";
 import { useLocationStore } from "@/lib/location-store";
 import type { Expense, ExpenseCategory } from "@/types/expense";
@@ -142,6 +143,83 @@ function AddExpenseModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+function ResetMonthModal({ onClose }: { onClose: () => void }) {
+  const today = new Date();
+  const [start, setStart] = useState(
+    format(new Date(today.getFullYear(), today.getMonth() - 1, 1), "yyyy-MM-dd")
+  );
+  const [end, setEnd] = useState(
+    format(new Date(today.getFullYear(), today.getMonth(), 0), "yyyy-MM-dd")
+  );
+  const locationId = useLocationStore((s) => s.selectedLocationId);
+  const { mutate: purge, isPending, data: result } = usePurgeExpenseRange();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-card border border-border rounded-lg shadow-lg w-full max-w-md p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Reset a period (purge expenses)</h2>
+          <button onClick={onClose} className="p-1 rounded hover:bg-muted">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Deletes all auto-extracted expenses in this date range so you can re-upload
+          and reprocess the source statements cleanly. Original documents are kept;
+          manually-overridden expenses are preserved.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">From</label>
+            <input
+              type="date"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              className="mt-1 w-full text-sm border border-input rounded-md px-3 py-1.5 bg-background"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">To</label>
+            <input
+              type="date"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              className="mt-1 w-full text-sm border border-input rounded-md px-3 py-1.5 bg-background"
+            />
+          </div>
+        </div>
+        {result && (
+          <div className="flex items-center gap-2 text-sm text-green-500">
+            <CheckCircle className="h-4 w-4" />
+            Purged {result.deleted} expense{result.deleted !== 1 ? "s" : ""}. Now
+            re-upload the statements in Documents to reprocess.
+          </div>
+        )}
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onClose} className="text-sm px-3 py-1.5 rounded-md border border-border hover:bg-muted">
+            Close
+          </button>
+          <button
+            onClick={() => {
+              if (
+                confirm(
+                  `Delete all auto-extracted expenses from ${start} to ${end}? This cannot be undone.`
+                )
+              ) {
+                purge({ start, end, locationId: locationId ?? undefined });
+              }
+            }}
+            disabled={isPending}
+            className="text-sm px-3 py-1.5 rounded-md bg-destructive text-destructive-foreground disabled:opacity-50"
+          >
+            {isPending ? "Purging…" : "Purge range"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ConfidenceBadge({ score }: { score: string | null }) {
   if (!score) return null;
   const pct = Math.round(parseFloat(score) * 100);
@@ -259,6 +337,7 @@ export default function ExpensesPage() {
   const [uncategorizedOnly, setUncategorizedOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
   const locationId = useLocationStore((s) => s.selectedLocationId);
 
   const { data, isLoading, isError } = useExpenses({
@@ -282,16 +361,27 @@ export default function ExpensesPage() {
             AI-categorized expenses from all connected sources. Override categories manually.
           </p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:opacity-90"
-        >
-          <Plus className="h-4 w-4" />
-          Add Expense
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowResetModal(true)}
+            title="Purge auto-extracted expenses for a date range, then reprocess"
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-destructive/40 text-destructive hover:bg-destructive/10"
+          >
+            <Eraser className="h-4 w-4" />
+            Reset month
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:opacity-90"
+          >
+            <Plus className="h-4 w-4" />
+            Add Expense
+          </button>
+        </div>
       </div>
 
       {showAddModal && <AddExpenseModal onClose={() => setShowAddModal(false)} />}
+      {showResetModal && <ResetMonthModal onClose={() => setShowResetModal(false)} />}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center">

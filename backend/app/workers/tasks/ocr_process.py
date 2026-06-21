@@ -262,31 +262,43 @@ async def _parse_bank_transactions_with_claude(extracted_text: str, currency_cod
         return []
 
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-    text_sample = extracted_text[:5000]
+    # Multi-page statements (chequing can run 5+ pages, card statements put
+    # transactions on a later page) carry their transaction lines well past the
+    # first page — a 5k cap dropped everything after ~page 1 and silently
+    # undercounted expenses. Parse a generous window.
+    text_sample = extracted_text[:20000]
 
     prompt = (
-        "Extract all debit/withdrawal transactions from this bank statement text.\n"
+        "Extract every money-OUT transaction from this bank or credit-card "
+        "statement. This may be a chequing statement (two columns: debited / "
+        "credited) OR a credit-card statement (one amount column where each "
+        "purchase is a charge/expense).\n"
         "Return ONLY a JSON array. Each element: "
         '{"description": "vendor name", "amount": 123.45, "date": "2026-05-15"}\n'
         "Rules:\n"
-        "- amount: positive number (the withdrawal/debit amount)\n"
-        "- Skip deposits, credits, interest earned, transfers in, refunds\n"
-        "- Skip opening/closing balance lines\n"
-        "- KEEP bank fees, plan/monthly fees, cash management fees and interest paid "
+        "- amount: positive number (the debit / purchase / charge amount)\n"
+        "- On a chequing statement: take the 'amounts debited' column. Skip the "
+        "'amounts credited' column (deposits, direct deposits, refunds, interest "
+        "earned, transfers in).\n"
+        "- On a credit-card statement: EVERY purchase line is an expense. Skip "
+        "only payment lines that REDUCE the balance — 'PAYMENT - THANK YOU', "
+        "'TRSF FROM', payment received, returns/credits shown with a minus sign.\n"
+        "- Skip opening/closing/previous/new balance and minimum-payment lines\n"
+        "- KEEP bank fees, plan/monthly fees, cash management fees, interest paid "
         "(these are real expenses)\n"
         "- Skip account transfers (TRSF, TFR, transfer between accounts)\n"
         "- Skip credit-card bill payments to VISA/Mastercard/National Bank\n"
         "- KEEP 'Online Bill Payment, AMEX CARDS' lines (this is rent — include it)\n"
         "- Skip 'payments and credits' summary lines and loan principal repayments\n"
-        "- Return [] if no debit transactions found\n\n"
-        f"Bank statement text:\n{text_sample}\n\n"
+        "- Return [] if no debit/purchase transactions found\n\n"
+        f"Statement text:\n{text_sample}\n\n"
         "JSON array only, no prose:"
     )
 
     try:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=2000,
+            max_tokens=8000,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = response.content[0].text.strip()
@@ -459,6 +471,16 @@ _BANK_STATEMENT_KEYWORDS = (
 _BANK_STATEMENT_FILENAME_KEYWORDS = (
     "statement", "bank", "bmo", "td", "rbc", "scotiabank",
 )
+# Credit-card statements (Mastercard / Visa / Amex). Their purchase lines are
+# real expenses and must flow through the same transaction-extraction path as a
+# chequing statement. Without these, a card statement falls through to the
+# "invoice" default and books nothing (vendor/amount/line-items all empty).
+_CREDIT_CARD_STATEMENT_KEYWORDS = (
+    "mastercard", "world elite", "ascend", "credit card statement",
+    "minimum payment", "new balance", "credit limit", "available credit",
+    "statement of account", "your interest charges", "cardmember",
+    "card number", "amount due", "previous balance",
+)
 _RECEIPT_KEYWORDS = ("receipt", "thank you for your purchase", "subtotal", "tax", "change due")
 _INVOICE_KEYWORDS = ("invoice", "bill to", "invoice #", "invoice number", "due date", "payment terms")
 _PAYROLL_KEYWORDS = ("payroll", "pay stub", "pay slip", "earnings statement", "pushoperations", "payslip")
@@ -494,6 +516,13 @@ def _classify_document_type(
     if filename_is_bank and text_bank_hits >= 1:
         return "bank_statement"
     if text_bank_hits >= 2:
+        return "bank_statement"
+
+    # Credit-card statement (Mastercard/Visa) — treat as a bank statement so its
+    # purchase lines are extracted as expenses. Require 2+ card signals so a plain
+    # invoice that merely says "amount due" isn't misread as a card statement.
+    cc_hits = sum(1 for k in _CREDIT_CARD_STATEMENT_KEYWORDS if k in combined)
+    if cc_hits >= 2:
         return "bank_statement"
 
     # Payroll report = an actual pay stub / earnings statement (not a bank

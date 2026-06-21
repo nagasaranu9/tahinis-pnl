@@ -239,6 +239,36 @@ class ExpenseRepository:
         await self._db.delete(expense)
         await self._db.flush()
 
+    async def delete_in_range(
+        self,
+        tenant_id: uuid.UUID,
+        start: datetime,
+        end: datetime,
+        location_id: uuid.UUID | None = None,
+        include_overridden: bool = False,
+    ) -> int:
+        """Delete expenses whose expense_date falls in [start, end] for a tenant.
+
+        Used to reset a corrupted reporting period to a clean slate before
+        re-uploading/reprocessing the source statements (e.g. duplicated/phantom
+        payroll rows from an earlier ingestion). By default user-overridden rows
+        are preserved — those are manual decisions, not extraction guesses."""
+        from sqlalchemy import delete as sa_delete
+
+        conds = [
+            Expense.tenant_id == tenant_id,
+            Expense.expense_date >= start,
+            Expense.expense_date <= end,
+        ]
+        if location_id is not None:
+            conds.append(Expense.location_id == location_id)
+        if not include_overridden:
+            conds.append(Expense.user_overridden == False)  # noqa: E712
+
+        result = await self._db.execute(sa_delete(Expense).where(and_(*conds)))
+        await self._db.flush()
+        return result.rowcount or 0
+
     async def delete_by_document(self, tenant_id: uuid.UUID, document_id: uuid.UUID) -> int:
         """Delete all expenses sourced from a document. Used before reprocessing so
         re-extraction starts clean (no stale/miscategorized rows from a prior run,
