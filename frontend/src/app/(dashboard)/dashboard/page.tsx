@@ -18,16 +18,23 @@ import {
   Timer,
   Flame,
   CheckCircle2,
+  Scissors,
+  Truck,
 } from "lucide-react";
-import { usePnLReport } from "@/hooks/use-pnl";
+import { Area, AreaChart, ResponsiveContainer } from "recharts";
+import { usePnLReport, useDailyBreakdown } from "@/hooks/use-pnl";
 import { useReconciliationFlags } from "@/hooks/use-reconciliation";
 import { usePlatformMetrics } from "@/hooks/use-pipeboard";
-import { useReviewsSummary } from "@/hooks/use-reviews";
 import {
   useChannelMix,
   useFulfillment,
   useTopVendors,
   useCashForecast,
+  useDiscountsVoids,
+  useInvoiceStatus,
+  useAdsDetail,
+  useReviewsDetail,
+  useReviewsSentiment,
 } from "@/hooks/use-dashboard";
 import { useLocations } from "@/hooks/use-locations";
 import { useLocationStore } from "@/lib/location-store";
@@ -35,14 +42,14 @@ import { useQueryClient } from "@tanstack/react-query";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function fmtCAD(val: string | number | null | undefined): string {
+function fmtCAD(val: string | number | null | undefined, dp = 0): string {
   if (val == null) return "—";
   const n = typeof val === "string" ? parseFloat(val) : val;
   if (isNaN(n)) return "—";
   return new Intl.NumberFormat("en-CA", {
     style: "currency",
     currency: "CAD",
-    maximumFractionDigits: 0,
+    maximumFractionDigits: dp,
   }).format(n);
 }
 
@@ -286,6 +293,28 @@ function RowLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+function Sparkline({ data, color = "#185FA5" }: { data: number[]; color?: string }) {
+  if (!data.length) return null;
+  const series = data.map((v, i) => ({ i, v }));
+  return (
+    <div className="h-8 w-full mt-1">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={series} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+          <defs>
+            <linearGradient id="spark" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+              <stop offset="100%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.5} fill="url(#spark)" dot={false} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+const CHANNEL_COLORS = ["#378ADD", "#7F77DD", "#1D9E75", "#EF9F27", "#D85A30", "#D4537E"];
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -318,7 +347,6 @@ export default function DashboardPage() {
 
   const rangeArgs = { date_from: dateRange.start, date_to: dateRange.end, location_id: locationParam };
 
-  // P&L — current range + prior period (deltas)
   const { data: pnl, isLoading: pnlLoading } = usePnLReport({
     period_start: dateRange.start,
     period_end: dateRange.end,
@@ -330,7 +358,6 @@ export default function DashboardPage() {
     location_id: locationParam,
   });
 
-  // MTD + prior full month for pace
   const thisMonth = useMemo(() => getPreset("thisMonth"), []);
   const lastMonth = useMemo(() => getPreset("lastMonth"), []);
   const { data: mtdPnl } = usePnLReport({
@@ -344,17 +371,29 @@ export default function DashboardPage() {
     location_id: locationParam,
   });
 
+  // 7-day sales sparkline
+  const last7 = useMemo(() => getPreset("last7"), []);
+  const { data: daily7 } = useDailyBreakdown({
+    period_start: last7.start,
+    period_end: last7.end,
+    location_id: locationParam,
+  });
+
   // Operational
   const { data: channelMix, isLoading: channelLoading } = useChannelMix(rangeArgs);
+  const { data: discVoids } = useDiscountsVoids(rangeArgs);
   const { data: fulfillment, isLoading: fulfillmentLoading } = useFulfillment(rangeArgs);
-  const { data: topFood } = useTopVendors({ ...rangeArgs, category: "Food Cost", limit: 1 });
+  const { data: topFood } = useTopVendors({ ...rangeArgs, category: "Food Cost", limit: 5 });
   const { data: forecast } = useCashForecast(locationParam);
+  const { data: invoiceStatus } = useInvoiceStatus(rangeArgs);
 
-  // Marketing + reviews + reconciliation
+  // Marketing + reviews
   const { data: platformMetrics = [] } = usePlatformMetrics();
-  const { data: reviews } = useReviewsSummary(locationParam);
+  const { data: googleAds } = useAdsDetail({ ...rangeArgs, platform: "google_ads" });
+  const { data: metaAds } = useAdsDetail({ ...rangeArgs, platform: "meta_ads" });
+  const { data: reviewsDetail } = useReviewsDetail(locationParam);
+  const { data: sentiment } = useReviewsSentiment(locationParam);
   const { data: flags } = useReconciliationFlags({ unresolved_only: true });
-  const { data: allFlags } = useReconciliationFlags({ unresolved_only: false });
 
   const li = pnl?.line_items;
   const prevLi = prevPnl?.line_items;
@@ -368,46 +407,73 @@ export default function DashboardPage() {
       ? parseFloat(prevLi.gross_revenue) / prevOrderCount
       : null;
 
-  const suppressDelta = activePreset === "today";
-  const netDelta = suppressDelta ? null : calcDelta(li?.net_revenue, prevLi?.net_revenue);
-  const profitDelta = suppressDelta ? null : calcDelta(li?.net_profit, prevLi?.net_profit);
-  const avgCheckDelta = suppressDelta ? null : calcDelta(avgCheck, prevAvgCheck);
+  // Net sales delta — show even on Today (vs yesterday) per spec
+  const netDelta = calcDelta(li?.net_revenue, prevLi?.net_revenue);
+  const avgCheckDelta = calcDelta(avgCheck, prevAvgCheck);
 
-  // Pace: MTD vs prior month run-rate to same day-of-month
+  const dineInPct = useMemo(() => {
+    const c = channelMix?.channels.find((x) => /dine/i.test(x.channel));
+    return c?.pct ?? null;
+  }, [channelMix]);
+
+  // MTD projection + pace
+  const mtdNet = mtdPnl?.line_items?.net_revenue ? parseFloat(mtdPnl.line_items.net_revenue) : null;
+  const projection = useMemo(() => {
+    if (mtdNet == null) return null;
+    const now = new Date();
+    const dayOfMonth = now.getDate();
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    if (dayOfMonth === 0) return null;
+    return (mtdNet / dayOfMonth) * daysInMonth;
+  }, [mtdNet]);
   const pace = useMemo(() => {
-    const mtd = mtdPnl?.line_items?.net_revenue
-      ? parseFloat(mtdPnl.line_items.net_revenue)
-      : null;
     const lastTotal = lastMonthPnl?.line_items?.net_revenue
       ? parseFloat(lastMonthPnl.line_items.net_revenue)
       : null;
-    if (mtd == null || lastTotal == null || lastTotal === 0) return null;
+    if (mtdNet == null || lastTotal == null || lastTotal === 0) return null;
     const now = new Date();
     const dayOfMonth = now.getDate();
-    const daysInLastMonth = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
-    const expectedByNow = lastTotal * (dayOfMonth / daysInLastMonth);
-    if (expectedByNow === 0) return null;
-    return Math.round((mtd / expectedByNow) * 100);
-  }, [mtdPnl, lastMonthPnl]);
+    const daysInLast = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+    const expected = lastTotal * (dayOfMonth / daysInLast);
+    return expected === 0 ? null : Math.round((mtdNet / expected) * 100);
+  }, [mtdNet, lastMonthPnl]);
 
-  // Food cost over-target
+  // Net profit vs last month
+  const netProfit = li?.net_profit ? parseFloat(li.net_profit) : null;
+  const lastMonthProfit = lastMonthPnl?.line_items?.net_profit
+    ? parseFloat(lastMonthPnl.line_items.net_profit)
+    : null;
+  const profitBetterBy =
+    netProfit != null && lastMonthProfit != null ? netProfit - lastMonthProfit : null;
+  const salesSpark = useMemo(
+    () => (daily7?.points ?? []).map((p) => parseFloat(p.net_revenue)),
+    [daily7]
+  );
+
+  // Food cost
   const foodPct = li?.cogs_pct ? parseFloat(li.cogs_pct) : null;
-  const FOOD_TARGET = 30;
+  const FOOD_TARGET = 36;
   const foodOverPp = foodPct != null ? foodPct - FOOD_TARGET : null;
+  const monthlyRev = mtdNet ?? (li?.net_revenue ? parseFloat(li.net_revenue) : null);
+  const foodOverCost =
+    foodOverPp != null && foodOverPp > 0 && monthlyRev != null
+      ? (foodOverPp / 100) * monthlyRev
+      : null;
 
-  // Invoices
-  const totalImported = allFlags?.meta?.total ?? 0;
+  // Ads (fall back to platform-metrics roas if ads-detail empty)
+  const gaRoas = googleAds?.roas ?? platformMetrics.find((m) => /google/i.test(m.platform))?.roas ?? null;
+  const maRoas = metaAds?.roas ?? platformMetrics.find((m) => /meta|facebook/i.test(m.platform))?.roas ?? null;
+
   const unresolved = flags?.meta?.total ?? 0;
-  const matched = totalImported - unresolved;
-  const matchRate = totalImported > 0 ? (matched / totalImported) * 100 : null;
-
-  // Ads
-  const googleAds = platformMetrics.find((m) => /google/i.test(m.platform));
-  const metaAds = platformMetrics.find((m) => /meta|facebook/i.test(m.platform));
 
   const handleRefresh = useCallback(() => {
     qc.invalidateQueries();
   }, [qc]);
+
+  const starPct = (n: number) =>
+    reviewsDetail && reviewsDetail.total_reviews > 0
+      ? (n / reviewsDetail.total_reviews) * 100
+      : 0;
 
   return (
     <div className="space-y-5 max-w-7xl">
@@ -503,33 +569,36 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Row 1: Hero metrics ── */}
+      {/* ── Row 1: Hero ── */}
       <div>
         <RowLabel>Hero metrics</RowLabel>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Tile accent="border-t-primary" href="/pnl">
             <TileHeader label="Net Sales" icon={TrendingUp} />
-            <p className="text-2xl font-bold tabular-nums text-primary">{pnlLoading ? "…" : fmtCAD(li?.net_revenue)}</p>
-            <div className="mt-1"><DeltaText delta={netDelta} /> <span className="text-xs text-muted-foreground">{dateRange.label}</span></div>
+            <p className="text-2xl font-bold tabular-nums text-primary">{pnlLoading ? "…" : fmtCAD(li?.net_revenue, 2)}</p>
+            <div className="mt-1 flex items-center gap-1.5"><DeltaText delta={netDelta} /><span className="text-xs text-muted-foreground">vs prior</span></div>
+            <p className="text-xs text-muted-foreground">{orderCount} orders{dineInPct != null ? ` · Dine-in ${dineInPct.toFixed(0)}%` : ""}</p>
           </Tile>
           <Tile accent="border-t-purple-500" href="/pnl">
             <TileHeader label="MTD Sales" icon={DollarSign} />
-            <p className="text-2xl font-bold tabular-nums">{fmtCAD(mtdPnl?.line_items?.net_revenue)}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {pace != null ? `Pace ${pace}% of last month` : "Pace —"}
-            </p>
+            <p className="text-2xl font-bold tabular-nums">{fmtCAD(mtdNet)}</p>
+            <p className="text-xs text-muted-foreground mt-1">Projected {fmtCAD(projection)}</p>
+            <p className="text-xs text-muted-foreground">{pace != null ? `Pace ${pace}% of last month` : "Pace —"}</p>
           </Tile>
           <Tile accent="border-t-green-500" href="/pnl">
             <TileHeader label="Prime Cost" icon={ShoppingCart} />
-            <p className={`text-2xl font-bold tabular-nums ${pctColor(li?.prime_cost_pct, { warn: 60, bad: 68 })}`}>
-              {fmtPct(li?.prime_cost_pct)}
-            </p>
+            <p className={`text-2xl font-bold tabular-nums ${pctColor(li?.prime_cost_pct, { warn: 60, bad: 62 })}`}>{fmtPct(li?.prime_cost_pct)}</p>
             <p className="text-xs text-muted-foreground mt-1">Target &lt; 60%</p>
           </Tile>
           <Tile accent="border-t-red-500" href="/pnl">
             <TileHeader label="Net Profit" icon={TrendingUp} />
-            <p className={`text-2xl font-bold tabular-nums ${profitColor(li?.net_profit)}`}>{fmtCAD(li?.net_profit)}</p>
-            <div className="mt-1"><DeltaText delta={profitDelta} /> {li?.net_profit_pct && <span className="text-xs text-muted-foreground">{fmtPct(li.net_profit_pct)} margin</span>}</div>
+            <p className={`text-2xl font-bold tabular-nums ${profitColor(netProfit)}`}>{fmtCAD(netProfit, 2)}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {profitBetterBy != null
+                ? `${profitBetterBy >= 0 ? "▲ Better" : "▼ Worse"} ${fmtCAD(Math.abs(profitBetterBy))} vs ${lastMonth.label}`
+                : `${li?.net_profit_pct ? fmtPct(li.net_profit_pct) + " margin" : ""}`}
+            </p>
+            {salesSpark.length > 1 && <Sparkline data={salesSpark} color={netProfit != null && netProfit < 0 ? "#ef4444" : "#22c55e"} />}
           </Tile>
         </div>
       </div>
@@ -538,38 +607,53 @@ export default function DashboardPage() {
       <div>
         <RowLabel>Toast POS</RowLabel>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          <Tile className="lg:col-span-2">
+          <Tile className="lg:col-span-1">
             <TileHeader label="Revenue by Channel" icon={ShoppingCart} />
             {channelLoading ? (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             ) : !channelMix?.channels?.length ? (
               <p className="text-sm text-muted-foreground">No orders in this period.</p>
             ) : (
-              <>
-                <div className="flex h-3.5 rounded overflow-hidden my-2">
-                  {channelMix.channels.map((c, i) => (
-                    <div
-                      key={c.channel}
-                      style={{ width: `${c.pct}%`, background: CHANNEL_COLORS[i % CHANNEL_COLORS.length] }}
-                      title={`${c.channel} ${c.pct}%`}
-                    />
+              <table className="w-full text-xs mt-1">
+                <tbody>
+                  {channelMix.channels.slice(0, 6).map((c, i) => (
+                    <tr key={c.channel}>
+                      <td className="py-0.5">
+                        <span className="inline-block w-2 h-2 rounded-sm mr-1.5" style={{ background: CHANNEL_COLORS[i % CHANNEL_COLORS.length] }} />
+                        {c.channel}
+                      </td>
+                      <td className="py-0.5 text-right font-mono">{fmtCAD(c.revenue, 2)}</td>
+                      <td className="py-0.5 text-right text-muted-foreground w-10">{c.pct}%</td>
+                    </tr>
                   ))}
-                </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  {channelMix.channels.slice(0, 4).map((c, i) => (
-                    <span key={c.channel} className="flex items-center gap-1.5">
-                      <span className="inline-block w-2 h-2 rounded-sm" style={{ background: CHANNEL_COLORS[i % CHANNEL_COLORS.length] }} />
-                      {c.channel} {c.pct}%
-                    </span>
-                  ))}
-                </div>
-              </>
+                  <tr className="border-t border-border font-medium">
+                    <td className="pt-1">Total</td>
+                    <td className="pt-1 text-right font-mono">{fmtCAD(channelMix.total_revenue, 2)}</td>
+                    <td></td>
+                  </tr>
+                </tbody>
+              </table>
             )}
           </Tile>
           <Tile>
             <TileHeader label="Avg Check Size" icon={DollarSign} />
-            <p className="text-2xl font-bold tabular-nums">{fmtCAD(avgCheck)}</p>
-            <div className="mt-1"><DeltaText delta={avgCheckDelta} /> {orderCount > 0 && <span className="text-xs text-muted-foreground">{orderCount.toLocaleString("en-CA")} orders</span>}</div>
+            <p className="text-2xl font-bold tabular-nums">{fmtCAD(avgCheck, 2)}</p>
+            <div className="mt-1 flex items-center gap-1.5"><DeltaText delta={avgCheckDelta} />{prevAvgCheck != null && <span className="text-xs text-muted-foreground">vs {fmtCAD(prevAvgCheck, 2)}</span>}</div>
+          </Tile>
+          <Tile>
+            <TileHeader label="Discounts & Voids" icon={Scissors} />
+            {discVoids ? (
+              <>
+                <div className="text-xs space-y-0.5 mt-1">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Discounts</span><span className="text-red-400">-{fmtCAD(discVoids.discounts, 2)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Voids</span><span className="text-red-400">-{fmtCAD(discVoids.voids, 2)}</span></div>
+                  <div className="flex justify-between font-medium border-t border-border pt-0.5"><span>Total loss</span><span className="text-red-500">-{fmtCAD(discVoids.total_loss, 2)}</span></div>
+                </div>
+                <p className={`text-xs mt-1 ${discVoids.pct_of_sales > 3 ? "text-red-500" : "text-muted-foreground"}`}>{discVoids.pct_of_sales}% of sales</p>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">—</p>
+            )}
           </Tile>
         </div>
       </div>
@@ -577,27 +661,42 @@ export default function DashboardPage() {
       {/* ── Row 3: Food & Labor ── */}
       <div>
         <RowLabel>Food &amp; labor</RowLabel>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Tile href="/expenses">
             <TileHeader label="Food Cost" icon={ShoppingCart} />
-            <p className={`text-2xl font-bold tabular-nums ${pctColor(foodPct, { warn: 32, bad: 38 })}`}>{fmtPct(foodPct)}</p>
+            <p className={`text-2xl font-bold tabular-nums ${pctColor(foodPct, { warn: 38, bad: 40 })}`}>{fmtPct(foodPct)}</p>
             <p className="text-xs text-muted-foreground mt-1">
+              Target {FOOD_TARGET}% ·{" "}
               {foodOverPp != null && foodOverPp > 0
-                ? `Over by ${foodOverPp.toFixed(1)}pp vs ${FOOD_TARGET}% target`
+                ? `over by ${foodOverPp.toFixed(1)}pp`
                 : foodOverPp != null
-                ? `${Math.abs(foodOverPp).toFixed(1)}pp under target`
+                ? `${Math.abs(foodOverPp).toFixed(1)}pp under`
                 : "—"}
             </p>
-            {topFood?.vendors?.[0] && (
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Top supplier: <span className="text-foreground font-medium">{topFood.vendors[0].vendor}</span> ({fmtCAD(topFood.vendors[0].total)})
-              </p>
+            {foodOverCost != null && <p className="text-xs text-red-400">Costing ~{fmtCAD(foodOverCost)}/mo</p>}
+          </Tile>
+          <Tile>
+            <TileHeader label="Top Suppliers (Food)" icon={Truck} />
+            {!topFood?.vendors?.length ? (
+              <p className="text-sm text-muted-foreground">No supplier spend yet.</p>
+            ) : (
+              <table className="w-full text-xs mt-1">
+                <tbody>
+                  {topFood.vendors.slice(0, 5).map((v, i) => (
+                    <tr key={v.vendor}>
+                      <td className="py-0.5 truncate max-w-[140px]">{i + 1}. {v.vendor}</td>
+                      <td className="py-0.5 text-right font-mono">{fmtCAD(v.total)}</td>
+                      <td className="py-0.5 text-right text-muted-foreground w-8">{v.pct}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </Tile>
           <Tile>
             <TileHeader label="Labor Cost" icon={Users} />
             <p className="text-2xl font-bold tabular-nums text-muted-foreground">—</p>
-            <ComingSoon note="Hours, headcount & avg wage land once the PushOperations integration is live." />
+            <ComingSoon note="Hours, headcount & avg wage land once PushOperations is live." />
           </Tile>
         </div>
       </div>
@@ -605,56 +704,70 @@ export default function DashboardPage() {
       {/* ── Row 4: Reviews & Ads ── */}
       <div>
         <RowLabel>Reviews &amp; ads</RowLabel>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Tile href="/reviews">
-            <TileHeader label="Google Rating" icon={Star} />
-            {reviews?.average_rating != null ? (
+            <TileHeader label="Google Reviews" icon={Star} />
+            {reviewsDetail?.average_rating != null ? (
               <>
-                <p className="text-2xl font-bold tabular-nums text-yellow-500">
-                  {reviews.average_rating.toFixed(1)} ★
-                </p>
+                <p className="text-2xl font-bold tabular-nums text-yellow-500">{reviewsDetail.average_rating.toFixed(1)} ★ <span className="text-xs text-muted-foreground">· {reviewsDetail.total_reviews.toLocaleString("en-CA")}</span></p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {reviews.total_review_count.toLocaleString("en-CA")} reviews
+                  +{reviewsDetail.new_this_month} new · {reviewsDetail.response_rate_pct ?? 0}% responded · {reviewsDetail.unanswered} unanswered
                 </p>
+                <div className="mt-2 space-y-0.5">
+                  {[5, 4, 3, 2, 1].map((s) => (
+                    <div key={s} className="flex items-center gap-1.5 text-[10px]">
+                      <span className="w-3 text-muted-foreground">{s}★</span>
+                      <span className="flex-1 h-1.5 bg-muted rounded overflow-hidden">
+                        <span className="block h-full rounded" style={{ width: `${starPct(reviewsDetail.stars[`${s}_star`] ?? 0)}%`, background: s >= 4 ? "#639922" : s === 3 ? "#EF9F27" : "#E24B4A" }} />
+                      </span>
+                      <span className="w-10 text-right text-muted-foreground">{(reviewsDetail.stars[`${s}_star`] ?? 0).toLocaleString("en-CA")}</span>
+                    </div>
+                  ))}
+                </div>
+                {sentiment?.available && (
+                  <p className="text-xs text-muted-foreground mt-2 leading-snug">
+                    {sentiment.positive_pct}% positive · praise: {sentiment.top_praise} · complaint: {sentiment.top_complaint}
+                  </p>
+                )}
               </>
             ) : (
               <>
                 <p className="text-2xl font-bold text-muted-foreground">—</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  <Link href="/integrations" className="text-primary hover:underline">Connect Google Business →</Link>
-                </p>
+                <p className="text-xs text-muted-foreground mt-1"><Link href="/integrations" className="text-primary hover:underline">Connect Google Business →</Link></p>
               </>
             )}
           </Tile>
           <Tile href="/marketing">
             <TileHeader label="Google Ads" icon={Megaphone} />
-            {googleAds ? (
+            {googleAds && googleAds.spend > 0 ? (
               <>
-                <p className="text-2xl font-bold tabular-nums">{googleAds.roas ? `${googleAds.roas.toFixed(1)}x` : "—"}</p>
-                <p className="text-xs text-muted-foreground mt-1">{fmtCAD(googleAds.spend)} spend</p>
+                <p className="text-2xl font-bold tabular-nums">{gaRoas != null ? `${gaRoas.toFixed(1)}x` : "—"} <span className="text-xs text-muted-foreground">ROAS</span></p>
+                <table className="w-full text-xs mt-2">
+                  <tbody>
+                    <tr><td className="text-muted-foreground">Spend</td><td className="text-right">{fmtCAD(googleAds.spend)}</td><td className="text-muted-foreground pl-3">CTR</td><td className="text-right">{googleAds.ctr}%</td></tr>
+                    <tr><td className="text-muted-foreground">Clicks</td><td className="text-right">{googleAds.clicks.toLocaleString("en-CA")}</td><td className="text-muted-foreground pl-3">CPC</td><td className="text-right">{fmtCAD(googleAds.cpc, 2)}</td></tr>
+                    <tr><td className="text-muted-foreground">Conv</td><td className="text-right">{googleAds.conversions}</td><td className="text-muted-foreground pl-3">$/conv</td><td className="text-right">{googleAds.cost_per_conversion != null ? fmtCAD(googleAds.cost_per_conversion, 2) : "—"}</td></tr>
+                  </tbody>
+                </table>
               </>
             ) : (
               <>
                 <p className="text-2xl font-bold text-muted-foreground">—</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  <Link href="/marketing" className="text-primary hover:underline">Connect Google Ads →</Link>
-                </p>
+                <p className="text-xs text-muted-foreground mt-1"><Link href="/marketing" className="text-primary hover:underline">Connect Google Ads →</Link></p>
               </>
             )}
           </Tile>
           <Tile href="/marketing">
             <TileHeader label="Meta Ads" icon={Megaphone} />
-            {metaAds ? (
+            {metaAds && metaAds.spend > 0 ? (
               <>
-                <p className="text-2xl font-bold tabular-nums">{metaAds.roas ? `${metaAds.roas.toFixed(1)}x` : "—"}</p>
-                <p className="text-xs text-muted-foreground mt-1">{fmtCAD(metaAds.spend)} spend</p>
+                <p className="text-2xl font-bold tabular-nums">{maRoas != null ? `${maRoas.toFixed(1)}x` : "—"} <span className="text-xs text-muted-foreground">ROAS</span></p>
+                <p className="text-xs text-muted-foreground mt-1">{fmtCAD(metaAds.spend)} spend · {metaAds.clicks.toLocaleString("en-CA")} clicks · {metaAds.ctr}% CTR</p>
               </>
             ) : (
               <>
                 <p className="text-2xl font-bold text-muted-foreground">—</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  <Link href="/marketing" className="text-primary hover:underline">Connect Meta Ads →</Link>
-                </p>
+                <p className="text-xs text-muted-foreground mt-1"><Link href="/marketing" className="text-primary hover:underline">Connect Meta Ads →</Link></p>
               </>
             )}
           </Tile>
@@ -666,13 +779,22 @@ export default function DashboardPage() {
         <RowLabel>Invoices &amp; forecast</RowLabel>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Tile href="/reconciliation">
-            <TileHeader label="Invoice Match Rate" icon={FileCheck2} />
-            <p className={`text-2xl font-bold tabular-nums ${matchRate != null ? pctColor(100 - (matchRate ?? 100), { warn: 10, bad: 25 }) : "text-muted-foreground"}`}>
-              {matchRate != null ? fmtPct(matchRate) : "—"}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {matched} matched · {unresolved} flagged · {totalImported} imported
-            </p>
+            <TileHeader label="Invoice Status" icon={FileCheck2} />
+            {invoiceStatus ? (
+              <>
+                <p className={`text-2xl font-bold tabular-nums ${invoiceStatus.coverage_pct != null ? pctColor(100 - invoiceStatus.coverage_pct, { warn: 10, bad: 25 }) : "text-muted-foreground"}`}>
+                  {invoiceStatus.coverage_pct != null ? `${invoiceStatus.coverage_pct}%` : "—"} <span className="text-xs text-muted-foreground">coverage</span>
+                </p>
+                <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                  <div className="flex justify-between"><span>✅ Matched</span><span>{invoiceStatus.matched}</span></div>
+                  <div className="flex justify-between"><span>⚠️ Pending / unmatched</span><span>{invoiceStatus.unmatched}</span></div>
+                  <div className="flex justify-between"><span>🔄 Duplicate</span><span>{invoiceStatus.duplicate}</span></div>
+                  <div className="flex justify-between border-t border-border pt-0.5"><span>Imported</span><span>{invoiceStatus.imported}</span></div>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">{unresolved} open flags</p>
+            )}
           </Tile>
           <Tile>
             <TileHeader label="7-Day Cash Forecast" icon={Wallet} />
@@ -681,21 +803,16 @@ export default function DashboardPage() {
                 <p className={`text-2xl font-bold tabular-nums ${forecast.projected_net_flow >= 0 ? "text-green-500" : "text-red-500"}`}>
                   {forecast.projected_net_flow >= 0 ? "+" : ""}{fmtCAD(forecast.projected_net_flow)}
                 </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Projected net flow · {fmtCAD(forecast.avg_daily_sales)}/day sales run-rate
-                </p>
+                <p className="text-xs text-muted-foreground mt-1">Projected net flow · {fmtCAD(forecast.avg_daily_sales)}/day sales · {fmtCAD(forecast.avg_daily_expense)}/day costs</p>
               </>
             ) : (
-              <>
-                <p className="text-2xl font-bold text-muted-foreground">—</p>
-                <p className="text-xs text-muted-foreground mt-1">Run-rate projection</p>
-              </>
+              <p className="text-2xl font-bold text-muted-foreground">—</p>
             )}
           </Tile>
         </div>
       </div>
 
-      {/* ── Row 6: Fulfillment time ── */}
+      {/* ── Row 6: Fulfillment ── */}
       <div>
         <RowLabel>Operations</RowLabel>
         <Tile>
@@ -705,9 +822,7 @@ export default function DashboardPage() {
           ) : !fulfillment || fulfillment.avg_seconds == null ? (
             <>
               <p className="text-2xl font-bold text-muted-foreground">—</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                No timed orders in this period (needs Toast open/close timestamps).
-              </p>
+              <p className="text-xs text-muted-foreground mt-1">No timed orders in this period (needs Toast open/close timestamps).</p>
             </>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -716,18 +831,16 @@ export default function DashboardPage() {
                 <p className="text-xs mt-1">
                   Target {fmtDuration(fulfillment.target_seconds)} ·{" "}
                   {fulfillment.avg_seconds <= fulfillment.target_seconds ? (
-                    <span className="text-green-500 font-medium">
-                      {fmtDuration(fulfillment.target_seconds - fulfillment.avg_seconds)} faster
-                    </span>
+                    <span className="text-green-500 font-medium">{fmtDuration(fulfillment.target_seconds - fulfillment.avg_seconds)} faster</span>
                   ) : (
-                    <span className="text-red-500 font-medium">
-                      {fmtDuration(fulfillment.avg_seconds - fulfillment.target_seconds)} slower
-                    </span>
+                    <span className="text-red-500 font-medium">{fmtDuration(fulfillment.avg_seconds - fulfillment.target_seconds)} slower</span>
                   )}
                 </p>
                 <p className="text-xs text-muted-foreground mt-2">
-                  Fastest {fmtDuration(fulfillment.fastest_seconds)} · Slowest {fmtDuration(fulfillment.slowest_seconds)} · {fulfillment.sample_size} orders
+                  {fulfillment.peak_hour != null && `Peak ${fulfillment.peak_hour}:00 ${fmtDuration(fulfillment.peak_hour_seconds)} · `}
+                  fastest {fmtDuration(fulfillment.fastest_seconds)} · slowest {fmtDuration(fulfillment.slowest_seconds)}
                 </p>
+                <p className="text-xs text-muted-foreground">{fulfillment.sample_size} orders</p>
               </div>
               <div className="md:col-span-2 space-y-1.5">
                 {fulfillment.by_channel.map((c) => (
@@ -742,7 +855,6 @@ export default function DashboardPage() {
         </Tile>
       </div>
 
-      {/* Click-away */}
       {showDateMenu && (
         <div
           className="fixed inset-0 z-40"
@@ -755,5 +867,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-const CHANNEL_COLORS = ["#378ADD", "#7F77DD", "#1D9E75", "#EF9F27", "#D85A30"];

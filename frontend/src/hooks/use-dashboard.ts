@@ -42,6 +42,8 @@ export interface Fulfillment {
   fastest_seconds: number | null;
   slowest_seconds: number | null;
   sample_size: number;
+  peak_hour: number | null;
+  peak_hour_seconds: number | null;
   by_channel: { channel: string; avg_seconds: number | null; order_count: number }[];
 }
 
@@ -99,5 +101,126 @@ export function useCashForecast(location_id?: string) {
       return data.data;
     },
     staleTime: 5 * 60_000,
+  });
+}
+
+export interface DiscountsVoids {
+  discounts: number;
+  voids: number;
+  total_loss: number;
+  pct_of_sales: number;
+}
+
+export function useDiscountsVoids(p: RangeParams) {
+  return useQuery({
+    queryKey: ["dashboard-discounts-voids", p],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: DiscountsVoids }>(
+        `${BASE}/discounts-voids?${rangeQS(p)}`
+      );
+      return data.data;
+    },
+    enabled: Boolean(p.date_from && p.date_to),
+    staleTime: 60_000,
+  });
+}
+
+export interface InvoiceStatus {
+  imported: number;
+  matched: number;
+  pending: number;
+  unmatched: number;
+  duplicate: number;
+  coverage_pct: number | null;
+}
+
+export function useInvoiceStatus(p: RangeParams) {
+  return useQuery({
+    queryKey: ["dashboard-invoice-status", p],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: InvoiceStatus }>(
+        `${BASE}/invoice-status?${rangeQS(p)}`
+      );
+      return data.data;
+    },
+    enabled: Boolean(p.date_from && p.date_to),
+    staleTime: 60_000,
+  });
+}
+
+export interface AdsDetail {
+  platform: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  ctr: number;
+  cpc: number;
+  cost_per_conversion: number | null;
+  roas: number | null;
+  daily_spend: { date: string; spend: number }[];
+}
+
+export function useAdsDetail(p: RangeParams & { platform?: string }) {
+  const qs = new URLSearchParams({ date_from: p.date_from, date_to: p.date_to });
+  qs.set("platform", p.platform ?? "google_ads");
+  return useQuery({
+    queryKey: ["dashboard-ads-detail", p],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: AdsDetail }>(`${BASE}/ads-detail?${qs}`);
+      return data.data;
+    },
+    enabled: Boolean(p.date_from && p.date_to),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export interface ReviewsDetail {
+  average_rating: number | null;
+  total_reviews: number;
+  stars: Record<string, number>;
+  new_this_month: number;
+  month_avg_rating: number | null;
+  response_rate_pct: number | null;
+  unanswered: number;
+}
+
+export function useReviewsDetail(location_id?: string) {
+  const qs = new URLSearchParams();
+  if (location_id) qs.set("location_id", location_id);
+  return useQuery({
+    queryKey: ["dashboard-reviews-detail", location_id],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: ReviewsDetail }>(
+        `${BASE}/reviews-detail?${qs}`
+      );
+      return data.data;
+    },
+    staleTime: 5 * 60_000,
+  });
+}
+
+export interface ReviewsSentiment {
+  available: boolean;
+  positive_pct?: number;
+  top_complaint?: string;
+  top_complaint_count?: number;
+  top_praise?: string;
+  top_praise_count?: number;
+  sample_size?: number;
+}
+
+export function useReviewsSentiment(location_id?: string) {
+  const qs = new URLSearchParams();
+  if (location_id) qs.set("location_id", location_id);
+  return useQuery({
+    queryKey: ["dashboard-reviews-sentiment", location_id],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: ReviewsSentiment }>(
+        `${BASE}/reviews-sentiment?${qs}`
+      );
+      return data.data;
+    },
+    staleTime: 30 * 60_000,
   });
 }
