@@ -658,6 +658,49 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* ── Operations: Fulfillment (below Toast POS) ── */}
+      <div>
+        <RowLabel>Operations</RowLabel>
+        <Tile>
+          <TileHeader label="Avg Fulfillment Time" icon={Timer} />
+          {fulfillmentLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : !fulfillment || fulfillment.avg_seconds == null ? (
+            <>
+              <p className="text-2xl font-bold text-muted-foreground">—</p>
+              <p className="text-xs text-muted-foreground mt-1">No timed orders in this period (needs Toast open/close timestamps).</p>
+            </>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <p className="text-3xl font-bold tabular-nums">{fmtDuration(fulfillment.avg_seconds)}</p>
+                <p className="text-xs mt-1">
+                  Target {fmtDuration(fulfillment.target_seconds)} ·{" "}
+                  {fulfillment.avg_seconds <= fulfillment.target_seconds ? (
+                    <span className="text-green-500 font-medium">{fmtDuration(fulfillment.target_seconds - fulfillment.avg_seconds)} faster</span>
+                  ) : (
+                    <span className="text-red-500 font-medium">{fmtDuration(fulfillment.avg_seconds - fulfillment.target_seconds)} slower</span>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {fulfillment.peak_hour != null && `Peak ${fulfillment.peak_hour}:00 ${fmtDuration(fulfillment.peak_hour_seconds)} · `}
+                  fastest {fmtDuration(fulfillment.fastest_seconds)} · slowest {fmtDuration(fulfillment.slowest_seconds)}
+                </p>
+                <p className="text-xs text-muted-foreground">{fulfillment.sample_size} orders</p>
+              </div>
+              <div className="md:col-span-2 space-y-1.5">
+                {fulfillment.by_channel.map((c) => (
+                  <div key={c.channel} className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">{c.channel}</span>
+                    <span className="font-mono font-medium text-foreground">{fmtDuration(c.avg_seconds)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Tile>
+      </div>
+
       {/* ── Row 3: Food & Labor ── */}
       <div>
         <RowLabel>Food &amp; labor</RowLabel>
@@ -810,49 +853,6 @@ export default function DashboardPage() {
             )}
           </Tile>
         </div>
-      </div>
-
-      {/* ── Row 6: Fulfillment ── */}
-      <div>
-        <RowLabel>Operations</RowLabel>
-        <Tile>
-          <TileHeader label="Avg Fulfillment Time" icon={Timer} />
-          {fulfillmentLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          ) : !fulfillment || fulfillment.avg_seconds == null ? (
-            <>
-              <p className="text-2xl font-bold text-muted-foreground">—</p>
-              <p className="text-xs text-muted-foreground mt-1">No timed orders in this period (needs Toast open/close timestamps).</p>
-            </>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <p className="text-3xl font-bold tabular-nums">{fmtDuration(fulfillment.avg_seconds)}</p>
-                <p className="text-xs mt-1">
-                  Target {fmtDuration(fulfillment.target_seconds)} ·{" "}
-                  {fulfillment.avg_seconds <= fulfillment.target_seconds ? (
-                    <span className="text-green-500 font-medium">{fmtDuration(fulfillment.target_seconds - fulfillment.avg_seconds)} faster</span>
-                  ) : (
-                    <span className="text-red-500 font-medium">{fmtDuration(fulfillment.avg_seconds - fulfillment.target_seconds)} slower</span>
-                  )}
-                </p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  {fulfillment.peak_hour != null && `Peak ${fulfillment.peak_hour}:00 ${fmtDuration(fulfillment.peak_hour_seconds)} · `}
-                  fastest {fmtDuration(fulfillment.fastest_seconds)} · slowest {fmtDuration(fulfillment.slowest_seconds)}
-                </p>
-                <p className="text-xs text-muted-foreground">{fulfillment.sample_size} orders</p>
-              </div>
-              <div className="md:col-span-2 space-y-1.5">
-                {fulfillment.by_channel.map((c) => (
-                  <div key={c.channel} className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">{c.channel}</span>
-                    <span className="font-mono font-medium text-foreground">{fmtDuration(c.avg_seconds)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </Tile>
       </div>
 
       {showDateMenu && (

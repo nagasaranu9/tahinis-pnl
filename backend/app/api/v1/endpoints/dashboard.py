@@ -39,10 +39,15 @@ def _parse_range(date_from: str, date_to: str) -> tuple[datetime, datetime]:
 
 def _toast_filters(user: CurrentUserDep, location_id: uuid.UUID | None,
                    start: datetime, end: datetime) -> list:
+    # Select by Toast's native business_date (YYYYMMDD string, 4am→3:59am day
+    # boundary) — same basis as the P&L calculator. opened_at is a tz-aware
+    # timestamp that can be null or offset, which silently dropped every row.
+    start_str = start.strftime("%Y%m%d")
+    end_str = end.strftime("%Y%m%d")
     conds = [
         ToastOrder.tenant_id == user.tenant_id,
-        ToastOrder.opened_at >= start,
-        ToastOrder.opened_at <= end,
+        ToastOrder.business_date >= start_str,
+        ToastOrder.business_date <= end_str,
         ToastOrder.is_void == False,  # noqa: E712
     ]
     if location_id is not None:
@@ -310,8 +315,8 @@ async def cash_forecast(
 
     sales_conds = [
         ToastOrder.tenant_id == user.tenant_id,
-        ToastOrder.opened_at >= lb_start,
-        ToastOrder.opened_at <= now,
+        ToastOrder.business_date >= lb_start.strftime("%Y%m%d"),
+        ToastOrder.business_date <= now.strftime("%Y%m%d"),
         ToastOrder.is_void == False,  # noqa: E712
     ]
     if location_id is not None:
