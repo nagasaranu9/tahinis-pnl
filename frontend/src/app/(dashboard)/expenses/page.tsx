@@ -151,6 +151,7 @@ function ResetMonthModal({ onClose }: { onClose: () => void }) {
   const [end, setEnd] = useState(
     format(new Date(today.getFullYear(), today.getMonth(), 0), "yyyy-MM-dd")
   );
+  const [includeOverridden, setIncludeOverridden] = useState(false);
   const locationId = useLocationStore((s) => s.selectedLocationId);
   const { mutate: purge, isPending, data: result } = usePurgeExpenseRange();
 
@@ -188,6 +189,21 @@ function ResetMonthModal({ onClose }: { onClose: () => void }) {
             />
           </div>
         </div>
+        <label className="flex items-start gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={includeOverridden}
+            onChange={(e) => setIncludeOverridden(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            Also delete locked/overridden rows
+            <span className="block text-xs text-muted-foreground">
+              Needed to clear old PushOps payroll-CSV imports (they’re marked
+              authoritative and survive a normal purge).
+            </span>
+          </span>
+        </label>
         {result && (
           <div className="flex items-center gap-2 text-sm text-green-500">
             <CheckCircle className="h-4 w-4" />
@@ -206,7 +222,7 @@ function ResetMonthModal({ onClose }: { onClose: () => void }) {
                   `Delete all auto-extracted expenses from ${start} to ${end}? This cannot be undone.`
                 )
               ) {
-                purge({ start, end, locationId: locationId ?? undefined });
+                purge({ start, end, locationId: locationId ?? undefined, includeOverridden });
               }
             }}
             disabled={isPending}
