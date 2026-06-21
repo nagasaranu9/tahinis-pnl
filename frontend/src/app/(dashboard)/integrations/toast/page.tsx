@@ -170,10 +170,13 @@ export default function ToastIntegrationPage() {
         )}
 
         {backfillResult && (
-          <div className="flex items-center gap-2 pt-2 border-t border-border text-sm text-green-500">
-            <CheckCircle className="h-4 w-4" />
-            Channels backfilled — {backfillResult.updated} of {backfillResult.scanned} orders updated
-            ({backfillResult.dining_options} dining options).
+          <div className="flex items-start gap-2 pt-2 border-t border-border text-sm text-green-500">
+            <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>
+              Backfilled {backfillResult.scanned} orders — {backfillResult.updated} channel
+              labels, {backfillResult.fulfillment_updated} fulfillment times
+              ({backfillResult.dining_options} dining options).
+            </span>
           </div>
         )}
       </div>

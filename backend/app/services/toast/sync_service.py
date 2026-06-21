@@ -233,26 +233,48 @@ class ToastSyncService:
         )).all()
 
         updated = 0
+        fulfillment_updated = 0
         for row in rows:
             try:
                 raw = json.loads(row.raw_data) if row.raw_data else {}
             except (ValueError, TypeError):
                 continue
+
+            values: dict = {}
+
             opt = raw.get("diningOption") or {}
             name = _dict_get(opt, "name")
             if not name:
                 name = dining_map.get(_dict_get(opt, "guid") or "")
-            if not name:
+            if name:
+                values["dining_option"] = name
+
+            opened_at = _parse_ts(raw.get("openedDate"))
+            closed_at = _parse_ts(raw.get("closedDate"))
+            if opened_at is not None:
+                values["opened_at"] = opened_at
+            if closed_at is not None:
+                values["closed_at"] = closed_at
+
+            if not values:
                 continue
             await self._db.execute(
-                sql_update(ToastOrder).where(ToastOrder.id == row.id).values(dining_option=name)
+                sql_update(ToastOrder).where(ToastOrder.id == row.id).values(**values)
             )
-            updated += 1
+            if "dining_option" in values:
+                updated += 1
+            if "opened_at" in values or "closed_at" in values:
+                fulfillment_updated += 1
 
         await self._db.commit()
         logger.info("toast_backfill_dining_options", scanned=len(rows), updated=updated,
-                    map_size=len(dining_map))
-        return {"scanned": len(rows), "updated": updated, "dining_options": len(dining_map)}
+                    fulfillment_updated=fulfillment_updated, map_size=len(dining_map))
+        return {
+            "scanned": len(rows),
+            "updated": updated,
+            "fulfillment_updated": fulfillment_updated,
+            "dining_options": len(dining_map),
+        }
 
     async def _sync_range(
         self,
