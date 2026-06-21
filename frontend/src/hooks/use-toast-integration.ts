@@ -68,6 +68,21 @@ export function useTriggerSync() {
   });
 }
 
+export function useBackfillChannels() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (locationId: string) => {
+      const { data } = await apiClient.post<{
+        data: { scanned: number; updated: number; dining_options: number };
+      }>(`${BASE}/backfill-channels?location_id=${locationId}`);
+      return data.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["dashboard-channel-mix"] });
+    },
+  });
+}
+
 export function useDisconnectToast() {
   const qc = useQueryClient();
   return useMutation({

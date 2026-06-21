@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { format } from "date-fns";
-import { CheckCircle, RefreshCw, Plug, AlertCircle, Unplug } from "lucide-react";
+import { CheckCircle, RefreshCw, Plug, AlertCircle, Unplug, Layers } from "lucide-react";
 import {
   useToastStatus,
   useConnectToast,
   useTriggerSync,
   useDisconnectToast,
+  useBackfillChannels,
   useSyncJobs,
 } from "@/hooks/use-toast-integration";
 import { useLocationStore } from "@/lib/location-store";
@@ -56,6 +57,11 @@ export default function ToastIntegrationPage() {
   const { mutate: connect, isPending: connecting, error: connectError } = useConnectToast();
   const { mutate: triggerSync, isPending: syncing } = useTriggerSync();
   const { mutate: disconnect, isPending: disconnecting } = useDisconnectToast();
+  const {
+    mutate: backfillChannels,
+    isPending: backfilling,
+    data: backfillResult,
+  } = useBackfillChannels();
 
   function handleConnect(e: React.FormEvent) {
     e.preventDefault();
@@ -110,6 +116,15 @@ export default function ToastIntegrationPage() {
                   <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
                   Sync now
                 </button>
+                <button
+                  onClick={() => backfillChannels(locationId)}
+                  disabled={backfilling || !locationId}
+                  title="Repopulate revenue-by-channel labels on existing orders"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-md hover:bg-muted/50 disabled:opacity-50 transition-colors"
+                >
+                  <Layers className={`h-3.5 w-3.5 ${backfilling ? "animate-pulse" : ""}`} />
+                  Backfill channels
+                </button>
                 {!status.historical_import_complete && (
                   <button
                     onClick={() => triggerSync({ location_id: locationId, sync_type: "historical" })}
@@ -151,6 +166,14 @@ export default function ToastIntegrationPage() {
               <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Historical import</p>
               <p>{status.historical_import_complete ? "Complete" : "Not started — click “Run historical import”"}</p>
             </div>
+          </div>
+        )}
+
+        {backfillResult && (
+          <div className="flex items-center gap-2 pt-2 border-t border-border text-sm text-green-500">
+            <CheckCircle className="h-4 w-4" />
+            Channels backfilled — {backfillResult.updated} of {backfillResult.scanned} orders updated
+            ({backfillResult.dining_options} dining options).
           </div>
         )}
       </div>
