@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     GOOGLE_APPLICATION_CREDENTIALS_JSON: str = ""
     GOOGLE_OAUTH_CLIENT_ID: str = ""
     GOOGLE_OAUTH_CLIENT_SECRET: str = ""
+    # Places API (New) key — fallback review source when the Business Profile API
+    # isn't yet approved (GBP allowlisting is slow). Returns rating + count + up to
+    # 5 recent reviews. Plain API key, no OAuth, no allowlisting.
+    GOOGLE_PLACES_API_KEY: str = ""
 
     # Pipeboard (Google/Meta/TikTok Ads via MCP). Token is per-tenant in DB.
     PIPEBOARD_ADAPTER: str = "mock"  # "http" in prod, "mock" for dev/tests

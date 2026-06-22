@@ -13,6 +13,7 @@ import {
   useReviewsDisconnect,
   useSetReviewLocation,
   useDiscoverReviewLocation,
+  usePlacesSync,
 } from "@/hooks/use-reviews";
 import type { GoogleReview } from "@/types/google-reviews";
 
@@ -164,6 +165,69 @@ function LocationPin({
   );
 }
 
+function PlacesFallback({ locationId }: { locationId: string }) {
+  const { mutate: sync, isPending, data, error } = usePlacesSync();
+  const [query, setQuery] = useState("");
+  const [placeId, setPlaceId] = useState("");
+
+  return (
+    <div className="border border-border rounded-lg bg-card p-6 space-y-3">
+      <h3 className="text-sm font-semibold">Quick import (Places API)</h3>
+      <p className="text-xs text-muted-foreground">
+        Business Profile API approval is slow. This pulls your rating + up to 5
+        recent reviews now via the Places API. Search your business or paste a
+        Place ID. Needs <code>GOOGLE_PLACES_API_KEY</code> set on the server.
+      </p>
+      <div className="space-y-2">
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">Search business</label>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Tahini's Shawarma, Church St, Toronto"
+            className="mt-1 w-full text-sm border border-input rounded-md px-3 py-1.5 bg-background"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">…or Place ID</label>
+          <input
+            value={placeId}
+            onChange={(e) => setPlaceId(e.target.value)}
+            placeholder="ChIJ..."
+            className="mt-1 w-full text-sm border border-input rounded-md px-3 py-1.5 bg-background"
+          />
+        </div>
+      </div>
+      <button
+        onClick={() =>
+          sync({
+            locationId,
+            query: query.trim() || undefined,
+            placeId: placeId.trim() || undefined,
+          })
+        }
+        disabled={isPending || (!query.trim() && !placeId.trim())}
+        className="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+      >
+        {isPending ? "Importing…" : "Import reviews now"}
+      </button>
+      {data?.imported !== undefined && !data.error && (
+        <p className="text-xs text-green-500 flex items-center gap-1">
+          <CheckCircle className="h-3.5 w-3.5" />
+          Imported {data.imported} reviews · {data.rating ?? "—"}★ ·{" "}
+          {data.total_review_count ?? 0} total.
+        </p>
+      )}
+      {data?.error && <p className="text-xs text-yellow-500">{data.error}</p>}
+      {error && (
+        <p className="text-xs text-destructive">
+          {error instanceof Error ? error.message : "Import failed"}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ReviewsContent() {
   const searchParams = useSearchParams();
   const connected = searchParams.get("connected") === "google";
@@ -297,6 +361,8 @@ function ReviewsContent() {
               accountName={activeConfig.account_name}
               locationName={activeConfig.location_name}
             />
+
+            <PlacesFallback locationId={activeConfig.location_id} />
           </div>
 
           <div>

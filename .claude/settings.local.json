@@ -59,7 +59,8 @@
       "Bash(ls \"$\\(brew --prefix poppler\\)/bin/pdftoppm\")",
       "Bash(railway status *)",
       "Bash(python3 -m py_compile app/workers/tasks/ocr_process.py app/db/repositories/expense_repo.py app/api/v1/endpoints/expenses.py)",
-      "Bash(python3 -m py_compile app/api/v1/endpoints/reviews.py)"
+      "Bash(python3 -m py_compile app/api/v1/endpoints/reviews.py)",
+      "Bash(python3 -m py_compile app/api/v1/endpoints/reviews.py app/services/google/places_client.py app/core/config.py)"
     ]
   }
 }

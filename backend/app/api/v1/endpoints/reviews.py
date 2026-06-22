@@ -288,6 +288,114 @@ async def discover_review_location(
     }
 
 
+def _parse_iso(val: str | None) -> datetime | None:
+    if not val:
+        return None
+    try:
+        return datetime.fromisoformat(val.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+@router.post("/places-sync", response_model=APIResponse[dict])
+async def reviews_places_sync(
+    user: ManagerDep,
+    db: AsyncSessionDep,
+    location_id: uuid.UUID | None = Query(None),
+    place_id: str | None = Query(None, description="Google Place ID (ChIJ...). Optional if a query is given or already stored."),
+    query: str | None = Query(None, description="Business search text, e.g. 'Tahini's Shawarma Church St Toronto'"),
+) -> dict:
+    """Fallback review sync via Places API (New) — no GBP allowlisting needed.
+
+    Imports rating + total count + up to 5 recent reviews into the same tables the
+    Reviews tab/dashboard already read, so it lights up immediately while the full
+    Business Profile API access request is pending."""
+    from app.core.config import settings
+    from app.services.google.places_client import (
+        PlacesAPIError,
+        get_place_reviews,
+        search_place,
+    )
+
+    api_key = settings.GOOGLE_PLACES_API_KEY
+    if not api_key:
+        raise NotFoundError("GOOGLE_PLACES_API_KEY not configured on the server")
+
+    repo = ReviewsRepository(db)
+    configs = await repo.list_configs(user.tenant_id)
+    config = next(
+        (c for c in configs if (not location_id or c.location_id == location_id) and c.is_active),
+        None,
+    )
+    if config is None:
+        raise NotFoundError("Google reviews not connected for this location")
+
+    # Resolve the Place ID: explicit param > text search > already stored.
+    resolved = place_id or None
+    if not resolved and query:
+        try:
+            candidates = await search_place(query, api_key)
+        except PlacesAPIError as exc:
+            return {"data": {"error": f"Place search failed (HTTP {exc.status})", "candidates": []}, "errors": None}
+        if not candidates:
+            return {"data": {"error": "no_place_found", "candidates": []}, "errors": None}
+        resolved = candidates[0]["id"]
+    if not resolved and config.place_id and config.place_id.startswith(("ChIJ", "places/")):
+        resolved = config.place_id
+    if not resolved:
+        return {"data": {"error": "need_place_id_or_query"}, "errors": None}
+
+    try:
+        details = await get_place_reviews(resolved, api_key)
+    except PlacesAPIError as exc:
+        logger.error("places_sync_failed", status=exc.status, body=exc.body[:300])
+        hint = " — enable 'Places API (New)' and check the API key/billing." if exc.status in (403, 400) else ""
+        return {"data": {"error": f"Places API HTTP {exc.status}{hint}"}, "errors": None}
+
+    imported = 0
+    for r in details["reviews"]:
+        if not r.get("name"):
+            continue
+        rating = int(r["rating"]) if r.get("rating") is not None else None
+        published = _parse_iso(r.get("publish_time"))
+        await repo.upsert_review(
+            tenant_id=user.tenant_id,
+            location_id=config.location_id,
+            review_id=r["name"],
+            author_name=r.get("author"),
+            rating=rating,
+            comment=r.get("text"),
+            published_at=published,
+            update_time=published,
+            reply_comment=None,
+            reply_update_time=None,
+        )
+        imported += 1
+
+    # Persist the resolved Place ID for next time + stamp the sync.
+    config.place_id = details["place_id"]
+    await repo.mark_synced(config.id)
+    await db.commit()
+
+    logger.info(
+        "reviews_places_synced",
+        tenant_id=str(user.tenant_id),
+        place_id=details["place_id"],
+        imported=imported,
+        rating=details.get("rating"),
+        count=details.get("user_rating_count"),
+    )
+    return {
+        "data": {
+            "place_id": details["place_id"],
+            "rating": details.get("rating"),
+            "total_review_count": details.get("user_rating_count"),
+            "imported": imported,
+        },
+        "errors": None,
+    }
+
+
 @router.patch("/config/location", response_model=APIResponse[GoogleReviewConfigResponse])
 async def set_review_location(
     user: OwnerDep,

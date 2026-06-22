@@ -112,6 +112,33 @@ export function useDiscoverReviewLocation() {
   });
 }
 
+export function usePlacesSync() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { locationId?: string; placeId?: string; query?: string }) => {
+      const qs = new URLSearchParams();
+      if (params.locationId) qs.set("location_id", params.locationId);
+      if (params.placeId) qs.set("place_id", params.placeId);
+      if (params.query) qs.set("query", params.query);
+      const { data } = await apiClient.post<{
+        data: {
+          place_id?: string;
+          rating?: number;
+          total_review_count?: number;
+          imported?: number;
+          error?: string;
+        };
+      }>(`${BASE}/places-sync?${qs.toString()}`);
+      return data.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["reviews-summary"] });
+      qc.invalidateQueries({ queryKey: ["reviews-list"] });
+      qc.invalidateQueries({ queryKey: ["reviews-status"] });
+    },
+  });
+}
+
 export function useReviewsDisconnect() {
   const qc = useQueryClient();
   return useMutation({
