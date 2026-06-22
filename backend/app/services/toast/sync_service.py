@@ -240,7 +240,7 @@ class ToastSyncService:
             except (ValueError, TypeError):
                 continue
 
-            logger.info("toast_backfill_sample", raw_keys=list(raw.keys()), has_openedDate=bool(raw.get("openedDate")), has_closedDate=bool(raw.get("closedDate")))
+            logger.info("toast_backfill_sample", raw_keys=", ".join(raw.keys()), has_openedDate=bool(raw.get("openedDate")), has_closedDate=bool(raw.get("closedDate")))
             values: dict = {}
 
             opt = raw.get("diningOption") or {}
