@@ -8,6 +8,7 @@ from app.core.deps import CurrentUserDep, ManagerDep
 from app.core.exceptions import ForbiddenError
 from app.db.repositories.audit_repo import AuditRepository
 from app.db.repositories.document_repo import DocumentRepository
+from app.db.repositories.expense_repo import ExpenseRepository
 from app.db.session import AsyncSessionDep
 from app.schemas.common import APIResponse, PaginatedMeta, PaginatedResponse
 from app.schemas.document import (
