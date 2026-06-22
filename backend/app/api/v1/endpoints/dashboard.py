@@ -517,14 +517,24 @@ async def reviews_detail(
     location_id: uuid.UUID | None = Query(None),
 ) -> dict:
     """Review counts, star breakdown, this-month activity, and response rate."""
-    conds = [GoogleReview.tenant_id == user.tenant_id]
-    if location_id is not None:
-        conds.append(GoogleReview.location_id == location_id)
+    async def _fetch(loc: uuid.UUID | None):
+        conds = [GoogleReview.tenant_id == user.tenant_id]
+        if loc is not None:
+            conds.append(GoogleReview.location_id == loc)
+        return (await db.execute(
+            select(GoogleReview.rating, GoogleReview.published_at, GoogleReview.reply_comment)
+            .where(and_(*conds))
+        )).all()
 
-    rows = (await db.execute(
-        select(GoogleReview.rating, GoogleReview.published_at, GoogleReview.reply_comment)
-        .where(and_(*conds))
-    )).all()
+    rows = await _fetch(location_id)
+    # Reviews are stored under the GBP config's location, which can differ from
+    # the sidebar-selected location. If the scoped query is empty, fall back to
+    # tenant-wide so the dashboard tile isn't stuck on "Connect" while the
+    # Reviews tab clearly has data.
+    snapshot_loc = location_id
+    if not rows and location_id is not None:
+        rows = await _fetch(None)
+        snapshot_loc = None
 
     total = len(rows)
     stars = {5: 0, 4: 0, 3: 0, 2: 0, 1: 0}
@@ -558,7 +568,7 @@ async def reviews_detail(
     avg_rating = round(rating_sum / rating_n, 1) if rating_n else None
     total_reviews = total
     from app.db.repositories.reviews_repo import ReviewsRepository
-    snap = await ReviewsRepository(db).get_latest_snapshot(user.tenant_id, location_id)
+    snap = await ReviewsRepository(db).get_latest_snapshot(user.tenant_id, snapshot_loc)
     if snap is not None and snap.review_count_total:
         if snap.rating_average is not None:
             avg_rating = round(float(snap.rating_average), 1)
