@@ -223,6 +223,12 @@ class ReviewsRepository:
                 star_counts[r] += 1
 
         avg = round(sum(r for r in rows if r) / total, 2) if total else None
+        # Prefer the true aggregate (Places API gives real rating + full count);
+        # the per-row average of a 5-review sample would otherwise mislead.
+        snap = await self.get_latest_snapshot(tenant_id, location_id)
+        if snap is not None and snap.review_count_total:
+            avg = float(snap.rating_average) if snap.rating_average is not None else avg
+            total = snap.review_count_total
         return {
             "average_rating": avg,
             "total_review_count": total,
@@ -277,3 +283,20 @@ class ReviewsRepository:
             )
         )
         await self._db.execute(stmt)
+
+    async def get_latest_snapshot(
+        self, tenant_id: uuid.UUID, location_id: uuid.UUID | None = None
+    ) -> GoogleReviewSnapshot | None:
+        """Most recent snapshot — holds the TRUE aggregate rating + total count
+        (e.g. from Places API: 4.8 / 1995), as opposed to the average of the
+        handful of individual review rows we store."""
+        conds = [GoogleReviewSnapshot.tenant_id == tenant_id]
+        if location_id is not None:
+            conds.append(GoogleReviewSnapshot.location_id == location_id)
+        row = (await self._db.execute(
+            select(GoogleReviewSnapshot)
+            .where(and_(*conds))
+            .order_by(GoogleReviewSnapshot.snapshot_date.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+        return row

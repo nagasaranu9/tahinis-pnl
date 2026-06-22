@@ -553,10 +553,21 @@ async def reviews_detail(
                 month_rating_sum += r.rating
                 month_rating_n += 1
 
+    # Prefer the true aggregate rating + total from the latest snapshot (Places
+    # API returns the real 4.8 / 1995, not the 5-review sample average).
+    avg_rating = round(rating_sum / rating_n, 1) if rating_n else None
+    total_reviews = total
+    from app.db.repositories.reviews_repo import ReviewsRepository
+    snap = await ReviewsRepository(db).get_latest_snapshot(user.tenant_id, location_id)
+    if snap is not None and snap.review_count_total:
+        if snap.rating_average is not None:
+            avg_rating = round(float(snap.rating_average), 1)
+        total_reviews = snap.review_count_total
+
     return {
         "data": {
-            "average_rating": round(rating_sum / rating_n, 1) if rating_n else None,
-            "total_reviews": total,
+            "average_rating": avg_rating,
+            "total_reviews": total_reviews,
             "stars": {f"{k}_star": v for k, v in stars.items()},
             "new_this_month": new_this_month,
             "month_avg_rating": round(month_rating_sum / month_rating_n, 1) if month_rating_n else None,

@@ -372,6 +372,22 @@ async def reviews_places_sync(
         )
         imported += 1
 
+    # Persist the TRUE aggregate (rating + full count) as a snapshot so the
+    # summary/dashboard headline shows 4.8 / 1995, not the 5-review sample avg.
+    sampled_stars: dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    for r in details["reviews"]:
+        rv = r.get("rating")
+        if isinstance(rv, (int, float)) and 1 <= int(rv) <= 5:
+            sampled_stars[int(rv)] += 1
+    await repo.save_snapshot(
+        tenant_id=user.tenant_id,
+        location_id=config.location_id,
+        snapshot_date=datetime.now(UTC),
+        average_rating=details.get("rating"),
+        total_review_count=details.get("user_rating_count") or 0,
+        star_counts=sampled_stars,
+    )
+
     # Persist the resolved Place ID for next time + stamp the sync.
     config.place_id = details["place_id"]
     await repo.mark_synced(config.id)

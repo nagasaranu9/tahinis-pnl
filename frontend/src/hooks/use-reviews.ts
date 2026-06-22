@@ -135,6 +135,8 @@ export function usePlacesSync() {
       qc.invalidateQueries({ queryKey: ["reviews-summary"] });
       qc.invalidateQueries({ queryKey: ["reviews-list"] });
       qc.invalidateQueries({ queryKey: ["reviews-status"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-reviews-detail"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-reviews-sentiment"] });
     },
   });
 }
