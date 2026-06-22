@@ -346,11 +346,13 @@ async def _extract_bank_statement_expenses(
     line_items: list,
     currency_code: str,
     extracted_text: str = "",
+    prebuilt_transactions: list[dict] | None = None,
 ) -> int:
     """Parse debit transactions from a bank statement and create Expense rows.
 
-    Google Invoice Parser returns empty line_items for bank statements — falls back
-    to Claude haiku text parsing of the raw OCR text. Returns count created."""
+    Preferred source is prebuilt_transactions (per-page Claude extraction — complete
+    + deterministic even on dense multi-page statements). Falls back to whole-document
+    line_items, then Claude haiku text parsing. Returns count created."""
     from decimal import Decimal
     from app.db.repositories.expense_repo import ExpenseRepository
     from app.workers.tasks.ai_categorize import categorize_expense
@@ -358,10 +360,15 @@ async def _extract_bank_statement_expenses(
     expense_repo = ExpenseRepository(db)
     created = 0
 
-    # Build unified transaction list. Invoice Parser populates line_items for invoices
-    # but returns nothing for bank statements — use Claude text parsing as fallback.
+    # Per-page extraction is the authoritative source when present — it doesn't
+    # truncate on long statements the way a single whole-document call does.
     transactions: list[dict] = []
-    if line_items:
+    if prebuilt_transactions:
+        transactions = [
+            {"description": t["description"], "amount": t["amount"], "date": t.get("date")}
+            for t in prebuilt_transactions
+        ]
+    elif line_items:
         for li in line_items:
             if not li.description:
                 continue
@@ -635,6 +642,20 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
             # Bank statements: extract individual debit transactions as expenses
             # and Gmail-verify each one. PushOps payroll fallback already ran above.
             if classified_type == "bank_statement":
+                # Per-page extraction first — a single whole-document OCR call
+                # truncates its JSON on dense multi-page statements and drops most
+                # transactions (the recurring incomplete/inconsistent P&L). Parse
+                # each page separately so every transaction is captured.
+                prebuilt: list[dict] = []
+                try:
+                    from app.services.ocr.claude_adapter import extract_bank_transactions_per_page
+                    stmt_year = (doc_date or datetime.now(UTC)).year
+                    prebuilt = await extract_bank_transactions_per_page(
+                        file_bytes, doc.mime_type, statement_year=stmt_year
+                    )
+                except Exception as exc:
+                    logger.warning("bank_per_page_extract_failed", error=str(exc))
+
                 bank_created = await _extract_bank_statement_expenses(
                     db,
                     tenant_id=tenant_id,
@@ -644,6 +665,7 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
                     line_items=result.line_items,
                     currency_code=result.currency_code or "CAD",
                     extracted_text=result.extracted_text or "",
+                    prebuilt_transactions=prebuilt,
                 )
                 await db.commit()
                 logger.info(

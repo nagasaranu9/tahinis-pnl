@@ -72,6 +72,103 @@ def _pdf_to_image_bytes_all_pages(file_bytes: bytes) -> tuple[list[bytes], int]:
     return images, total_pages
 
 
+_BANK_PAGE_PROMPT = """This is ONE page of a bank or credit-card statement. List EVERY money-OUT
+transaction visible on THIS page only.
+
+Money-OUT = chequing 'amounts debited' column (pre-authorized payments, withdrawals,
+purchases, fees, interest paid) OR every purchase/charge line on a credit-card statement.
+
+EXCLUDE: deposits, direct deposits, credits, refunds, interest earned, transfers in,
+opening/closing/previous/new balance lines, minimum-payment lines, and payment lines that
+REDUCE a credit-card balance (TRSF FROM, PAYMENT - THANK YOU).
+
+Respond with ONLY a JSON array, no markdown:
+[{"description": "vendor/text as shown", "amount": 123.45, "date": "YYYY-MM-DD or MM/DD or null"}]
+- amount: positive number, no symbols/commas
+- include EVERY qualifying line on this page, even repeats of the same vendor with different amounts
+- return [] if none on this page"""
+
+
+async def extract_bank_transactions_per_page(
+    file_bytes: bytes, mime_type: str, statement_year: int | None = None
+) -> list[dict]:
+    """Extract bank debit/charge transactions ONE PAGE AT A TIME.
+
+    A single whole-document call truncates its JSON on dense multi-page statements
+    (40+ transactions) and silently drops most rows — the recurring 'P&L is
+    incomplete / inconsistent' bug. Parsing each page in its own bounded call keeps
+    every output small and complete, then we accumulate. Returns a list of
+    {description, amount (positive float), date (str|None)}."""
+    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+    if mime_type == "application/pdf" or mime_type.endswith("/pdf"):
+        page_images, _ = _pdf_to_image_bytes_all_pages(file_bytes)
+        media_type = "image/png"
+    else:
+        page_images, media_type = [file_bytes], mime_type
+
+    out: list[dict] = []
+    for idx, img in enumerate(page_images):
+        content = [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": base64.standard_b64encode(img).decode(),
+                },
+            },
+            {"type": "text", "text": _BANK_PAGE_PROMPT},
+        ]
+        try:
+            msg = client.messages.create(
+                model=settings.CLAUDE_MODEL,
+                max_tokens=8000,
+                messages=[{"role": "user", "content": content}],
+            )
+            raw = msg.content[0].text.strip()  # type: ignore[union-attr]
+            fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
+            if fence:
+                raw = fence.group(1).strip()
+            start = raw.find("[")
+            end = raw.rfind("]")
+            if start == -1 or end == -1:
+                continue
+            rows = json.loads(raw[start : end + 1])
+        except Exception as exc:
+            logger.warning("bank_page_parse_failed", page=idx, error=str(exc))
+            continue
+
+        for r in rows if isinstance(rows, list) else []:
+            if not isinstance(r, dict):
+                continue
+            desc = str(r.get("description", "")).strip()
+            amt = _parse_decimal(r.get("amount"))
+            if not desc or amt is None or amt <= 0:
+                continue
+            out.append({
+                "description": desc,
+                "amount": amt,
+                "date": _normalize_date(r.get("date"), statement_year),
+            })
+
+    logger.info("bank_per_page_extracted", pages=len(page_images), transactions=len(out))
+    return out
+
+
+def _normalize_date(val, statement_year: int | None) -> Optional[str]:
+    """Accept YYYY-MM-DD or MM/DD (year inferred from statement) → YYYY-MM-DD."""
+    if not val:
+        return None
+    s = str(val).strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return s
+    m = re.fullmatch(r"(\d{1,2})[/-](\d{1,2})", s)
+    if m and statement_year:
+        return f"{statement_year:04d}-{int(m.group(1)):02d}-{int(m.group(2)):02d}"
+    return None
+
+
 def _parse_decimal(val) -> Optional[Decimal]:
     if val is None:
         return None
