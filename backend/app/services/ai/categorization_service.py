@@ -51,7 +51,7 @@ _KEYWORD_CATEGORY_MAP: list[tuple[tuple[str, ...], str]] = [
     (("rent", "landlord", "lease", "property mgmt", "realty", "leasing"), "Rent"),
     # Insurance
     (("insurance", "intact", "aviva", "wawanesa", "sonnet", "co-operators",
-      "assurance", "ins ", "ins.", "gms"), "Insurance"),
+      "cooperators", "coop", "ins/ass", "assurance", "ins ", "ins.", "gms"), "Insurance"),
     # Marketing / ads — MUST precede Software so "GOOGLE *ADS" maps to Marketing,
     # not the generic Google/Workspace Software entries below.
     (("google ads", "google *ads", "googleads", "facebook", "meta platforms",

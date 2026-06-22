@@ -451,11 +451,25 @@ async def _extract_bank_statement_expenses(
             expense.category = "Rent"
             await db.flush()
         else:
-            await db.flush()
-            categorize_expense.apply_async(
-                kwargs={"expense_id": str(expense.id), "tenant_id": str(tenant_id)},
-                queue="ai",
-            )
+            # Deterministic keyword match SYNCHRONOUSLY at creation — don't depend
+            # on the async 'ai' queue, whose dropped/backlogged jobs left known
+            # vendors (PUSHOPERATIONS, ALEX FOOD, COOPERATORS, TAHINIS BUS) stuck
+            # in Uncategorized. Vendor name alone is the signal for a bank line.
+            from app.services.ai.categorization_service import keyword_category
+            kw = keyword_category(vendor, None)
+            if kw:
+                expense.category = kw
+                expense.ai_suggested_category = kw
+                expense.ai_confidence_score = Decimal("0.90")
+                expense.is_ai_categorized = True
+                await db.flush()
+            else:
+                await db.flush()
+                # No keyword hit → let the AI categorizer take a pass async.
+                categorize_expense.apply_async(
+                    kwargs={"expense_id": str(expense.id), "tenant_id": str(tenant_id)},
+                    queue="ai",
+                )
         logger.info(
             "bank_expense_created",
             tenant_id=str(tenant_id),
