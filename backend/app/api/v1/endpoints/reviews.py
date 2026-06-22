@@ -242,9 +242,25 @@ async def discover_review_location(
                     )
                     chosen_location = match.get("name", "")
     except GoogleAPIRateLimitError:
-        raise NotFoundError(
-            "Google API daily quota hit — try again later, or paste the IDs manually"
-        )
+        return {"data": {"error": "Google API daily quota hit — try again later, or paste IDs manually"}, "errors": None}
+    except Exception as exc:  # surface Google's real cause instead of a blank 500
+        import httpx
+        detail = str(exc)
+        status = None
+        if isinstance(exc, httpx.HTTPStatusError):
+            status = exc.response.status_code
+            body = exc.response.text[:300]
+            detail = f"Google returned HTTP {status}: {body}"
+        logger.error("google_reviews_discover_failed", error=detail, status=status)
+        hint = ""
+        if status == 403:
+            hint = (
+                " — likely the Business Profile APIs aren’t enabled for this Google "
+                "Cloud project, or the project hasn’t been granted GBP API access. "
+                "Enable: My Business Account Management API + Business Information API + "
+                "Google My Business API, and request GBP API access."
+            )
+        return {"data": {"error": detail + hint}, "errors": None}
 
     if not chosen_account or not chosen_location:
         return {"data": {"error": "no_locations", "accounts": [a.get("name") for a in accounts]}, "errors": None}
