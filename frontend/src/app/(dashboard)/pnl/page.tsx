@@ -10,6 +10,7 @@ import {
   FileText,
   Loader2,
   GitCompareArrows,
+  ChevronDown,
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
 import { usePnLReport } from "@/hooks/use-pnl";
@@ -211,7 +212,7 @@ function PnLRow({
       >
         {fmt(value)}
       </td>
-      <td className="py-2 pr-3 text-right text-xs text-muted-foreground font-mono w-20">
+      <td className="hidden sm:table-cell py-2 pr-3 text-right text-xs text-muted-foreground font-mono w-20">
         {fmtPct(pct)}
       </td>
       {compare && (
@@ -241,13 +242,18 @@ function SeparatorRow({ label, compare }: { label: string; compare: boolean }) {
 
 function ExpenseBreakdownRow({ row }: { row: ExpenseCategoryBreakdown }) {
   const hasMultiple = row.expenses.length > 1;
+  const [open, setOpen] = useState(false);
   return (
     <tr className="border-b last:border-0">
       <td className="py-2 px-4 text-sm relative">
-        <span className={hasMultiple ? "group relative inline-block cursor-pointer underline decoration-dotted decoration-muted-foreground/50" : ""}>
+        <span
+          onClick={() => hasMultiple && setOpen((v) => !v)}
+          className={hasMultiple ? "group relative inline-flex items-center gap-1 cursor-pointer underline decoration-dotted decoration-muted-foreground/50 select-none" : ""}
+        >
           {row.category}
+          {hasMultiple && <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />}
           {hasMultiple && (
-            <div className="invisible group-hover:visible absolute left-0 top-full z-50 mt-1.5 min-w-[200px] max-w-[280px] rounded-md border border-border bg-card text-card-foreground shadow-xl ring-1 ring-black/5 py-1.5">
+            <div className={`${open ? "visible" : "invisible"} sm:group-hover:visible absolute left-0 top-full z-50 mt-1.5 min-w-[200px] max-w-[280px] rounded-md border border-border bg-card text-card-foreground shadow-xl ring-1 ring-black/5 py-1.5`}>
               {row.expenses.map((e, i) => (
                 <div key={i} className="flex justify-between gap-3 px-2.5 py-1 text-xs">
                   <span className="truncate text-muted-foreground">{e.vendor_name || "—"}</span>
@@ -567,7 +573,7 @@ export default function PnLPage() {
                 <span>Δ Change</span>
               </div>
             )}
-            <table className="w-full min-w-[480px]">
+            <table className={`w-full ${compare ? "min-w-[560px]" : "min-w-0"}`}>
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th className="py-2.5 px-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -576,7 +582,7 @@ export default function PnLPage() {
                   <th className="py-2.5 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Amount
                   </th>
-                  <th className="py-2.5 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground w-20">
+                  <th className="hidden sm:table-cell py-2.5 px-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground w-20">
                     % Rev
                   </th>
                   {compare && (

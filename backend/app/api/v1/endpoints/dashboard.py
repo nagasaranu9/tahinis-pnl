@@ -588,6 +588,88 @@ async def reviews_detail(
     }
 
 
+@router.get("/profit-suggestions", response_model=APIResponse[dict])
+async def profit_suggestions(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    date_from: str = Query(..., description="YYYY-MM-DD"),
+    date_to: str = Query(..., description="YYYY-MM-DD"),
+    location_id: uuid.UUID | None = Query(None),
+) -> dict:
+    """AI suggestions to improve NET profit for the period.
+
+    Runs the real P&L, hands the numbers to Claude, returns 3-5 concrete,
+    restaurant-specific actions ranked by estimated monthly $ impact. On-demand
+    + synchronous (no async queue) so it's reliable; client should cache."""
+    start, end = _parse_range(date_from, date_to)
+
+    from app.services.pnl.calculator import PnLCalculator
+    report = await PnLCalculator(db).compute(user.tenant_id, start, end, location_id)
+    li = report.line_items
+
+    if not settings.ANTHROPIC_API_KEY:
+        return {"data": {"available": False, "reason": "no_api_key"}, "errors": None}
+
+    def _f(v) -> float:
+        return float(v) if v is not None else 0.0
+
+    metrics = {
+        "net_revenue": _f(li.net_revenue),
+        "cogs": _f(li.cogs),
+        "cogs_pct": _f(li.cogs_pct),
+        "labor_cost": _f(li.labor_cost),
+        "labor_pct": _f(li.labor_pct),
+        "prime_cost_pct": _f(li.prime_cost_pct),
+        "operating_expenses": _f(li.operating_expenses),
+        "ebitda": _f(li.ebitda),
+        "net_profit": _f(li.net_profit),
+        "net_profit_pct": _f(li.net_profit_pct),
+    }
+    breakdown = [
+        {"category": b.category, "total": _f(b.total)}
+        for b in (report.expense_breakdown or [])
+    ]
+
+    import json as _json
+
+    import anthropic
+
+    prompt = (
+        "You are a restaurant CFO. Given this P&L for the period, suggest 3-5 "
+        "concrete actions to improve NET PROFIT. Each must be specific and "
+        "restaurant-relevant (food cost %, labor scheduling, supplier "
+        "renegotiation, menu pricing/mix, waste, marketing ROAS, opex). "
+        "Benchmarks: food cost target ~30-34% of net sales, labor ~28-32%, "
+        "prime cost <60%.\n\n"
+        f"Period: {date_from} to {date_to}\n"
+        f"Metrics: {_json.dumps(metrics)}\n"
+        f"Expense categories: {_json.dumps(breakdown)}\n\n"
+        "Respond ONLY with JSON:\n"
+        '{"headline": "<one-sentence overall read>", "suggestions": ['
+        '{"title": "<short action>", "detail": "<1-2 sentence how>", '
+        '"impact_monthly": <estimated CAD $/month improvement, int>, '
+        '"priority": "high|medium|low"}]}\n'
+        "Sort suggestions by impact_monthly desc. JSON only:"
+    )
+    try:
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=900,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = msg.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1].lstrip("json").strip()
+        data = _json.loads(raw)
+        data["available"] = True
+        data["metrics"] = metrics
+        return {"data": data, "errors": None}
+    except Exception as exc:
+        logger.warning("profit_suggestions_failed", error=str(exc))
+        return {"data": {"available": False, "reason": "analysis_failed"}, "errors": None}
+
+
 @router.get("/reviews-sentiment", response_model=APIResponse[dict])
 async def reviews_sentiment(
     user: CurrentUserDep,

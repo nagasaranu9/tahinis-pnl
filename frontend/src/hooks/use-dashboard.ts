@@ -211,6 +211,36 @@ export interface ReviewsSentiment {
   sample_size?: number;
 }
 
+export interface ProfitSuggestion {
+  title: string;
+  detail: string;
+  impact_monthly: number;
+  priority: "high" | "medium" | "low";
+}
+
+export interface ProfitSuggestions {
+  available: boolean;
+  reason?: string;
+  headline?: string;
+  suggestions?: ProfitSuggestion[];
+  metrics?: Record<string, number>;
+}
+
+// Lazy: pass enabled=true (e.g. on button click) to spend Claude credits.
+export function useProfitSuggestions(p: RangeParams, enabled: boolean) {
+  return useQuery({
+    queryKey: ["dashboard-profit-suggestions", p],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: ProfitSuggestions }>(
+        `${BASE}/profit-suggestions?${rangeQS(p)}`
+      );
+      return data.data;
+    },
+    enabled: enabled && Boolean(p.date_from && p.date_to),
+    staleTime: 30 * 60_000,
+  });
+}
+
 export function useReviewsSentiment(location_id?: string) {
   const qs = new URLSearchParams();
   if (location_id) qs.set("location_id", location_id);
