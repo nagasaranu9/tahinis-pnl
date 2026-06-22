@@ -361,15 +361,31 @@ class PipeboardHttpAdapter(PipeboardAdapter):
 
             cust_rows_start = len(metrics)
 
-            # Per-campaign so each daily row is attributable. status="ALL" so
-            # PAUSED campaigns with in-window spend aren't silently dropped.
-            campaigns_data = await _call(
-                f"get_{infix}_campaigns",
-                {"customer_id": customer_id, "status": "ALL"},
-                drop=("status",),
-            )
-            for c in campaigns_data.get("campaigns", []):
-                campaign_id = str(c["id"])
+            # Discover the REAL campaign ids from a customer-level metrics call.
+            # The `get_*_campaigns` tool returns a different/stale id namespace
+            # (e.g. 22396426206) that yields total_campaigns=0 when queried for
+            # metrics. The metrics tool's own `campaigns[].campaign_id` are the
+            # ids that actually carry segmented_metrics. status_filter="ALL" so
+            # PAUSED campaigns with in-window spend aren't dropped.
+            allres = await _call(f"get_{infix}_campaign_metrics", {
+                "customer_id": customer_id,
+                "date_range": preset,
+                "time_breakdown": "day",
+                "status_filter": "ALL",
+            }, drop=("status_filter",))
+            logger.info("pipeboard_metrics_all_raw", platform=pipeboard_platform,
+                        keys=list(allres.keys()),
+                        total_campaigns=allres.get("total_campaigns"),
+                        data=str(allres)[:400])
+
+            real_ids = [
+                str(cm.get("campaign_id") or cm.get("id") or "")
+                for cm in allres.get("campaigns", [])
+            ]
+            real_ids = [cid for cid in real_ids if cid]
+
+            # Per-campaign so each daily row is attributable to a campaign.
+            for campaign_id in real_ids:
                 result = await _call(f"get_{infix}_campaign_metrics", {
                     "customer_id": customer_id,
                     "campaign_ids": [campaign_id],
@@ -377,35 +393,17 @@ class PipeboardHttpAdapter(PipeboardAdapter):
                     "time_breakdown": "day",
                     "status_filter": "ALL",
                 }, drop=("status_filter",))
-                logger.info("pipeboard_metrics_raw", platform=pipeboard_platform, campaign_id=campaign_id, keys=list(result.keys()), data=str(result)[:500])
+                logger.info("pipeboard_metrics_raw", platform=pipeboard_platform,
+                            campaign_id=campaign_id, total=result.get("total_campaigns"))
                 if _seg_rows(result, campaign_id, cur) == 0:
                     if _agg_row(result.get("aggregate_metrics") or {}, campaign_id, cur):
                         logger.info("pipeboard_metrics_aggregate_fallback",
                                     platform=pipeboard_platform, campaign_id=campaign_id)
 
-            # Customer-level fallback: enumeration above can miss campaigns the
-            # `get_*_campaigns` list omits (PMax/Smart are often excluded). If the
-            # whole customer produced nothing, ask for ALL campaigns' metrics in
-            # one call and ingest each returned campaign's segmented/aggregate.
+            # Fallback: no per-campaign attribution available — ingest the
+            # account-wide top-level segmented_metrics keyed to the customer id.
             if len(metrics) == cust_rows_start:
-                allres = await _call(f"get_{infix}_campaign_metrics", {
-                    "customer_id": customer_id,
-                    "date_range": preset,
-                    "time_breakdown": "day",
-                    "status_filter": "ALL",
-                }, drop=("status_filter",))
-                logger.info("pipeboard_metrics_all_raw", platform=pipeboard_platform,
-                            keys=list(allres.keys()), data=str(allres)[:600])
-                # Per-campaign blocks (each may carry its own segmented_metrics + totals).
-                for cm in allres.get("campaigns", []):
-                    cid = str(cm.get("campaign_id") or cm.get("id") or "")
-                    if not cid:
-                        continue
-                    if _seg_rows(cm, cid, cur) == 0:
-                        _agg_row(cm, cid, cur)
-                # Some responses only carry a flat top-level segmented list.
-                if len(metrics) == cust_rows_start:
-                    _seg_rows(allres, customer_id, cur)
+                _seg_rows(allres, customer_id, cur)
         return metrics
 
 
