@@ -63,7 +63,9 @@
       "Bash(python3 -m py_compile app/api/v1/endpoints/reviews.py app/services/google/places_client.py app/core/config.py)",
       "mcp__66ab700a-13da-4e65-ab9b-fa39abcadfe2__get_google_ads_campaign_metrics",
       "Bash(python3 -)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(python3 -m py_compile backend/app/services/external_platforms/pipeboard_adapter.py)",
+      "Bash(git commit -q -m 'Pipeboard: sync PMax/paused Google Ads campaigns that yielded 0 metrics *)"
     ]
   }
 }

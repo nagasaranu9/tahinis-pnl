@@ -285,82 +285,127 @@ class PipeboardHttpAdapter(PipeboardAdapter):
         preset = _preset_for_window(start, end)
 
         metrics: list[PipeboardDailyMetricData] = []
+
+        async def _call(tool: str, args: dict, drop: tuple[str, ...] = ()) -> dict:
+            """call_tool, but if the server rejects an optional arg (older
+            Pipeboard schemas), retry once without the listed keys instead of
+            failing the whole sync."""
+            try:
+                return await client.call_tool(tool, args)
+            except PipeboardMcpError as exc:
+                if not drop:
+                    raise
+                slim = {k: v for k, v in args.items() if k not in drop}
+                logger.warning("pipeboard_arg_retry", tool=tool, dropped=drop, error=str(exc)[:200])
+                return await client.call_tool(tool, slim)
+
+        def _seg_rows(result: dict, campaign_id: str, cur: str) -> int:
+            """Append in-window daily rows from a metrics result. Returns count."""
+            n = 0
+            for row in result.get("segmented_metrics", []):
+                row_date = row.get("date")
+                if not row_date or not (start_date <= row_date <= end_date):
+                    continue
+                cost = Decimal(str(row.get("cost", 0)))
+                conv_value = row.get("conversions_value")
+                roas = (Decimal(str(conv_value)) / cost) if (conv_value and cost > 0) else None
+                metrics.append(PipeboardDailyMetricData(
+                    pipeboard_platform=pipeboard_platform,
+                    pipeboard_campaign_id=campaign_id,
+                    metric_date=row_date,
+                    spend=cost,
+                    impressions=int(row.get("impressions", 0)),
+                    clicks=int(row.get("clicks", 0)),
+                    conversions=Decimal(str(row["conversions"])) if row.get("conversions") is not None else None,
+                    conversion_value=Decimal(str(conv_value)) if conv_value is not None else None,
+                    ctr=Decimal(str(row["ctr"])) if row.get("ctr") is not None else None,
+                    cpc=Decimal(str(row["average_cpc"])) if row.get("average_cpc") is not None else None,
+                    roas=roas,
+                    currency_code=cur,
+                ))
+                n += 1
+            return n
+
+        def _agg_row(agg: dict, campaign_id: str, cur: str) -> int:
+            """Append one summary row from an aggregate block if it has spend.
+
+            Pipeboard returns empty `segmented_metrics` but real totals in
+            `aggregate_metrics` for PMax/Smart campaigns. Without this, real
+            spend never surfaces."""
+            cost = Decimal(str(agg.get("cost", 0) or 0))
+            if cost <= 0:
+                return 0
+            conv_value = agg.get("conversions_value")
+            roas = (Decimal(str(conv_value)) / cost) if (conv_value and cost > 0) else None
+            metrics.append(PipeboardDailyMetricData(
+                pipeboard_platform=pipeboard_platform,
+                pipeboard_campaign_id=campaign_id,
+                metric_date=end_date,
+                spend=cost,
+                impressions=int(agg.get("impressions", 0) or 0),
+                clicks=int(agg.get("clicks", 0) or 0),
+                conversions=Decimal(str(agg["conversions"])) if agg.get("conversions") is not None else None,
+                conversion_value=Decimal(str(conv_value)) if conv_value is not None else None,
+                ctr=Decimal(str(agg["average_ctr"])) if agg.get("average_ctr") is not None else None,
+                cpc=Decimal(str(agg["average_cpc"])) if agg.get("average_cpc") is not None else None,
+                roas=roas,
+                currency_code=cur,
+            ))
+            return 1
+
         for cust in await self.list_accounts(api_token, pipeboard_platform):
             customer_id = str(cust.get("id"))
             cur = cust.get("currency_code", currency)
             if not cust.get("can_query_metrics", True):
                 continue
 
-            # Per-campaign so each daily row is attributable. Campaigns without
-            # spend in-window simply return no segmented rows.
-            campaigns_data = await client.call_tool(
-                f"get_{infix}_campaigns", {"customer_id": customer_id}
+            cust_rows_start = len(metrics)
+
+            # Per-campaign so each daily row is attributable. status="ALL" so
+            # PAUSED campaigns with in-window spend aren't silently dropped.
+            campaigns_data = await _call(
+                f"get_{infix}_campaigns",
+                {"customer_id": customer_id, "status": "ALL"},
+                drop=("status",),
             )
             for c in campaigns_data.get("campaigns", []):
                 campaign_id = str(c["id"])
-                result = await client.call_tool(f"get_{infix}_campaign_metrics", {
+                result = await _call(f"get_{infix}_campaign_metrics", {
                     "customer_id": customer_id,
                     "campaign_ids": [campaign_id],
                     "date_range": preset,
                     "time_breakdown": "day",
-                })
+                    "status_filter": "ALL",
+                }, drop=("status_filter",))
                 logger.info("pipeboard_metrics_raw", platform=pipeboard_platform, campaign_id=campaign_id, keys=list(result.keys()), data=str(result)[:500])
-                rows_added = 0
-                for row in result.get("segmented_metrics", []):
-                    row_date = row.get("date")
-                    if not row_date or not (start_date <= row_date <= end_date):
-                        continue
-                    cost = Decimal(str(row.get("cost", 0)))
-                    conv_value = row.get("conversions_value")
-                    roas = (Decimal(str(conv_value)) / cost) if (conv_value and cost > 0) else None
-                    metrics.append(PipeboardDailyMetricData(
-                        pipeboard_platform=pipeboard_platform,
-                        pipeboard_campaign_id=campaign_id,
-                        metric_date=row_date,
-                        spend=cost,
-                        impressions=int(row.get("impressions", 0)),
-                        clicks=int(row.get("clicks", 0)),
-                        conversions=Decimal(str(row["conversions"])) if row.get("conversions") is not None else None,
-                        conversion_value=Decimal(str(conv_value)) if conv_value is not None else None,
-                        ctr=Decimal(str(row["ctr"])) if row.get("ctr") is not None else None,
-                        cpc=Decimal(str(row["average_cpc"])) if row.get("average_cpc") is not None else None,
-                        roas=roas,
-                        currency_code=cur,
-                    ))
-                    rows_added += 1
+                if _seg_rows(result, campaign_id, cur) == 0:
+                    if _agg_row(result.get("aggregate_metrics") or {}, campaign_id, cur):
+                        logger.info("pipeboard_metrics_aggregate_fallback",
+                                    platform=pipeboard_platform, campaign_id=campaign_id)
 
-                # Fallback: Pipeboard often returns an empty `segmented_metrics`
-                # (no per-day breakdown) while still reporting real campaign totals
-                # in `aggregate_metrics` — especially for PMax campaigns. Without
-                # this, dashboards show 0 metrics even though spend exists. Persist
-                # one summary row dated at end_date so spend/ROAS surface on the
-                # P&L and marketing tiles.
-                if rows_added == 0:
-                    agg = result.get("aggregate_metrics") or {}
-                    cost = Decimal(str(agg.get("cost", 0) or 0))
-                    if cost > 0:
-                        conv_value = agg.get("conversions_value")
-                        roas = (Decimal(str(conv_value)) / cost) if (conv_value and cost > 0) else None
-                        metrics.append(PipeboardDailyMetricData(
-                            pipeboard_platform=pipeboard_platform,
-                            pipeboard_campaign_id=campaign_id,
-                            metric_date=end_date,
-                            spend=cost,
-                            impressions=int(agg.get("impressions", 0) or 0),
-                            clicks=int(agg.get("clicks", 0) or 0),
-                            conversions=Decimal(str(agg["conversions"])) if agg.get("conversions") is not None else None,
-                            conversion_value=Decimal(str(conv_value)) if conv_value is not None else None,
-                            ctr=Decimal(str(agg["average_ctr"])) if agg.get("average_ctr") is not None else None,
-                            cpc=Decimal(str(agg["average_cpc"])) if agg.get("average_cpc") is not None else None,
-                            roas=roas,
-                            currency_code=cur,
-                        ))
-                        logger.info(
-                            "pipeboard_metrics_aggregate_fallback",
-                            platform=pipeboard_platform,
-                            campaign_id=campaign_id,
-                            spend=str(cost),
-                        )
+            # Customer-level fallback: enumeration above can miss campaigns the
+            # `get_*_campaigns` list omits (PMax/Smart are often excluded). If the
+            # whole customer produced nothing, ask for ALL campaigns' metrics in
+            # one call and ingest each returned campaign's segmented/aggregate.
+            if len(metrics) == cust_rows_start:
+                allres = await _call(f"get_{infix}_campaign_metrics", {
+                    "customer_id": customer_id,
+                    "date_range": preset,
+                    "time_breakdown": "day",
+                    "status_filter": "ALL",
+                }, drop=("status_filter",))
+                logger.info("pipeboard_metrics_all_raw", platform=pipeboard_platform,
+                            keys=list(allres.keys()), data=str(allres)[:600])
+                # Per-campaign blocks (each may carry its own segmented_metrics + totals).
+                for cm in allres.get("campaigns", []):
+                    cid = str(cm.get("campaign_id") or cm.get("id") or "")
+                    if not cid:
+                        continue
+                    if _seg_rows(cm, cid, cur) == 0:
+                        _agg_row(cm, cid, cur)
+                # Some responses only carry a flat top-level segmented list.
+                if len(metrics) == cust_rows_start:
+                    _seg_rows(allres, customer_id, cur)
         return metrics
 
 
