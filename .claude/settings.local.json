@@ -65,7 +65,8 @@
       "Bash(python3 -)",
       "Bash(npx tsc *)",
       "Bash(python3 -m py_compile backend/app/services/external_platforms/pipeboard_adapter.py)",
-      "Bash(git commit -q -m 'Pipeboard: sync PMax/paused Google Ads campaigns that yielded 0 metrics *)"
+      "Bash(git commit -q -m 'Pipeboard: sync PMax/paused Google Ads campaigns that yielded 0 metrics *)",
+      "Bash(git commit -q -m 'Debug: log Toast raw_data keys on backfill to confirm closedDate presence *)"
     ]
   }
 }
