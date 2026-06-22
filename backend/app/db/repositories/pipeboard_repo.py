@@ -229,6 +229,11 @@ class PipeboardRepository:
         currency_code: str,
     ) -> PipeboardDailyMetric:
         """Create or update daily metric (idempotent)."""
+        # Column is String(10) YYYY-MM-DD; adapter may pass a datetime.date.
+        # Comparing varchar == date in Postgres raises an operator error, so
+        # coerce to ISO string before query/insert.
+        if hasattr(metric_date, "isoformat"):
+            metric_date = metric_date.isoformat()
         stmt = select(PipeboardDailyMetric).filter(
             PipeboardDailyMetric.tenant_id == tenant_id,
             PipeboardDailyMetric.campaign_id == campaign_id,
