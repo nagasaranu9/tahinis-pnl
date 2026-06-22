@@ -11,6 +11,7 @@ import {
   Loader2,
   GitCompareArrows,
 } from "lucide-react";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
 import { usePnLReport } from "@/hooks/use-pnl";
 import { useLocationStore } from "@/lib/location-store";
 import { downloadPnL } from "@/lib/export-pnl";
@@ -260,6 +261,76 @@ function ExpenseBreakdownRow({ row }: { row: ExpenseCategoryBreakdown }) {
       <td className="py-2 px-4 text-xs text-muted-foreground">{row.expense_count} items</td>
       <td className="py-2 px-4 text-right text-sm font-mono tabular-nums">{fmt(row.total)}</td>
     </tr>
+  );
+}
+
+// Distinct, repeatable palette for expense-category slices.
+const PIE_COLORS = [
+  "#3b82f6", "#ef4444", "#f59e0b", "#10b981", "#8b5cf6",
+  "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#84cc16",
+  "#06b6d4", "#e11d48", "#a855f7", "#22c55e",
+];
+
+function ExpensePie({ breakdown }: { breakdown: ExpenseCategoryBreakdown[] }) {
+  const data = useMemo(
+    () =>
+      breakdown
+        .map((b) => ({ name: b.category, value: Math.abs(parseFloat(b.total) || 0) }))
+        .filter((d) => d.value > 0)
+        .sort((a, b) => b.value - a.value),
+    [breakdown]
+  );
+  const grand = data.reduce((s, d) => s + d.value, 0);
+  if (data.length === 0 || grand === 0) return null;
+
+  return (
+    <div className="px-4 py-4 border-b">
+      <div style={{ width: "100%", height: 280 }}>
+        <ResponsiveContainer>
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={55}
+              outerRadius={95}
+              paddingAngle={1.5}
+              stroke="none"
+            >
+              {data.map((_, i) => (
+                <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip
+              formatter={(v: number) => [
+                `${fmt(String(v))} · ${((v / grand) * 100).toFixed(1)}%`,
+                "",
+              ]}
+              contentStyle={{
+                background: "var(--card, #111)",
+                border: "1px solid var(--border, #333)",
+                borderRadius: 8,
+                fontSize: 12,
+              }}
+            />
+            <Legend
+              layout="vertical"
+              align="right"
+              verticalAlign="middle"
+              iconType="circle"
+              formatter={(value: string) => {
+                const d = data.find((x) => x.name === value);
+                const pct = d ? ((d.value / grand) * 100).toFixed(0) : "0";
+                return `${value} · ${pct}%`;
+              }}
+              wrapperStyle={{ fontSize: 12 }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
   );
 }
 
@@ -565,8 +636,9 @@ export default function PnLPage() {
             <div className="border rounded-lg overflow-visible">
               <div className="px-4 py-3 border-b bg-muted/20">
                 <h2 className="text-sm font-semibold">Expense Breakdown</h2>
-                <p className="text-xs text-muted-foreground">{report.expense_count} expenses</p>
+                <p className="text-xs text-muted-foreground">{report.expense_count} expenses · hover a category for line items</p>
               </div>
+              <ExpensePie breakdown={report.expense_breakdown} />
               <table className="w-full">
                 <tbody>
                   {report.expense_breakdown.map((row) => (
