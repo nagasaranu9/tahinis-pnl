@@ -37,6 +37,7 @@ import {
   useReviewsDetail,
   useReviewsSentiment,
   useProfitSuggestions,
+  useTopLineItems,
 } from "@/hooks/use-dashboard";
 import { useLocations } from "@/hooks/use-locations";
 import { useLocationStore } from "@/lib/location-store";
@@ -386,6 +387,7 @@ export default function DashboardPage() {
   const { data: discVoids } = useDiscountsVoids(rangeArgs);
   const { data: fulfillment, isLoading: fulfillmentLoading } = useFulfillment(rangeArgs);
   const { data: topFood } = useTopVendors({ ...rangeArgs, category: "Food Cost", limit: 5 });
+  const { data: alexItems } = useTopLineItems({ ...rangeArgs, vendor: "alex food", limit: 5 });
   const { data: forecast } = useCashForecast(locationParam);
   const { data: invoiceStatus } = useInvoiceStatus(rangeArgs);
 
@@ -797,21 +799,42 @@ export default function DashboardPage() {
             {foodOverCost != null && <p className="text-xs text-red-400">Costing ~{fmtCAD(foodOverCost)}/mo</p>}
           </Tile>
           <Tile>
-            <TileHeader label="Top Suppliers (Food)" icon={Truck} />
-            {!topFood?.vendors?.length ? (
-              <p className="text-sm text-muted-foreground">No supplier spend yet.</p>
+            {alexItems?.items?.length ? (
+              <>
+                <TileHeader label="Alex Food — Top Items" icon={Truck} />
+                <table className="w-full text-xs mt-1">
+                  <tbody>
+                    {alexItems.items.slice(0, 5).map((it, i) => (
+                      <tr key={it.description}>
+                        <td className="py-0.5 truncate max-w-[150px]" title={it.description}>{i + 1}. {it.description}</td>
+                        <td className="py-0.5 text-right font-mono">{fmtCAD(it.total)}</td>
+                        <td className="py-0.5 text-right text-muted-foreground w-8">{it.pct}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-[10px] text-muted-foreground mt-1.5">From Alex Food invoices · {fmtCAD(alexItems.grand_total)} total</p>
+              </>
             ) : (
-              <table className="w-full text-xs mt-1">
-                <tbody>
-                  {topFood.vendors.slice(0, 5).map((v, i) => (
-                    <tr key={v.vendor}>
-                      <td className="py-0.5 truncate max-w-[140px]">{i + 1}. {v.vendor}</td>
-                      <td className="py-0.5 text-right font-mono">{fmtCAD(v.total)}</td>
-                      <td className="py-0.5 text-right text-muted-foreground w-8">{v.pct}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <>
+                <TileHeader label="Top Suppliers (Food)" icon={Truck} />
+                {!topFood?.vendors?.length ? (
+                  <p className="text-sm text-muted-foreground">No supplier spend yet.</p>
+                ) : (
+                  <table className="w-full text-xs mt-1">
+                    <tbody>
+                      {topFood.vendors.slice(0, 5).map((v, i) => (
+                        <tr key={v.vendor}>
+                          <td className="py-0.5 truncate max-w-[140px]">{i + 1}. {v.vendor}</td>
+                          <td className="py-0.5 text-right font-mono">{fmtCAD(v.total)}</td>
+                          <td className="py-0.5 text-right text-muted-foreground w-8">{v.pct}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                <p className="text-[10px] text-muted-foreground mt-1.5">Per-product breakdown shows once Alex Food invoices are OCR&apos;d.</p>
+              </>
             )}
           </Tile>
           <Tile>

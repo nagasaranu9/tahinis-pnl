@@ -211,6 +211,29 @@ export interface ReviewsSentiment {
   sample_size?: number;
 }
 
+export interface TopLineItems {
+  vendor: string;
+  grand_total: number;
+  items: { description: string; total: number; quantity: number; count: number; pct: number }[];
+}
+
+export function useTopLineItems(p: RangeParams & { vendor?: string; limit?: number }) {
+  return useQuery({
+    queryKey: ["dashboard-top-line-items", p],
+    queryFn: async () => {
+      const qs = rangeQS(p);
+      if (p.vendor) qs.set("vendor", p.vendor);
+      if (p.limit) qs.set("limit", String(p.limit));
+      const { data } = await apiClient.get<{ data: TopLineItems }>(
+        `${BASE}/top-line-items?${qs}`
+      );
+      return data.data;
+    },
+    enabled: Boolean(p.date_from && p.date_to),
+    staleTime: 60_000,
+  });
+}
+
 export interface ProfitSuggestion {
   title: string;
   detail: string;

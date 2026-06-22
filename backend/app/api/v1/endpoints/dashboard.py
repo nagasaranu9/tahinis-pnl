@@ -311,6 +311,76 @@ async def top_vendors(
     }
 
 
+@router.get("/top-line-items", response_model=APIResponse[dict])
+async def top_line_items(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    date_from: str = Query(..., description="YYYY-MM-DD"),
+    date_to: str = Query(..., description="YYYY-MM-DD"),
+    vendor: str = Query("alex food", description="Vendor name substring"),
+    location_id: uuid.UUID | None = Query(None),
+    limit: int = Query(5, ge=1, le=20),
+) -> dict:
+    """Top product line items by spend for one vendor (e.g. Alex Food).
+
+    Reads OCR'd invoice/receipt line items (ExtractedLineItem) for documents
+    whose vendor_name matches `vendor`, grouped by product description. Bank
+    statements have no line items, so this only populates once that vendor's
+    invoices are OCR'd."""
+    from app.db.models.document import ExtractedLineItem
+
+    start, end = _parse_range(date_from, date_to)
+
+    conds = [
+        ExtractedLineItem.tenant_id == user.tenant_id,
+        Document.vendor_name.ilike(f"%{vendor}%"),
+        Document.document_date >= start,
+        Document.document_date <= end,
+    ]
+    if location_id is not None:
+        conds.append(Document.location_id == location_id)
+
+    # Normalise product description for grouping (case-insensitive, trimmed).
+    desc = func.lower(func.trim(ExtractedLineItem.description))
+    rows = (await db.execute(
+        select(
+            func.min(ExtractedLineItem.description).label("description"),
+            func.coalesce(func.sum(ExtractedLineItem.amount), 0).label("total"),
+            func.coalesce(func.sum(ExtractedLineItem.quantity), 0).label("qty"),
+            func.count(ExtractedLineItem.id).label("n"),
+        )
+        .join(Document, ExtractedLineItem.document_id == Document.id)
+        .where(and_(*conds))
+        .group_by(desc)
+        .order_by(func.sum(ExtractedLineItem.amount).desc())
+        .limit(limit)
+    )).all()
+
+    grand_total = float((await db.execute(
+        select(func.coalesce(func.sum(ExtractedLineItem.amount), 0))
+        .join(Document, ExtractedLineItem.document_id == Document.id)
+        .where(and_(*conds))
+    )).scalar_one() or 0)
+
+    return {
+        "data": {
+            "vendor": vendor,
+            "grand_total": round(grand_total, 2),
+            "items": [
+                {
+                    "description": r.description,
+                    "total": round(float(r.total or 0), 2),
+                    "quantity": round(float(r.qty or 0), 2),
+                    "count": r.n,
+                    "pct": round(float(r.total or 0) / grand_total * 100, 1) if grand_total > 0 else 0.0,
+                }
+                for r in rows
+            ],
+        },
+        "errors": None,
+    }
+
+
 @router.get("/cash-forecast", response_model=APIResponse[dict])
 async def cash_forecast(
     user: CurrentUserDep,
