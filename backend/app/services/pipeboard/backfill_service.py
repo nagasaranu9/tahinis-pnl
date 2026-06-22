@@ -137,11 +137,28 @@ class PipeboardBackfillService:
                             None,
                         )
                         if not campaign:
-                            logger.warning(
-                                "campaign_not_found",
+                            # Metric for a campaign the master-list call omitted
+                            # (PMax/Smart are often excluded from get_*_campaigns,
+                            # and the adapter's customer-level fallback emits these).
+                            # Auto-create a stub campaign so real spend isn't dropped.
+                            logger.info(
+                                "campaign_autocreate_from_metric",
                                 campaign_id=metric.pipeboard_campaign_id,
+                                platform=platform,
                             )
-                            continue
+                            campaign = await self._repo.upsert_campaign(
+                                tenant_id=tenant_id,
+                                location_id=None,
+                                pipeboard_platform=platform,
+                                pipeboard_campaign_id=metric.pipeboard_campaign_id,
+                                name=metric.pipeboard_campaign_id,
+                                status="UNKNOWN",
+                                campaign_type=None,
+                                daily_budget_limit=None,
+                                lifetime_budget_limit=None,
+                                spend_to_date=None,
+                            )
+                            campaigns_to_process.append(campaign)
 
                         # Upsert metric
                         await self._repo.upsert_daily_metric(
