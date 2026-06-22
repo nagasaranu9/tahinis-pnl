@@ -12,6 +12,7 @@ import {
   useReviewsSync,
   useReviewsDisconnect,
   useSetReviewLocation,
+  useDiscoverReviewLocation,
 } from "@/hooks/use-reviews";
 import type { GoogleReview } from "@/types/google-reviews";
 
@@ -79,6 +80,8 @@ function LocationPin({
   locationName: string | null;
 }) {
   const { mutate: save, isPending, isSuccess } = useSetReviewLocation();
+  const { mutate: discover, isPending: discovering, data: discovered, error: discoverError } =
+    useDiscoverReviewLocation();
   const [account, setAccount] = useState(accountName ?? "");
   const [location, setLocation] = useState(locationName ?? "");
   const pinned = !!accountName && !!locationName;
@@ -90,13 +93,37 @@ function LocationPin({
         <div className="flex items-start gap-2 text-xs text-yellow-500">
           <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
           <span>
-            Sync stays empty until you pin your Google account + location IDs.
-            Open your business at business.google.com and copy them from the URL
-            (format <code>accounts/123</code> and{" "}
-            <code>accounts/123/locations/456</code>).
+            Sync stays empty until your Google account + location IDs are set.
+            Easiest: click <strong>Auto-detect</strong> below. Manual fallback —
+            copy them from the business.google.com URL (format{" "}
+            <code>accounts/123</code> and <code>accounts/123/locations/456</code>).
           </span>
         </div>
       )}
+      <div className="space-y-1">
+        <button
+          onClick={() => discover(locationId)}
+          disabled={discovering}
+          className="text-sm px-3 py-1.5 rounded-md border border-primary text-primary hover:bg-primary/10 disabled:opacity-50"
+        >
+          {discovering ? "Detecting…" : "Auto-detect from Google"}
+        </button>
+        {discovered?.account_name && (
+          <p className="text-xs text-green-500">
+            Detected {discovered.account_name} / {discovered.location_name}. Click Sync Now.
+          </p>
+        )}
+        {discovered?.error && (
+          <p className="text-xs text-yellow-500">
+            Couldn’t auto-detect ({discovered.error}). Enter IDs manually below.
+          </p>
+        )}
+        {discoverError && (
+          <p className="text-xs text-destructive">
+            {discoverError instanceof Error ? discoverError.message : "Auto-detect failed"}
+          </p>
+        )}
+      </div>
       <div className="space-y-2">
         <div>
           <label className="text-xs font-medium text-muted-foreground">Account name</label>

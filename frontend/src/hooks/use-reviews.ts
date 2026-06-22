@@ -91,6 +91,27 @@ export function useSetReviewLocation() {
   });
 }
 
+export function useDiscoverReviewLocation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (locationId?: string) => {
+      const params = locationId ? `?location_id=${locationId}` : "";
+      const { data } = await apiClient.post<{
+        data: {
+          account_name?: string;
+          location_name?: string;
+          error?: string;
+          candidates?: { account_name: string; location_name: string; title: string | null }[];
+        };
+      }>(`${BASE}/discover-location${params}`);
+      return data.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["reviews-status"] });
+    },
+  });
+}
+
 export function useReviewsDisconnect() {
   const qc = useQueryClient();
   return useMutation({

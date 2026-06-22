@@ -19,6 +19,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import RedirectResponse
 
 from app.core.deps import CurrentUserDep, ManagerDep, OwnerDep
+from app.core.exceptions import NotFoundError
 from app.core.security import decrypt_value, encrypt_value
 from app.db.models.integration import IntegrationCredential
 from app.db.repositories.reviews_repo import ReviewsRepository
@@ -174,6 +175,101 @@ async def reviews_sync(
         )
 
     return {"data": {"queued": len(targets)}, "errors": None}
+
+
+@router.post("/discover-location", response_model=APIResponse[dict])
+async def discover_review_location(
+    user: OwnerDep,
+    db: AsyncSessionDep,
+    location_id: uuid.UUID | None = Query(None),
+) -> dict:
+    """One-time auto-discovery of the Google Business account/location names.
+
+    The owner usually can't get the GBP account id from public Search/Maps URLs —
+    it only comes from the My Business Account Management API, which needs the
+    OAuth token granted at connect. This calls accounts.list + locations.list once
+    (quota-gated, so it's a manual button, not part of sync), auto-pins the result
+    on the config, and returns the candidates for transparency."""
+    from sqlalchemy import select
+    from app.services.google.reviews_client import GoogleAPIRateLimitError, GoogleReviewsClient
+
+    repo = ReviewsRepository(db)
+    configs = await repo.list_configs(user.tenant_id)
+    config = next(
+        (c for c in configs if (not location_id or c.location_id == location_id) and c.is_active),
+        None,
+    )
+    if config is None:
+        raise NotFoundError("Google reviews not connected")
+
+    cred_row = (await db.execute(
+        select(IntegrationCredential).where(
+            IntegrationCredential.tenant_id == user.tenant_id,
+            IntegrationCredential.provider == "google_business",
+        ).order_by(IntegrationCredential.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    if cred_row is None:
+        raise NotFoundError("No Google credential on file — reconnect Google")
+
+    access_token = decrypt_value(cred_row.access_token_encrypted)
+    refresh_token = decrypt_value(cred_row.refresh_token_encrypted)
+
+    try:
+        async with GoogleReviewsClient(access_token, refresh_token) as client:
+            accounts = await client.get_accounts()
+            if not accounts:
+                return {"data": {"error": "no_accounts", "accounts": []}, "errors": None}
+
+            # Prefer an account that actually has locations; collect candidates.
+            chosen_account = None
+            chosen_location = None
+            all_locations: list[dict] = []
+            for acct in accounts:
+                acct_name = acct.get("name", "")
+                locs = await client.get_locations(acct_name)
+                for loc in locs:
+                    all_locations.append({
+                        "account_name": acct_name,
+                        "location_name": loc.get("name", ""),
+                        "title": loc.get("title"),
+                    })
+                if locs and chosen_location is None:
+                    chosen_account = acct_name
+                    # Match on the business title when possible, else first location.
+                    match = next(
+                        (l for l in locs if "tahini" in (l.get("title") or "").lower()),
+                        locs[0],
+                    )
+                    chosen_location = match.get("name", "")
+    except GoogleAPIRateLimitError:
+        raise NotFoundError(
+            "Google API daily quota hit — try again later, or paste the IDs manually"
+        )
+
+    if not chosen_account or not chosen_location:
+        return {"data": {"error": "no_locations", "accounts": [a.get("name") for a in accounts]}, "errors": None}
+
+    await repo.set_manual_location(
+        tenant_id=user.tenant_id,
+        location_id=config.location_id,
+        account_name=chosen_account,
+        location_name=chosen_location,
+    )
+    await db.commit()
+    logger.info(
+        "google_reviews_location_discovered",
+        tenant_id=str(user.tenant_id),
+        account=chosen_account,
+        location=chosen_location,
+    )
+    return {
+        "data": {
+            "account_name": chosen_account,
+            "location_name": chosen_location,
+            "candidates": all_locations,
+        },
+        "errors": None,
+    }
 
 
 @router.patch("/config/location", response_model=APIResponse[GoogleReviewConfigResponse])
