@@ -243,8 +243,55 @@ class PnLCalculator:
             conds.append(
                 _or(Expense.location_id == location_id, Expense.location_id.is_(None))
             )
-        rows = await self._db.execute(select(Expense).where(and_(*conds)))
-        return list(rows.scalars().all())
+        # Pull the source document_type alongside each expense so we can tell a
+        # bank-statement line from an uploaded invoice/receipt (needed for dedup).
+        rows = await self._db.execute(
+            select(Expense, Document.document_type)
+            .outerjoin(Document, Document.id == Expense.document_id)
+            .where(and_(*conds))
+        )
+        expenses: list[Expense] = []
+        for exp, doc_type in rows.all():
+            exp._doc_type = doc_type  # type: ignore[attr-defined]
+            expenses.append(exp)
+        return self._dedup_bank_vs_invoice(expenses)
+
+    @staticmethod
+    def _norm_vendor(name: str | None) -> str | None:
+        if not name:
+            return None
+        return " ".join(name.lower().split())
+
+    def _dedup_bank_vs_invoice(self, expenses: list[Expense]) -> list[Expense]:
+        """Bank statement wins. When a vendor has a bank-statement expense in the
+        period, the actual cash already captures that spend, so drop that vendor's
+        uploaded-invoice/receipt expenses to avoid double-counting (e.g. Alex Food
+        invoices + the bank payment to Alex)."""
+        bank_vendors = {
+            self._norm_vendor(e.vendor_name)
+            for e in expenses
+            if getattr(e, "_doc_type", None) == "bank_statement" and e.vendor_name
+        }
+        bank_vendors.discard(None)
+        if not bank_vendors:
+            return expenses
+
+        kept: list[Expense] = []
+        for e in expenses:
+            if getattr(e, "_doc_type", None) == "bank_statement":
+                kept.append(e)
+                continue
+            v = self._norm_vendor(e.vendor_name)
+            if v and any(bv in v or v in bv for bv in bank_vendors):
+                logger.info(
+                    "pnl_dedup_dropped_invoice",
+                    vendor=e.vendor_name,
+                    amount=str(e.amount),
+                    reason="bank_statement_covers_vendor",
+                )
+                continue
+            kept.append(e)
+        return kept
 
     async def _load_location(
         self,
