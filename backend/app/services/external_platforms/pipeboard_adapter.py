@@ -303,8 +303,14 @@ class PipeboardHttpAdapter(PipeboardAdapter):
             """Append in-window daily rows from a metrics result. Returns count."""
             n = 0
             for row in result.get("segmented_metrics", []):
-                row_date = row.get("date")
-                if not row_date or not (start_date <= row_date <= end_date):
+                row_date_str = row.get("date")
+                if not row_date_str:
+                    continue
+                try:
+                    row_date = date.fromisoformat(row_date_str)
+                except (ValueError, TypeError):
+                    continue
+                if not (start_date <= row_date <= end_date):
                     continue
                 cost = Decimal(str(row.get("cost", 0)))
                 conv_value = row.get("conversions_value")
