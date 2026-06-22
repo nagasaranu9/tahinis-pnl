@@ -614,75 +614,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── AI: Net Profit suggestions ── */}
-      <div>
-        <RowLabel>AI advisor</RowLabel>
-        <div className="border border-border border-t-2 border-t-amber-500 rounded-lg p-4 bg-card">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-amber-500" />
-              <p className="text-sm font-semibold">Ways to improve Net Profit</p>
-              <span className="text-xs text-muted-foreground">· {dateRange.label}</span>
-            </div>
-            <button
-              onClick={() => setShowSuggestions(true)}
-              disabled={suggestionsLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 hover:bg-amber-500/15 disabled:opacity-50 transition-colors cursor-pointer"
-            >
-              {suggestionsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              {showSuggestions ? "Regenerate" : "Get suggestions"}
-            </button>
-          </div>
-
-          {!showSuggestions ? (
-            <p className="text-xs text-muted-foreground mt-3">
-              Claude reads this period&apos;s P&amp;L and suggests concrete actions to lift net profit. Click to generate.
-            </p>
-          ) : suggestionsLoading ? (
-            <p className="text-xs text-muted-foreground mt-3">Analyzing your P&amp;L…</p>
-          ) : !profitSuggestions?.available ? (
-            <p className="text-xs text-muted-foreground mt-3">
-              Couldn&apos;t generate suggestions{profitSuggestions?.reason ? ` (${profitSuggestions.reason})` : ""}. Needs P&amp;L data in this period.
-            </p>
-          ) : (
-            <div className="mt-3 space-y-3">
-              {profitSuggestions.headline && (
-                <p className="text-sm text-foreground">{profitSuggestions.headline}</p>
-              )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                {(profitSuggestions.suggestions ?? []).map((s, i) => (
-                  <div key={i} className="rounded-md border border-border p-3 bg-background/40">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium">{s.title}</p>
-                      <span
-                        className={`shrink-0 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
-                          s.priority === "high"
-                            ? "bg-red-500/15 text-red-500"
-                            : s.priority === "medium"
-                            ? "bg-yellow-500/15 text-yellow-600"
-                            : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {s.priority}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1 leading-snug">{s.detail}</p>
-                    {s.impact_monthly > 0 && (
-                      <p className="text-xs font-semibold text-green-600 mt-1.5">
-                        ~{fmtCAD(s.impact_monthly)}/mo potential
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <p className="text-[10px] text-muted-foreground">
-                AI estimate · validate before acting. Not financial advice.
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* ── Row 2: Toast POS ── */}
       <div>
         <RowLabel>Toast POS</RowLabel>
@@ -915,6 +846,75 @@ export default function DashboardPage() {
               </>
             )}
           </Tile>
+        </div>
+      </div>
+
+      {/* ── AI: Net Profit suggestions ── */}
+      <div>
+        <RowLabel>AI advisor</RowLabel>
+        <div className="border border-border border-t-2 border-t-amber-500 rounded-lg p-4 bg-card">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-amber-500" />
+              <p className="text-sm font-semibold">Ways to improve Net Profit</p>
+              <span className="text-xs text-muted-foreground">· {dateRange.label}</span>
+            </div>
+            <button
+              onClick={() => setShowSuggestions(true)}
+              disabled={suggestionsLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 hover:bg-amber-500/15 disabled:opacity-50 transition-colors cursor-pointer"
+            >
+              {suggestionsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {showSuggestions ? "Regenerate" : "Get suggestions"}
+            </button>
+          </div>
+
+          {!showSuggestions ? (
+            <p className="text-xs text-muted-foreground mt-3">
+              Claude reads this period&apos;s P&amp;L and suggests concrete actions to lift net profit. Click to generate.
+            </p>
+          ) : suggestionsLoading ? (
+            <p className="text-xs text-muted-foreground mt-3">Analyzing your P&amp;L…</p>
+          ) : !profitSuggestions?.available ? (
+            <p className="text-xs text-muted-foreground mt-3">
+              Couldn&apos;t generate suggestions{profitSuggestions?.reason ? ` (${profitSuggestions.reason})` : ""}. Needs P&amp;L data in this period.
+            </p>
+          ) : (
+            <div className="mt-3 space-y-3">
+              {profitSuggestions.headline && (
+                <p className="text-sm text-foreground">{profitSuggestions.headline}</p>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                {(profitSuggestions.suggestions ?? []).map((s, i) => (
+                  <div key={i} className="rounded-md border border-border p-3 bg-background/40">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-medium">{s.title}</p>
+                      <span
+                        className={`shrink-0 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
+                          s.priority === "high"
+                            ? "bg-red-500/15 text-red-500"
+                            : s.priority === "medium"
+                            ? "bg-yellow-500/15 text-yellow-600"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {s.priority}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 leading-snug">{s.detail}</p>
+                    {s.impact_monthly > 0 && (
+                      <p className="text-xs font-semibold text-green-600 mt-1.5">
+                        ~{fmtCAD(s.impact_monthly)}/mo potential
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                AI estimate · validate before acting. Not financial advice.
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
