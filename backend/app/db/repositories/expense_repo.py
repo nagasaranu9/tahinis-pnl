@@ -280,19 +280,43 @@ class ExpenseRepository:
         await self._db.flush()
         return result.rowcount or 0
 
-    async def delete_by_document(self, tenant_id: uuid.UUID, document_id: uuid.UUID) -> int:
+    async def delete_by_document(
+        self, tenant_id: uuid.UUID, document_id: uuid.UUID, include_overridden: bool = False
+    ) -> int:
         """Delete all expenses sourced from a document. Used before reprocessing so
         re-extraction starts clean (no stale/miscategorized rows from a prior run,
-        and dedup-by-vendor doesn't block recreating corrected rows). Preserves
-        user-overridden categorizations — those are manual decisions, not guesses."""
+        and dedup-by-vendor doesn't block recreating corrected rows).
+
+        include_overridden=False (default, reprocess) preserves user-overridden
+        categorizations. include_overridden=True (explicit document delete) removes
+        every derived row so deleting a document doesn't orphan its expenses into
+        the P&L."""
         from sqlalchemy import and_, delete as sa_delete
 
+        conds = [
+            Expense.tenant_id == tenant_id,
+            Expense.document_id == document_id,
+        ]
+        if not include_overridden:
+            conds.append(Expense.user_overridden == False)  # noqa: E712
+        result = await self._db.execute(sa_delete(Expense).where(and_(*conds)))
+        await self._db.flush()
+        return result.rowcount or 0
+
+    async def delete_by_document_ids(
+        self, tenant_id: uuid.UUID, document_ids: list[uuid.UUID]
+    ) -> int:
+        """Delete every expense derived from any of the given documents (all rows,
+        including overridden). Used by bulk document delete."""
+        from sqlalchemy import and_, delete as sa_delete
+
+        if not document_ids:
+            return 0
         result = await self._db.execute(
             sa_delete(Expense).where(
                 and_(
                     Expense.tenant_id == tenant_id,
-                    Expense.document_id == document_id,
-                    Expense.user_overridden == False,  # noqa: E712
+                    Expense.document_id.in_(document_ids),
                 )
             )
         )

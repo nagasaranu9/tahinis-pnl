@@ -125,7 +125,13 @@ async def delete_all_documents(user: ManagerDep, db: AsyncSessionDep) -> dict:
         select(Document.id).where(Document.tenant_id == user.tenant_id)
     )
     ids = [r[0] for r in ids_result.fetchall()]
+    expenses_deleted = 0
     if ids:
+        # Cascade: remove expenses derived from these documents so the P&L doesn't
+        # keep orphaned rows after the documents are gone.
+        expenses_deleted = await ExpenseRepository(db).delete_by_document_ids(
+            user.tenant_id, ids
+        )
         await db.execute(
             sa_delete(Document).where(
                 Document.tenant_id == user.tenant_id
@@ -137,16 +143,21 @@ async def delete_all_documents(user: ManagerDep, db: AsyncSessionDep) -> dict:
             user_id=user.user_id,
             entity_type="document",
             entity_id=user.tenant_id,
-            old_value={"count": len(ids)},
+            old_value={"count": len(ids), "expenses_deleted": expenses_deleted},
         )
     await db.commit()
-    return {"data": {"deleted": len(ids)}, "errors": None}
+    return {"data": {"deleted": len(ids), "expenses_deleted": expenses_deleted}, "errors": None}
 
 
 @router.delete("/{document_id}", response_model=APIResponse[None])
 async def delete_document(document_id: uuid.UUID, user: ManagerDep, db: AsyncSessionDep) -> dict:
     repo = DocumentRepository(db)
     doc = await repo.get(user.tenant_id, document_id)
+    # Cascade: drop expenses derived from this document (incl. overridden) so the
+    # P&L doesn't keep orphaned rows after the document is deleted.
+    exp_deleted = await ExpenseRepository(db).delete_by_document(
+        user.tenant_id, document_id, include_overridden=True
+    )
     # storage_path retained for audit. File stays in S3 (immutable source rule). Only DB record deleted.
     await repo.delete(document_id)
     await AuditRepository(db).log(
