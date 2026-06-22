@@ -310,7 +310,7 @@ class PipeboardHttpAdapter(PipeboardAdapter):
                     row_date = date.fromisoformat(row_date_str)
                 except (ValueError, TypeError):
                     continue
-                if not (start_date <= row_date <= end_date):
+                if not (start <= row_date <= end):
                     continue
                 cost = Decimal(str(row.get("cost", 0)))
                 conv_value = row.get("conversions_value")
