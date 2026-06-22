@@ -393,8 +393,14 @@ class PipeboardHttpAdapter(PipeboardAdapter):
                     "time_breakdown": "day",
                     "status_filter": "ALL",
                 }, drop=("status_filter",))
+                _seg_list = result.get("segmented_metrics") or []
+                _agg = result.get("aggregate_metrics") or {}
                 logger.info("pipeboard_metrics_raw", platform=pipeboard_platform,
-                            campaign_id=campaign_id, total=result.get("total_campaigns"))
+                            campaign_id=campaign_id, total=result.get("total_campaigns"),
+                            seg_len=len(_seg_list),
+                            sample_row=str(_seg_list[0])[:200] if _seg_list else None,
+                            agg_cost=str(_agg.get("cost")),
+                            window=f"{start_date}..{end_date}")
                 if _seg_rows(result, campaign_id, cur) == 0:
                     if _agg_row(result.get("aggregate_metrics") or {}, campaign_id, cur):
                         logger.info("pipeboard_metrics_aggregate_fallback",
