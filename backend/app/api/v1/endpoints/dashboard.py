@@ -212,7 +212,7 @@ async def fulfillment_time(
             func.count(ToastOrder.id).label("n"),
         )
         .where(and_(*base_conds))
-        .group_by(func.coalesce(ToastOrder.dining_option, "Unknown"))
+        .group_by(ToastOrder.dining_option)
     )).all()
 
     # Peak hour: hour-of-day with the highest average wait.
