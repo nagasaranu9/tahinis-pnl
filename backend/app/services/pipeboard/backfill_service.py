@@ -130,6 +130,14 @@ class PipeboardBackfillService:
                         end_date=end_date.isoformat(),
                     )
 
+                    logger.info(
+                        "metrics_fetched",
+                        platform=platform,
+                        metrics_count=len(metrics_data),
+                        date_range=f"{start_date} to {end_date}",
+                        sample=str(metrics_data[0]) if metrics_data else None,
+                    )
+
                     for metric in metrics_data:
                         # Find campaign by id
                         campaign = next(
