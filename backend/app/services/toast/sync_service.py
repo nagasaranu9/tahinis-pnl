@@ -389,6 +389,16 @@ class ToastSyncService:
         for item in first_check.get("selections", []) or []:
             if not isinstance(item, dict):
                 continue
+            qty = item.get("quantity")
+            pre_disc = cents_to_decimal(item.get("preDiscountPrice"))
+            # Calculate unit_price from preDiscountPrice / quantity.
+            # Toast's unitOfMeasure is the unit type (EACH, OUNCE, etc), not the price.
+            unit_price = None
+            if pre_disc is not None and qty:
+                try:
+                    unit_price = pre_disc / Decimal(str(qty))
+                except (ValueError, TypeError, ZeroDivisionError):
+                    unit_price = None
             await self._repo.upsert_order_item({
                 "id": uuid.uuid4(),
                 "tenant_id": tenant_id,
@@ -397,9 +407,9 @@ class ToastSyncService:
                 "toast_guid": item.get("guid", ""),
                 "menu_item_guid": _dict_get(item.get("itemGroup"), "guid"),
                 "name": item.get("displayName", ""),
-                "quantity": item.get("quantity"),
-                "unit_price": cents_to_decimal(item.get("unitOfMeasure")),
-                "pre_discount_price": cents_to_decimal(item.get("preDiscountPrice")),
+                "quantity": qty,
+                "unit_price": unit_price,
+                "pre_discount_price": pre_disc,
                 "tax_amount": cents_to_decimal(item.get("tax")),
                 "discount_amount": cents_to_decimal(item.get("appliedDiscountAmount")),
                 "void_reason": _str_or_guid(item.get("voidReason")),
