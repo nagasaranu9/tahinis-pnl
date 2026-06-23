@@ -730,17 +730,14 @@ export default function DashboardPage() {
               <>
                 <table className="w-full text-xs mt-1">
                   <tbody>
-                    {productMix.items.map((it, i) => {
-                      const avgPrice = it.quantity > 0 ? it.revenue / it.quantity : 0;
-                      return (
+                    {productMix.items.map((it, i) => (
                       <tr key={it.name}>
                         <td className="py-0.5 truncate max-w-[180px]" title={it.name}>{i + 1}. {it.name}</td>
                         <td className="py-0.5 text-right text-muted-foreground w-12">{Math.round(it.quantity)}×</td>
-                        <td className="py-0.5 text-right font-mono">{fmtCAD(avgPrice, 2)}</td>
+                        <td className="py-0.5 text-right font-mono">{fmtCAD(it.unit_price, 2)}</td>
                         <td className="py-0.5 text-right text-muted-foreground w-10">{Math.round(it.share * 100)}%</td>
                       </tr>
-                    );
-                    })}
+                    ))}
                   </tbody>
                 </table>
                 <p className="text-[10px] text-muted-foreground mt-1.5">From Toast · {fmtCAD(productMix.total_revenue)} item sales</p>

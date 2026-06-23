@@ -62,7 +62,7 @@ export function useFulfillment(p: RangeParams) {
 }
 
 export interface ProductMix {
-  items: { name: string; quantity: number; revenue: number; share: number }[];
+  items: { name: string; quantity: number; unit_price: number; share: number }[];
   total_revenue: number;
 }
 

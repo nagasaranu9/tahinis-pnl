@@ -263,10 +263,10 @@ async def product_mix(
     location_id: uuid.UUID | None = Query(None),
     limit: int = Query(6, ge=1, le=50),
 ) -> dict:
-    """Top-selling menu items (Toast) by net revenue over a range.
+    """Top-selling menu items (Toast) by quantity over a range.
 
     Aggregates ToastOrderItem rows for non-void orders/items, grouped by item
-    name. Revenue uses pre_discount_price (the line's gross), quantity summed."""
+    name. Shows quantity sold and average unit price per item."""
     start, end = _parse_range(date_from, date_to)
     conds = _toast_filters(user, location_id, start, end) + [
         ToastOrderItem.is_void == False,  # noqa: E712
@@ -274,17 +274,19 @@ async def product_mix(
 
     qty = func.coalesce(func.sum(ToastOrderItem.quantity), 0)
     revenue = func.coalesce(func.sum(ToastOrderItem.pre_discount_price), 0)
+    unit_price_avg = func.coalesce(func.avg(ToastOrderItem.unit_price), 0)
 
     rows = (await db.execute(
         select(
             ToastOrderItem.name.label("name"),
             qty.label("qty"),
             revenue.label("revenue"),
+            unit_price_avg.label("unit_price_avg"),
         )
         .join(ToastOrder, ToastOrderItem.order_id == ToastOrder.id)
         .where(and_(*conds))
         .group_by(ToastOrderItem.name)
-        .order_by(revenue.desc())
+        .order_by(qty.desc())
         .limit(limit)
     )).all()
 
@@ -299,7 +301,7 @@ async def product_mix(
         {
             "name": r.name,
             "quantity": float(r.qty or 0),
-            "revenue": round(float(r.revenue or 0), 2),
+            "unit_price": round(float(r.unit_price_avg or 0), 2),
             "share": round(float(r.revenue or 0) / grand, 4) if grand > 0 else 0.0,
         }
         for r in rows
