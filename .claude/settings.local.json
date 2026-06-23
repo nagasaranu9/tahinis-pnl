@@ -80,7 +80,8 @@
       "Bash(rg -rn \"cogs_pct\" backend/app)",
       "Bash(python3 -m py_compile backend/app/api/v1/endpoints/dashboard.py)",
       "Bash(git commit -q -m 'Dashboard: fix Top Suppliers location filter, Meta Ads coming-soon, hide 0s channels *)",
-      "Bash(git commit -q -m 'top-line-items: drop Balance Forward, merge item name variants *)"
+      "Bash(git commit -q -m 'top-line-items: drop Balance Forward, merge item name variants *)",
+      "Bash(git commit -q -m 'Marketing/Google Ads: campaign performance cards + table from Pipeboard *)"
     ]
   }
 }

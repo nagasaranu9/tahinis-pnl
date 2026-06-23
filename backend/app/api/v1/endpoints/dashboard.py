@@ -644,6 +644,103 @@ async def ads_detail(
     }
 
 
+@router.get("/ads-campaigns", response_model=APIResponse[dict])
+async def ads_campaigns(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    date_from: str = Query(..., description="YYYY-MM-DD"),
+    date_to: str = Query(..., description="YYYY-MM-DD"),
+    platform: str = Query("google_ads", description="google_ads / meta_ads / tiktok_ads"),
+) -> dict:
+    """Per-campaign performance for one platform over a range, plus account totals.
+
+    Powers the Marketing → Google Ads campaign table + summary cards."""
+    df, dt = date_from, date_to
+
+    rows = (await db.execute(
+        select(
+            PipeboardCampaign.pipeboard_campaign_id.label("cid"),
+            PipeboardCampaign.name.label("name"),
+            PipeboardCampaign.status.label("status"),
+            PipeboardCampaign.campaign_type.label("type"),
+            PipeboardCampaign.daily_budget_limit.label("daily_budget"),
+            func.coalesce(func.sum(PipeboardDailyMetric.spend), 0).label("spend"),
+            func.coalesce(func.sum(PipeboardDailyMetric.impressions), 0).label("impr"),
+            func.coalesce(func.sum(PipeboardDailyMetric.clicks), 0).label("clicks"),
+            func.coalesce(func.sum(PipeboardDailyMetric.conversions), 0).label("conv"),
+            func.coalesce(func.sum(PipeboardDailyMetric.conversion_value), 0).label("conv_val"),
+        )
+        .outerjoin(
+            PipeboardDailyMetric,
+            and_(
+                PipeboardDailyMetric.campaign_id == PipeboardCampaign.id,
+                PipeboardDailyMetric.metric_date >= df,
+                PipeboardDailyMetric.metric_date <= dt,
+            ),
+        )
+        .where(
+            PipeboardCampaign.tenant_id == user.tenant_id,
+            PipeboardCampaign.pipeboard_platform == platform,
+        )
+        .group_by(
+            PipeboardCampaign.id,
+            PipeboardCampaign.pipeboard_campaign_id,
+            PipeboardCampaign.name,
+            PipeboardCampaign.status,
+            PipeboardCampaign.campaign_type,
+            PipeboardCampaign.daily_budget_limit,
+        )
+        .order_by(func.sum(PipeboardDailyMetric.spend).desc().nullslast())
+    )).all()
+
+    campaigns = []
+    t_spend = t_impr = t_clicks = 0.0
+    t_conv = t_conv_val = 0.0
+    for r in rows:
+        spend = float(r.spend or 0)
+        impr = int(r.impr or 0)
+        clicks = int(r.clicks or 0)
+        conv = float(r.conv or 0)
+        conv_val = float(r.conv_val or 0)
+        t_spend += spend
+        t_impr += impr
+        t_clicks += clicks
+        t_conv += conv
+        t_conv_val += conv_val
+        campaigns.append({
+            "campaign_id": r.cid,
+            "name": r.name,
+            "status": r.status,
+            "type": r.type,
+            "daily_budget": round(float(r.daily_budget), 2) if r.daily_budget is not None else None,
+            "spend": round(spend, 2),
+            "impressions": impr,
+            "clicks": clicks,
+            "conversions": round(conv, 1),
+            "conversion_value": round(conv_val, 2),
+            "ctr": round(clicks / impr * 100, 2) if impr > 0 else 0.0,
+            "cpc": round(spend / clicks, 2) if clicks > 0 else 0.0,
+            "roas": round(conv_val / spend, 2) if spend > 0 else None,
+        })
+
+    return {
+        "data": {
+            "platform": platform,
+            "totals": {
+                "spend": round(t_spend, 2),
+                "impressions": int(t_impr),
+                "clicks": int(t_clicks),
+                "conversions": round(t_conv, 1),
+                "ctr": round(t_clicks / t_impr * 100, 2) if t_impr > 0 else 0.0,
+                "cpc": round(t_spend / t_clicks, 2) if t_clicks > 0 else 0.0,
+                "roas": round(t_conv_val / t_spend, 2) if t_spend > 0 else None,
+            },
+            "campaigns": campaigns,
+        },
+        "errors": None,
+    }
+
+
 @router.get("/reviews-detail", response_model=APIResponse[dict])
 async def reviews_detail(
     user: CurrentUserDep,

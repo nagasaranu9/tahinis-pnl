@@ -197,6 +197,50 @@ export function useAdsDetail(p: RangeParams & { platform?: string }) {
   });
 }
 
+export interface AdsCampaign {
+  campaign_id: string;
+  name: string;
+  status: string;
+  type: string | null;
+  daily_budget: number | null;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  conversion_value: number;
+  ctr: number;
+  cpc: number;
+  roas: number | null;
+}
+
+export interface AdsCampaigns {
+  platform: string;
+  totals: {
+    spend: number;
+    impressions: number;
+    clicks: number;
+    conversions: number;
+    ctr: number;
+    cpc: number;
+    roas: number | null;
+  };
+  campaigns: AdsCampaign[];
+}
+
+export function useAdsCampaigns(p: RangeParams & { platform?: string; enabled?: boolean }) {
+  const qs = new URLSearchParams({ date_from: p.date_from, date_to: p.date_to });
+  qs.set("platform", p.platform ?? "google_ads");
+  return useQuery({
+    queryKey: ["dashboard-ads-campaigns", p],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: AdsCampaigns }>(`${BASE}/ads-campaigns?${qs}`);
+      return data.data;
+    },
+    enabled: (p.enabled ?? true) && Boolean(p.date_from && p.date_to),
+    staleTime: 5 * 60_000,
+  });
+}
+
 export interface ReviewsDetail {
   average_rating: number | null;
   total_reviews: number;

@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { CheckCircle, Unplug, Zap, AlertCircle, Loader2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  CheckCircle, Unplug, Zap, AlertCircle, Loader2,
+  DollarSign, Eye, MousePointerClick, Percent, Target, TrendingUp,
+} from "lucide-react";
 import {
   usePipeboardStatus,
   usePipeboardConnect,
@@ -10,6 +13,18 @@ import {
   usePipeboardSyncJobs,
   usePipeboardDeleteSyncJob,
 } from "@/hooks/use-pipeboard";
+import { useAdsCampaigns } from "@/hooks/use-dashboard";
+
+const fmtCAD = (n: number, d = 0) =>
+  `CA$${n.toLocaleString("en-CA", { minimumFractionDigits: d, maximumFractionDigits: d })}`;
+const fmtNum = (n: number) =>
+  n >= 1000 ? `${(n / 1000).toFixed(1)}K` : n.toLocaleString("en-CA");
+
+const STATUS_STYLE: Record<string, string> = {
+  ENABLED: "bg-green-500/15 text-green-400",
+  PAUSED: "bg-yellow-500/15 text-yellow-500",
+  REMOVED: "bg-red-500/15 text-red-400",
+};
 
 export function PipeboardIntegration() {
   const { data: status, isLoading: statusLoading } = usePipeboardStatus();
@@ -23,7 +38,34 @@ export function PipeboardIntegration() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
+  // Campaign performance over a trailing 30-day window (ad spend is sparse).
+  const adsRange = useMemo(() => {
+    const end = new Date();
+    const start = new Date(end);
+    start.setDate(start.getDate() - 29);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    return { date_from: iso(start), date_to: iso(end) };
+  }, []);
+  const { data: ads, isLoading: adsLoading } = useAdsCampaigns({
+    ...adsRange,
+    platform: "google_ads",
+    enabled: Boolean(status?.connected),
+  });
+
   if (statusLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+
+  const t = ads?.totals;
+  const STAT_CARDS = t
+    ? [
+        { label: "Total Spend", value: fmtCAD(t.spend, 2), icon: DollarSign, color: "text-green-400" },
+        { label: "Impressions", value: fmtNum(t.impressions), icon: Eye, color: "text-sky-400" },
+        { label: "Clicks", value: fmtNum(t.clicks), icon: MousePointerClick, color: "text-violet-400" },
+        { label: "Avg CTR", value: `${t.ctr}%`, icon: Percent, color: "text-fuchsia-400" },
+        { label: "Avg CPC", value: fmtCAD(t.cpc, 2), icon: TrendingUp, color: "text-amber-400" },
+        { label: "Conversions", value: t.conversions.toLocaleString("en-CA"), icon: Target, color: "text-rose-400" },
+        { label: "ROAS", value: t.roas != null ? `${t.roas}x` : "—", icon: TrendingUp, color: "text-emerald-400" },
+      ]
+    : [];
 
   return (
     <div className="space-y-6">
@@ -108,6 +150,84 @@ export function PipeboardIntegration() {
               {connecting ? "Connecting…" : "Connect"}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Campaign performance (last 30 days) */}
+      {status?.connected && (
+        <div className="space-y-4">
+          {/* Summary stat cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+            {adsLoading ? (
+              <div className="col-span-full flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading metrics…
+              </div>
+            ) : STAT_CARDS.length === 0 ? (
+              <div className="col-span-full text-sm text-muted-foreground">
+                No campaign metrics yet — run a sync below.
+              </div>
+            ) : (
+              STAT_CARDS.map((c) => (
+                <div key={c.label} className="border border-border rounded-lg bg-card p-3">
+                  <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <c.icon className="h-3.5 w-3.5" /> {c.label}
+                  </div>
+                  <p className={`text-lg font-bold mt-1 tabular-nums ${c.color}`}>{c.value}</p>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Campaign table */}
+          {!adsLoading && (ads?.campaigns?.length ?? 0) > 0 && (
+            <div className="border border-border rounded-lg bg-card overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <h3 className="font-semibold text-sm">{ads!.campaigns.length} campaigns</h3>
+                <span className="text-xs text-muted-foreground">Last 30 days · by spend</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-muted-foreground border-b border-border">
+                      <th className="px-4 py-2 font-medium">Campaign</th>
+                      <th className="px-3 py-2 font-medium">Status</th>
+                      <th className="px-3 py-2 font-medium">Type</th>
+                      <th className="px-3 py-2 font-medium text-right">Daily budget</th>
+                      <th className="px-3 py-2 font-medium text-right">Spend</th>
+                      <th className="px-3 py-2 font-medium text-right">Clicks / CTR</th>
+                      <th className="px-4 py-2 font-medium text-right">Conversions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ads!.campaigns.map((c) => (
+                      <tr key={c.campaign_id} className="border-b border-border/50 last:border-0">
+                        <td className="px-4 py-2.5 font-medium max-w-[220px] truncate" title={c.name}>{c.name}</td>
+                        <td className="px-3 py-2.5">
+                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${STATUS_STYLE[c.status] ?? "bg-muted text-muted-foreground"}`}>
+                            {c.status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-muted-foreground">{c.type ?? "—"}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums">{c.daily_budget != null ? fmtCAD(c.daily_budget, 2) : "—"}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums">
+                          {fmtCAD(c.spend, 2)}
+                          <div className="text-[11px] text-muted-foreground">{fmtNum(c.impressions)} impr</div>
+                        </td>
+                        <td className="px-3 py-2.5 text-right tabular-nums">
+                          {fmtNum(c.clicks)}
+                          <div className="text-[11px] text-muted-foreground">{c.ctr}% · {fmtCAD(c.cpc, 2)} CPC</div>
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">
+                          {c.conversions}
+                          <div className="text-[11px] text-muted-foreground">{c.roas != null ? `${c.roas}x ROAS` : "—"}</div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
