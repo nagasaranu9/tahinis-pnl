@@ -21,7 +21,7 @@ from app.db.models.expense import Expense
 from app.db.models.external_platform import PipeboardCampaign, PipeboardDailyMetric
 from app.db.models.google_reviews import GoogleReview
 from app.db.models.reconciliation import ReconciliationFlag
-from app.db.models.toast import ToastOrder
+from app.db.models.toast import ToastOrder, ToastOrderItem
 from app.db.session import AsyncSessionDep
 from app.schemas.common import APIResponse
 
@@ -252,6 +252,59 @@ async def fulfillment_time(
         },
         "errors": None,
     }
+
+
+@router.get("/product-mix", response_model=APIResponse[dict])
+async def product_mix(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    date_from: str = Query(..., description="YYYY-MM-DD"),
+    date_to: str = Query(..., description="YYYY-MM-DD"),
+    location_id: uuid.UUID | None = Query(None),
+    limit: int = Query(6, ge=1, le=50),
+) -> dict:
+    """Top-selling menu items (Toast) by net revenue over a range.
+
+    Aggregates ToastOrderItem rows for non-void orders/items, grouped by item
+    name. Revenue uses pre_discount_price (the line's gross), quantity summed."""
+    start, end = _parse_range(date_from, date_to)
+    conds = _toast_filters(user, location_id, start, end) + [
+        ToastOrderItem.is_void == False,  # noqa: E712
+    ]
+
+    qty = func.coalesce(func.sum(ToastOrderItem.quantity), 0)
+    revenue = func.coalesce(func.sum(ToastOrderItem.pre_discount_price), 0)
+
+    rows = (await db.execute(
+        select(
+            ToastOrderItem.name.label("name"),
+            qty.label("qty"),
+            revenue.label("revenue"),
+        )
+        .join(ToastOrder, ToastOrderItem.order_id == ToastOrder.id)
+        .where(and_(*conds))
+        .group_by(ToastOrderItem.name)
+        .order_by(revenue.desc())
+        .limit(limit)
+    )).all()
+
+    grand = (await db.execute(
+        select(revenue)
+        .join(ToastOrder, ToastOrderItem.order_id == ToastOrder.id)
+        .where(and_(*conds))
+    )).scalar() or 0
+    grand = float(grand)
+
+    items = [
+        {
+            "name": r.name,
+            "quantity": float(r.qty or 0),
+            "revenue": round(float(r.revenue or 0), 2),
+            "share": round(float(r.revenue or 0) / grand, 4) if grand > 0 else 0.0,
+        }
+        for r in rows
+    ]
+    return {"data": {"items": items, "total_revenue": round(grand, 2)}, "errors": None}
 
 
 @router.get("/top-vendors", response_model=APIResponse[dict])

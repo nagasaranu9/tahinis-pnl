@@ -67,7 +67,16 @@
       "Bash(python3 -m py_compile backend/app/services/external_platforms/pipeboard_adapter.py)",
       "Bash(git commit -q -m 'Pipeboard: sync PMax/paused Google Ads campaigns that yielded 0 metrics *)",
       "Bash(git commit -q -m 'Debug: log Toast raw_data keys on backfill to confirm closedDate presence *)",
-      "Bash(git commit -q -m 'Fix: convert raw_keys list to string in backfill debug log *)"
+      "Bash(git commit -q -m 'Fix: convert raw_keys list to string in backfill debug log *)",
+      "Bash(rg -n \"useAdsDetail\\\\|ads-detail\\\\|ads_detail\\\\|adsDetail\" frontend/src/hooks/*.ts)",
+      "Bash(rg -rln \"ads.detail\\\\|ads_detail\\\\|roas\\\\|cost_per_conversion\" backend/app/api)",
+      "Bash(rg -rn \"useAdsDetail\" frontend/src)",
+      "Bash(rg -rln \"cost_per_conversion|ads/detail|/detail\" backend/app)",
+      "Bash(rg -rn \"product.?mix|top.?sellers|menu.?item|TopProduct|product_mix|topItems|MenuItem|top-items|top_items\" backend/app/api frontend/src/hooks)",
+      "Bash(rg -rn \"menu_item|menu_items|item_name|ToastOrderItem|selection|order_item|line.?item\" backend/app/db/models)",
+      "Bash(xargs rg -ln \"class Toast\")",
+      "Bash(python3 -m py_compile backend/app/api/v1/endpoints/dashboard.py backend/app/db/repositories/pipeboard_repo.py backend/app/services/pnl/calculator.py)",
+      "Bash(echo \"exit:$?\")"
     ]
   }
 }

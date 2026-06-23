@@ -16,6 +16,7 @@ import {
   FileCheck2,
   Wallet,
   Timer,
+  UtensilsCrossed,
   Flame,
   CheckCircle2,
   Scissors,
@@ -38,6 +39,7 @@ import {
   useReviewsSentiment,
   useProfitSuggestions,
   useTopLineItems,
+  useProductMix,
 } from "@/hooks/use-dashboard";
 import { useLocations } from "@/hooks/use-locations";
 import { useLocationStore } from "@/lib/location-store";
@@ -386,6 +388,7 @@ export default function DashboardPage() {
   const { data: channelMix, isLoading: channelLoading } = useChannelMix(rangeArgs);
   const { data: discVoids } = useDiscountsVoids(rangeArgs);
   const { data: fulfillment, isLoading: fulfillmentLoading } = useFulfillment(rangeArgs);
+  const { data: productMix } = useProductMix({ ...rangeArgs, limit: 6 });
   const { data: topFood } = useTopVendors({ ...rangeArgs, category: "Food Cost", limit: 5 });
   const { data: alexItems } = useTopLineItems({ ...rangeArgs, vendor: "alex food", limit: 5 });
   const { data: forecast } = useCashForecast(locationParam);
@@ -393,8 +396,17 @@ export default function DashboardPage() {
 
   // Marketing + reviews
   const { data: platformMetrics = [] } = usePlatformMetrics();
-  const { data: googleAds } = useAdsDetail({ ...rangeArgs, platform: "google_ads" });
-  const { data: metaAds } = useAdsDetail({ ...rangeArgs, platform: "meta_ads" });
+  // Ad spend is daily-sparse; a single-day range (e.g. "Yesterday") usually has
+  // no row. Show ads over a trailing 30-day window ending at the selected end.
+  const adsArgs = useMemo(() => {
+    const end = new Date(`${dateRange.end}T00:00:00`);
+    const start = new Date(end);
+    start.setDate(start.getDate() - 29);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    return { date_from: iso(start), date_to: dateRange.end, location_id: locationParam };
+  }, [dateRange.end, locationParam]);
+  const { data: googleAds } = useAdsDetail({ ...adsArgs, platform: "google_ads" });
+  const { data: metaAds } = useAdsDetail({ ...adsArgs, platform: "meta_ads" });
   const { data: reviewsDetail } = useReviewsDetail(locationParam);
   const { data: sentiment } = useReviewsSentiment(locationParam);
   const { data: flags } = useReconciliationFlags({ unresolved_only: true });
@@ -669,21 +681,21 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Operations: Fulfillment (below Toast POS) ── */}
+      {/* ── Operations: Fulfillment + Product Mix (below Toast POS) ── */}
       <div>
         <RowLabel>Operations</RowLabel>
-        <Tile>
-          <TileHeader label="Avg Fulfillment Time" icon={Timer} />
-          {fulfillmentLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          ) : !fulfillment || fulfillment.avg_seconds == null ? (
-            <>
-              <p className="text-2xl font-bold text-muted-foreground">—</p>
-              <p className="text-xs text-muted-foreground mt-1">No timed orders in this period (needs Toast open/close timestamps).</p>
-            </>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <Tile>
+            <TileHeader label="Avg Fulfillment Time" icon={Timer} />
+            {fulfillmentLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            ) : !fulfillment || fulfillment.avg_seconds == null ? (
+              <>
+                <p className="text-2xl font-bold text-muted-foreground">—</p>
+                <p className="text-xs text-muted-foreground mt-1">No timed orders in this period (needs Toast open/close timestamps).</p>
+              </>
+            ) : (
+              <>
                 <p className="text-3xl font-bold tabular-nums">{fmtDuration(fulfillment.avg_seconds)}</p>
                 <p className="text-xs mt-1">
                   Target {fmtDuration(fulfillment.target_seconds)} ·{" "}
@@ -698,18 +710,43 @@ export default function DashboardPage() {
                   fastest {fmtDuration(fulfillment.fastest_seconds)} · slowest {fmtDuration(fulfillment.slowest_seconds)}
                 </p>
                 <p className="text-xs text-muted-foreground">{fulfillment.sample_size} orders</p>
-              </div>
-              <div className="md:col-span-2 space-y-1.5">
-                {fulfillment.by_channel.map((c) => (
-                  <div key={c.channel} className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">{c.channel}</span>
-                    <span className="font-mono font-medium text-foreground">{fmtDuration(c.avg_seconds)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </Tile>
+                <div className="mt-3 space-y-1.5 border-t border-border pt-2">
+                  {fulfillment.by_channel.map((c) => (
+                    <div key={c.channel} className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">{c.channel}</span>
+                      <span className="font-mono font-medium text-foreground">{fmtDuration(c.avg_seconds)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </Tile>
+          <Tile>
+            <TileHeader label="Top Product Mix" icon={UtensilsCrossed} />
+            {!productMix?.items?.length ? (
+              <>
+                <p className="text-2xl font-bold text-muted-foreground">—</p>
+                <p className="text-xs text-muted-foreground mt-1">No Toast item sales in this period.</p>
+              </>
+            ) : (
+              <>
+                <table className="w-full text-xs mt-1">
+                  <tbody>
+                    {productMix.items.map((it, i) => (
+                      <tr key={it.name}>
+                        <td className="py-0.5 truncate max-w-[180px]" title={it.name}>{i + 1}. {it.name}</td>
+                        <td className="py-0.5 text-right text-muted-foreground w-12">{Math.round(it.quantity)}×</td>
+                        <td className="py-0.5 text-right font-mono">{fmtCAD(it.revenue)}</td>
+                        <td className="py-0.5 text-right text-muted-foreground w-10">{Math.round(it.share * 100)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-[10px] text-muted-foreground mt-1.5">From Toast · {fmtCAD(productMix.total_revenue)} item sales</p>
+              </>
+            )}
+          </Tile>
+        </div>
       </div>
 
       {/* ── Row 3: Food & Labor ── */}

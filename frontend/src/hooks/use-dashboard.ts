@@ -61,6 +61,27 @@ export function useFulfillment(p: RangeParams) {
   });
 }
 
+export interface ProductMix {
+  items: { name: string; quantity: number; revenue: number; share: number }[];
+  total_revenue: number;
+}
+
+export function useProductMix(p: RangeParams & { limit?: number }) {
+  return useQuery({
+    queryKey: ["dashboard-product-mix", p],
+    queryFn: async () => {
+      const qs = rangeQS(p);
+      if (p.limit) qs.set("limit", String(p.limit));
+      const { data } = await apiClient.get<{ data: ProductMix }>(
+        `${BASE}/product-mix?${qs}`
+      );
+      return data.data;
+    },
+    enabled: Boolean(p.date_from && p.date_to),
+    staleTime: 60_000,
+  });
+}
+
 export interface TopVendors {
   vendors: { vendor: string; total: number; count: number; pct: number }[];
   grand_total?: number;
