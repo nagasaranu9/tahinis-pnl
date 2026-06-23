@@ -406,7 +406,6 @@ export default function DashboardPage() {
     return { date_from: iso(start), date_to: dateRange.end, location_id: locationParam };
   }, [dateRange.end, locationParam]);
   const { data: googleAds } = useAdsDetail({ ...adsArgs, platform: "google_ads" });
-  const { data: metaAds } = useAdsDetail({ ...adsArgs, platform: "meta_ads" });
   const { data: reviewsDetail } = useReviewsDetail(locationParam);
   const { data: sentiment } = useReviewsSentiment(locationParam);
   const { data: flags } = useReconciliationFlags({ unresolved_only: true });
@@ -485,7 +484,6 @@ export default function DashboardPage() {
 
   // Ads (fall back to platform-metrics roas if ads-detail empty)
   const gaRoas = googleAds?.roas ?? platformMetrics.find((m) => /google/i.test(m.platform))?.roas ?? null;
-  const maRoas = metaAds?.roas ?? platformMetrics.find((m) => /meta|facebook/i.test(m.platform))?.roas ?? null;
 
   const unresolved = flags?.meta?.total ?? 0;
 
@@ -711,7 +709,7 @@ export default function DashboardPage() {
                 </p>
                 <p className="text-xs text-muted-foreground">{fulfillment.sample_size} orders</p>
                 <div className="mt-3 space-y-1.5 border-t border-border pt-2">
-                  {fulfillment.by_channel.map((c) => (
+                  {fulfillment.by_channel.filter((c) => (c.avg_seconds ?? 0) > 0).map((c) => (
                     <div key={c.channel} className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">{c.channel}</span>
                       <span className="font-mono font-medium text-foreground">{fmtDuration(c.avg_seconds)}</span>
@@ -869,19 +867,9 @@ export default function DashboardPage() {
               </>
             )}
           </Tile>
-          <Tile href="/marketing">
+          <Tile>
             <TileHeader label="Meta Ads" icon={Megaphone} />
-            {metaAds && metaAds.spend > 0 ? (
-              <>
-                <p className="text-2xl font-bold tabular-nums">{maRoas != null ? `${maRoas.toFixed(1)}x` : "—"} <span className="text-xs text-muted-foreground">ROAS</span></p>
-                <p className="text-xs text-muted-foreground mt-1">{fmtCAD(metaAds.spend)} spend · {metaAds.clicks.toLocaleString("en-CA")} clicks · {metaAds.ctr}% CTR</p>
-              </>
-            ) : (
-              <>
-                <p className="text-2xl font-bold text-muted-foreground">—</p>
-                <p className="text-xs text-muted-foreground mt-1"><Link href="/marketing" className="text-primary hover:underline">Connect Meta Ads →</Link></p>
-              </>
-            )}
+            <ComingSoon note="Meta Ads spend & ROAS land once the integration is live." />
           </Tile>
         </div>
       </div>

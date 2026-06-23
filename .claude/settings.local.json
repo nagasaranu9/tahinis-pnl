@@ -76,7 +76,10 @@
       "Bash(rg -rn \"menu_item|menu_items|item_name|ToastOrderItem|selection|order_item|line.?item\" backend/app/db/models)",
       "Bash(xargs rg -ln \"class Toast\")",
       "Bash(python3 -m py_compile backend/app/api/v1/endpoints/dashboard.py backend/app/db/repositories/pipeboard_repo.py backend/app/services/pnl/calculator.py)",
-      "Bash(echo \"exit:$?\")"
+      "Bash(echo \"exit:$?\")",
+      "Bash(rg -rn \"cogs_pct\" backend/app)",
+      "Bash(python3 -m py_compile backend/app/api/v1/endpoints/dashboard.py)",
+      "Bash(git commit -q -m 'Dashboard: fix Top Suppliers location filter, Meta Ads coming-soon, hide 0s channels *)"
     ]
   }
 }

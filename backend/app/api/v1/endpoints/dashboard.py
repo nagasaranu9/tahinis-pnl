@@ -12,7 +12,7 @@ from decimal import Decimal
 
 import structlog
 from fastapi import APIRouter, Query
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 
 from app.core.config import settings
 from app.core.deps import CurrentUserDep
@@ -328,7 +328,9 @@ async def top_vendors(
     if category:
         conds.append(Expense.category == category)
     if location_id is not None:
-        conds.append(Expense.location_id == location_id)
+        # Match the P&L calculator: include tenant-wide expenses (NULL location),
+        # e.g. manually-uploaded Alex invoices with no location attached.
+        conds.append(or_(Expense.location_id == location_id, Expense.location_id.is_(None)))
 
     rows = (await db.execute(
         select(
@@ -391,7 +393,9 @@ async def top_line_items(
         Document.document_date <= end,
     ]
     if location_id is not None:
-        conds.append(Document.location_id == location_id)
+        # Include tenant-wide documents (NULL location) — manual uploads often
+        # have no location attached, same basis as the P&L calculator.
+        conds.append(or_(Document.location_id == location_id, Document.location_id.is_(None)))
 
     # Normalise product description for grouping (case-insensitive, trimmed).
     desc = func.lower(func.trim(ExtractedLineItem.description))
