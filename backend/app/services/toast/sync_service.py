@@ -12,7 +12,7 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -390,7 +390,9 @@ class ToastSyncService:
             if not isinstance(item, dict):
                 continue
             qty = item.get("quantity")
-            pre_disc = cents_to_decimal(item.get("preDiscountPrice"))
+            # Toast selection money fields are dollars, not cents (matches
+            # _sum_voided_selections / _sum_check_field which use them raw).
+            pre_disc = _dollars(item.get("preDiscountPrice"))
             # Calculate unit_price from preDiscountPrice / quantity.
             # Toast's unitOfMeasure is the unit type (EACH, OUNCE, etc), not the price.
             unit_price = None
@@ -413,8 +415,8 @@ class ToastSyncService:
                 "quantity": qty,
                 "unit_price": unit_price,
                 "pre_discount_price": pre_disc,
-                "tax_amount": cents_to_decimal(item.get("tax")),
-                "discount_amount": cents_to_decimal(item.get("appliedDiscountAmount")),
+                "tax_amount": _dollars(item.get("tax")),
+                "discount_amount": _dollars(item.get("appliedDiscountAmount")),
                 "void_reason": _str_or_guid(item.get("voidReason")),
                 "is_void": bool(item.get("voided") or False),
             })
@@ -517,6 +519,17 @@ def _parse_ts(value: Optional[str | int]) -> Optional[datetime]:
         if isinstance(value, (int, float)):
             return datetime.fromtimestamp(value / 1000, tz=UTC)
         return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _dollars(value: Any) -> Optional[Decimal]:
+    """Toast Orders API returns selection money fields (preDiscountPrice, tax,
+    appliedDiscountAmount) as decimal dollars, NOT cents. Convert directly."""
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
     except Exception:
         return None
 

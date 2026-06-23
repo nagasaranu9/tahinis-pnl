@@ -247,10 +247,22 @@ class ToastRepository:
         return existing.scalar_one()
 
     async def upsert_order_item(self, row: dict) -> None:
-        stmt = (
-            pg_insert(ToastOrderItem)
-            .values(**row)
-            .on_conflict_do_nothing(constraint="uq_toast_order_item_guid")
+        stmt = pg_insert(ToastOrderItem).values(**row)
+        # Update money/qty/name on re-sync so price-mapping fixes self-heal
+        # historical rows (previously do_nothing left stale values behind).
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_toast_order_item_guid",
+            set_={
+                "name": stmt.excluded.name,
+                "quantity": stmt.excluded.quantity,
+                "unit_price": stmt.excluded.unit_price,
+                "pre_discount_price": stmt.excluded.pre_discount_price,
+                "tax_amount": stmt.excluded.tax_amount,
+                "discount_amount": stmt.excluded.discount_amount,
+                "is_void": stmt.excluded.is_void,
+                "void_reason": stmt.excluded.void_reason,
+                "menu_item_guid": stmt.excluded.menu_item_guid,
+            },
         )
         await self._db.execute(stmt)
 
