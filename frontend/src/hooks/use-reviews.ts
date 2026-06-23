@@ -36,20 +36,24 @@ export function useReviewsSummary(locationId?: string) {
       const { data } = await apiClient.get<{ data: ReviewsSummary }>(`${BASE}/summary${params}`);
       return data.data;
     },
+    staleTime: 60 * 60_000,
+    refetchInterval: 60 * 60_000,
   });
 }
 
-export function useReviewsList(locationId?: string, page = 1) {
+export function useReviewsList(locationId?: string, page = 1, limit = 20) {
   return useQuery({
-    queryKey: ["reviews-list", locationId, page],
+    queryKey: ["reviews-list", locationId, page, limit],
     queryFn: async () => {
-      const params = new URLSearchParams({ page: String(page), limit: "20" });
+      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (locationId) params.set("location_id", locationId);
       const { data } = await apiClient.get<{ data: GoogleReview[]; meta: { total: number } }>(
         `${BASE}/list?${params}`
       );
       return data;
     },
+    staleTime: 60 * 60_000,
+    refetchInterval: 60 * 60_000,
   });
 }
 

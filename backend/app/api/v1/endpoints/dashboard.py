@@ -12,7 +12,7 @@ from decimal import Decimal
 
 import structlog
 from fastapi import APIRouter, Query
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 
 from app.core.config import settings
 from app.core.deps import CurrentUserDep
@@ -274,10 +274,10 @@ async def product_mix(
 
     qty = func.coalesce(func.sum(ToastOrderItem.quantity), 0)
     revenue = func.coalesce(func.sum(ToastOrderItem.pre_discount_price), 0)
-    # Fallback: if unit_price is NULL, calculate from pre_discount_price / quantity
-    unit_price_calc = func.case(
+    # Fallback: if unit_price is NULL, derive from pre_discount_price / quantity
+    unit_price_calc = case(
         (ToastOrderItem.unit_price.isnot(None), ToastOrderItem.unit_price),
-        else_=func.nullif(ToastOrderItem.pre_discount_price / func.nullif(ToastOrderItem.quantity, 0), None),
+        else_=ToastOrderItem.pre_discount_price / func.nullif(ToastOrderItem.quantity, 0),
     )
     unit_price_avg = func.coalesce(func.avg(unit_price_calc), 0)
 

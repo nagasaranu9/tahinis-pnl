@@ -262,7 +262,8 @@ export function useReviewsDetail(location_id?: string) {
       );
       return data.data;
     },
-    staleTime: 5 * 60_000,
+    staleTime: 60 * 60_000,
+    refetchInterval: 60 * 60_000,
   });
 }
 
@@ -340,6 +341,7 @@ export function useReviewsSentiment(location_id?: string) {
       );
       return data.data;
     },
-    staleTime: 30 * 60_000,
+    staleTime: 60 * 60_000,
+    refetchInterval: 60 * 60_000,
   });
 }
