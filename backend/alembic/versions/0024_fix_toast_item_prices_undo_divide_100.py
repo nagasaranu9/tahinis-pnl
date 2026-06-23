@@ -14,13 +14,19 @@ import sqlalchemy as sa
 
 # revision identifiers
 revision = "0024_fix_toast_item_prices_undo_divide_100"
-down_revision = "0023_pipeboard_alerts_audit_logs"
+down_revision = None  # Standalone migration - doesn't depend on prior migrations
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
     """Multiply pre_discount_price, tax_amount, discount_amount by 100."""
+    # Check if table exists before attempting update (defensive)
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if 'toast_order_item' not in inspector.get_table_names():
+        return
+
     op.execute("""
         UPDATE toast_order_item
         SET
