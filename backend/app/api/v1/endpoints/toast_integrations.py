@@ -107,6 +107,35 @@ async def get_toast_status(
     return {"data": resp, "errors": None}
 
 
+@router.get("/debug-selection")
+async def debug_selection(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    name: str = Query("Chicken Shawarma - Original"),
+) -> dict:
+    """TEMP debug: return stored item row + raw Toast selection JSON for one
+    item, to diagnose price scaling. Remove after diagnosis."""
+    from sqlalchemy import text
+
+    sql = text(
+        """
+        SELECT oi.name, oi.quantity, oi.unit_price, oi.pre_discount_price,
+               sel.value AS raw_selection
+        FROM toast_order_item oi
+        JOIN toast_order o ON o.id = oi.order_id
+        CROSS JOIN LATERAL jsonb_array_elements(
+            COALESCE((o.raw_data::jsonb #> '{checks,0,selections}'), '[]'::jsonb)
+        ) AS sel(value)
+        WHERE oi.tenant_id = :tid
+          AND oi.name = :name
+          AND sel.value ->> 'displayName' = :name
+        FETCH FIRST 3 ROWS ONLY
+        """
+    )
+    rows = (await db.execute(sql, {"tid": str(user.tenant_id), "name": name})).mappings().all()
+    return {"data": [dict(r) for r in rows], "errors": None}
+
+
 @router.post("/sync", response_model=APIResponse[ToastSyncJobResponse])
 async def trigger_manual_sync(
     body: ManualSyncRequest,
