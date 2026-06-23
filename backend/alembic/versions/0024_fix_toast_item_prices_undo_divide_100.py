@@ -1,16 +1,22 @@
-"""Fix Toast order item prices: undo old ÷100 bug by multiplying by 100.
+"""No-op placeholder (Toast price fix is data-only, applied via re-sync).
 
-Old code incorrectly applied cents_to_decimal (÷100) to selection price fields
-that were already in dollars. Multiply stored pre_discount_price, tax_amount,
-discount_amount by 100 to restore original values.
+Originally this migration multiplied pre_discount_price/tax/discount by 100 to
+undo an old ÷100 bug. That blanket UPDATE is unsafe: after the sync_service fix,
+re-synced rows are already stored in correct dollars, so a ×100 pass would
+corrupt them (e.g. $11.61 -> $1161). It also never touched the unit_price
+column, which is what product_mix actually reads.
 
-Revision ID: 0024_fix_toast_item_prices_undo_divide_100
-Revises: 0023_pipeboard_alerts_audit_logs
+Correct remediation is a full Toast re-sync: the order-item upsert uses
+on_conflict_do_update, so every row (unit_price, pre_discount_price, tax,
+discount) is rewritten from raw Toast data via _dollars() with no ÷100. This
+migration is kept as a no-op only to preserve the revision chain / single head.
+
+Revision ID: 0024
+Revises: 0023
 Create Date: 2026-06-23 20:00:00.000000
 """
 
-from alembic import op
-import sqlalchemy as sa
+from alembic import op  # noqa: F401
 
 # revision identifiers
 revision = "0024"
@@ -20,30 +26,10 @@ depends_on = None
 
 
 def upgrade() -> None:
-    """Multiply pre_discount_price, tax_amount, discount_amount by 100."""
-    # Check if table exists before attempting update (defensive)
-    conn = op.get_bind()
-    inspector = sa.inspect(conn)
-    if 'toast_order_item' not in inspector.get_table_names():
-        return
-
-    op.execute("""
-        UPDATE toast_order_item
-        SET
-            pre_discount_price = pre_discount_price * 100,
-            tax_amount = COALESCE(tax_amount * 100, NULL),
-            discount_amount = COALESCE(discount_amount * 100, NULL)
-        WHERE tenant_id IS NOT NULL;
-    """)
+    """No-op. Toast price correction is applied via full re-sync, not SQL."""
+    pass
 
 
 def downgrade() -> None:
-    """Divide by 100 to revert (use only if rolling back)."""
-    op.execute("""
-        UPDATE toast_order_item
-        SET
-            pre_discount_price = pre_discount_price / 100,
-            tax_amount = COALESCE(tax_amount / 100, NULL),
-            discount_amount = COALESCE(discount_amount / 100, NULL)
-        WHERE tenant_id IS NOT NULL;
-    """)
+    """No-op."""
+    pass
