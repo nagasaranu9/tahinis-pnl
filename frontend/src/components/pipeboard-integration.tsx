@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  CheckCircle, Unplug, Zap, AlertCircle, Loader2,
+  CheckCircle, Unplug, Zap, AlertCircle, Loader2, ChevronDown,
   DollarSign, Eye, MousePointerClick, Percent, Target, TrendingUp,
 } from "lucide-react";
 import {
@@ -261,13 +261,15 @@ export function PipeboardIntegration() {
         </div>
       )}
 
-      {/* Manual Sync */}
+      {/* Manual Sync — collapsed by default */}
       {status?.connected && (
-        <div className="border border-border rounded-lg bg-card p-6 space-y-4">
-          <div className="flex items-center gap-2">
-            <Zap className="h-5 w-5" />
-            <h3 className="font-semibold">Manual sync</h3>
-          </div>
+        <details className="group border border-border rounded-lg bg-card">
+          <summary className="flex items-center gap-2 p-4 cursor-pointer list-none select-none">
+            <Zap className="h-4 w-4" />
+            <h3 className="font-semibold text-sm">Manual sync</h3>
+            <ChevronDown className="h-4 w-4 ml-auto text-muted-foreground transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="px-4 pb-4 space-y-4">
           <p className="text-xs text-muted-foreground">
             Backfill Google Ads data for a date range. Leave blank to sync recent data.
           </p>
@@ -305,14 +307,19 @@ export function PipeboardIntegration() {
             {syncPending && <Loader2 className="h-4 w-4 animate-spin" />}
             {syncPending ? "Syncing…" : "Trigger sync"}
           </button>
-        </div>
+          </div>
+        </details>
       )}
 
-      {/* Sync Job History */}
+      {/* Sync Job History — collapsed by default */}
       {syncJobs.length > 0 && (
-        <div className="border border-border rounded-lg bg-card p-6">
-          <h3 className="font-semibold mb-4">Recent sync jobs</h3>
-          <div className="space-y-2">
+        <details className="group border border-border rounded-lg bg-card">
+          <summary className="flex items-center gap-2 p-4 cursor-pointer list-none select-none">
+            <h3 className="font-semibold text-sm">Recent sync jobs</h3>
+            <span className="text-xs text-muted-foreground">({syncJobs.length})</span>
+            <ChevronDown className="h-4 w-4 ml-auto text-muted-foreground transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="px-4 pb-4 space-y-2">
             {syncJobs.slice(0, 5).map((job) => (
               <div
                 key={job.id}
@@ -346,7 +353,7 @@ export function PipeboardIntegration() {
               </div>
             ))}
           </div>
-        </div>
+        </details>
       )}
     </div>
   );

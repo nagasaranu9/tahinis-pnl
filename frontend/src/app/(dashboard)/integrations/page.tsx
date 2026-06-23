@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { format } from "date-fns";
-import { CheckCircle, RefreshCw, Unplug, Plug, AlertCircle, ArrowRight, Upload, Users } from "lucide-react";
+import { CheckCircle, RefreshCw, Unplug, Plug, AlertCircle, ArrowRight, Upload, Users, Megaphone, Store } from "lucide-react";
 import {
   useGmailStatus, useGmailAuthUrl, useGmailSync, useGmailDisconnect,
   useOutlookStatus, useOutlookAuthUrl, useOutlookSync, useOutlookDisconnect,
@@ -13,6 +13,31 @@ import { useImportPushOpsCsv } from "@/hooks/use-pushops-integration";
 import { PipeboardIntegration } from "@/components/pipeboard-integration";
 import { useLocations } from "@/hooks/use-locations";
 import type { EmailSyncConfig } from "@/types/email-sync";
+
+// ---------------------------------------------------------------------------
+// Brand logo — official mark via Simple Icons CDN, graceful icon fallback
+// ---------------------------------------------------------------------------
+
+function BrandLogo({ slug, fallback }: { slug?: string; fallback: React.ReactNode }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className="h-9 w-9 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
+      {slug && !failed ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={`https://cdn.simpleicons.org/${slug}`}
+          alt=""
+          width={18}
+          height={18}
+          className="h-[18px] w-[18px]"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        fallback
+      )}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // PushOperations payroll CSV import card
@@ -38,14 +63,12 @@ function PushOpsCard() {
     (error ? "Import failed. Check the file format." : null);
 
   return (
-    <div className="border border-border rounded-lg p-6 bg-card space-y-4">
-      <div className="flex items-start justify-between">
+    <div className="border border-border rounded-lg p-4 bg-card space-y-4">
+      <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
-            <Users className="h-5 w-5 text-primary" />
-          </div>
+          <BrandLogo fallback={<Users className="h-[18px] w-[18px] text-primary" />} />
           <div>
-            <h3 className="font-semibold">PushOperations Payroll</h3>
+            <h3 className="font-semibold text-sm">PushOperations Payroll</h3>
             <p className="text-xs text-muted-foreground">
               Upload a payroll CSV — or a screenshot/PDF — to import labor cost into your P&amp;L
             </p>
@@ -109,7 +132,8 @@ function PushOpsCard() {
 interface IntegrationCardProps {
   title: string;
   description: string;
-  icon: React.ReactNode;
+  slug?: string;
+  fallbackIcon: React.ReactNode;
   accounts: EmailSyncConfig[];
   isLoading: boolean;
   onConnect: () => void;
@@ -121,21 +145,19 @@ interface IntegrationCardProps {
 }
 
 function IntegrationCard({
-  title, description, icon, accounts, isLoading,
+  title, description, slug, fallbackIcon, accounts, isLoading,
   onConnect, onSync, onDisconnect,
   connecting, syncing, disconnecting,
 }: IntegrationCardProps) {
   const connected = accounts.filter((a) => a.is_active);
 
   return (
-    <div className="border border-border rounded-lg p-6 bg-card space-y-4">
-      <div className="flex items-start justify-between">
+    <div className="border border-border rounded-lg p-4 bg-card space-y-4">
+      <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center text-xl">
-            {icon}
-          </div>
+          <BrandLogo slug={slug} fallback={fallbackIcon} />
           <div>
-            <h3 className="font-semibold">{title}</h3>
+            <h3 className="font-semibold text-sm">{title}</h3>
             <p className="text-xs text-muted-foreground">{description}</p>
           </div>
         </div>
@@ -236,14 +258,12 @@ export default function IntegrationsPage() {
       <div className="space-y-4">
         {/* Toast POS — dedicated page */}
         <Link href="/integrations/toast" className="block group">
-          <div className="border border-border rounded-lg p-6 bg-card hover:border-primary/50 hover:bg-primary/5 transition-colors">
-            <div className="flex items-center justify-between">
+          <div className="border border-border rounded-lg p-4 bg-card hover:border-primary/50 hover:bg-primary/5 transition-colors">
+            <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center text-xl">
-                  🍞
-                </div>
+                <BrandLogo slug="toasttab" fallback={<Store className="h-[18px] w-[18px] text-primary" />} />
                 <div>
-                  <h3 className="font-semibold">Toast POS</h3>
+                  <h3 className="font-semibold text-sm">Toast POS</h3>
                   <p className="text-xs text-muted-foreground">
                     Sync sales, orders, labor, and menu data from Toast
                   </p>
@@ -260,7 +280,8 @@ export default function IntegrationsPage() {
         <IntegrationCard
           title="Gmail"
           description="Import invoices and receipts from Gmail attachments"
-          icon="✉️"
+          slug="gmail"
+          fallbackIcon={<span className="text-sm font-bold text-primary">G</span>}
           accounts={gmailAccounts}
           isLoading={gmailLoading}
           onConnect={() => connectGmail()}
@@ -274,7 +295,8 @@ export default function IntegrationsPage() {
         <IntegrationCard
           title="Outlook / Microsoft 365"
           description="Import invoices and receipts from Outlook attachments"
-          icon="📧"
+          slug="microsoftoutlook"
+          fallbackIcon={<span className="text-sm font-bold text-primary">O</span>}
           accounts={outlookAccounts}
           isLoading={outlookLoading}
           onConnect={() => connectOutlook()}
@@ -288,13 +310,13 @@ export default function IntegrationsPage() {
         <PushOpsCard />
 
         {/* Google Ads via Pipeboard — connect, sync, job history */}
-        <div className="space-y-2">
+        <div className="border border-border rounded-lg p-4 bg-card space-y-4">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center text-xl">📣</div>
+            <BrandLogo fallback={<Megaphone className="h-[18px] w-[18px] text-primary" />} />
             <div>
-              <h3 className="font-semibold">Google Ads (Pipeboard)</h3>
+              <h3 className="font-semibold text-sm">Google Ads (Pipeboard)</h3>
               <p className="text-xs text-muted-foreground">
-                Connect Pipeboard to sync Google Ads spend & performance into your P&amp;L marketing line
+                Connect Pipeboard to sync Google Ads spend &amp; performance into your P&amp;L marketing line
               </p>
             </div>
           </div>
