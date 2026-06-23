@@ -274,7 +274,12 @@ async def product_mix(
 
     qty = func.coalesce(func.sum(ToastOrderItem.quantity), 0)
     revenue = func.coalesce(func.sum(ToastOrderItem.pre_discount_price), 0)
-    unit_price_avg = func.coalesce(func.avg(ToastOrderItem.unit_price), 0)
+    # Fallback: if unit_price is NULL, calculate from pre_discount_price / quantity
+    unit_price_calc = func.case(
+        (ToastOrderItem.unit_price.isnot(None), ToastOrderItem.unit_price),
+        else_=func.nullif(ToastOrderItem.pre_discount_price / func.nullif(ToastOrderItem.quantity, 0), None),
+    )
+    unit_price_avg = func.coalesce(func.avg(unit_price_calc), 0)
 
     rows = (await db.execute(
         select(
