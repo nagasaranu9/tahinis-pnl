@@ -391,14 +391,21 @@ async def top_line_items(
         Document.vendor_name.ilike(f"%{vendor}%"),
         Document.document_date >= start,
         Document.document_date <= end,
+        # "Balance Forward" is a statement carry-over line, not a product.
+        ~ExtractedLineItem.description.ilike("%balance forward%"),
     ]
     if location_id is not None:
         # Include tenant-wide documents (NULL location) — manual uploads often
         # have no location attached, same basis as the P&L calculator.
         conds.append(or_(Document.location_id == location_id, Document.location_id.is_(None)))
 
-    # Normalise product description for grouping (case-insensitive, trimmed).
-    desc = func.lower(func.trim(ExtractedLineItem.description))
+    # Group by an alphanumeric-only key so the same product spelled with
+    # different punctuation/spacing/truncation ("Legs BL SL ROASTER Chicken,
+    # 25kg/box" vs "... - 25kg/bo") collapses into one item, summed across all
+    # invoices in the period.
+    desc_key = func.regexp_replace(
+        func.lower(ExtractedLineItem.description), r"[^a-z0-9]+", "", "g"
+    )
     rows = (await db.execute(
         select(
             func.min(ExtractedLineItem.description).label("description"),
@@ -408,7 +415,7 @@ async def top_line_items(
         )
         .join(Document, ExtractedLineItem.document_id == Document.id)
         .where(and_(*conds))
-        .group_by(desc)
+        .group_by(desc_key)
         .order_by(func.sum(ExtractedLineItem.amount).desc())
         .limit(limit)
     )).all()
