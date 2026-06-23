@@ -31,17 +31,37 @@ const STATUS_STYLE: Record<string, string> = {
 // Google Ads campaign performance — cards + table (Marketing → Google Ads tab)
 // ---------------------------------------------------------------------------
 
+type AdsRangeKey = "7d" | "14d" | "30d" | "this_month" | "last_month";
+const ADS_RANGE_OPTIONS: { key: AdsRangeKey; label: string }[] = [
+  { key: "7d", label: "Last 7 days" },
+  { key: "14d", label: "Last 14 days" },
+  { key: "30d", label: "Last 30 days" },
+  { key: "this_month", label: "This month" },
+  { key: "last_month", label: "Last month" },
+];
+
 export function GoogleAdsPerformance() {
   const { data: status, isLoading: statusLoading } = usePipeboardStatus();
+  const [rangeKey, setRangeKey] = useState<AdsRangeKey>("30d");
 
-  // Campaign performance over a trailing 30-day window (ad spend is sparse).
+  // Campaign performance window (ad spend is daily-sparse).
   const adsRange = useMemo(() => {
-    const end = new Date();
-    const start = new Date(end);
-    start.setDate(start.getDate() - 29);
     const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const today = new Date();
+    let start: Date;
+    let end = today;
+    if (rangeKey === "this_month") {
+      start = new Date(today.getFullYear(), today.getMonth(), 1);
+    } else if (rangeKey === "last_month") {
+      start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      end = new Date(today.getFullYear(), today.getMonth(), 0); // last day prev month
+    } else {
+      const days = rangeKey === "7d" ? 7 : rangeKey === "14d" ? 14 : 30;
+      start = new Date(today);
+      start.setDate(start.getDate() - (days - 1));
+    }
     return { date_from: iso(start), date_to: iso(end) };
-  }, []);
+  }, [rangeKey]);
   const { data: ads, isLoading: adsLoading } = useAdsCampaigns({
     ...adsRange,
     platform: "google_ads",
@@ -79,8 +99,23 @@ export function GoogleAdsPerformance() {
       ]
     : [];
 
+  const rangeLabel = ADS_RANGE_OPTIONS.find((o) => o.key === rangeKey)?.label ?? "";
+
   return (
     <div className="space-y-4">
+      {/* Date range selector */}
+      <div className="flex items-center justify-end">
+        <select
+          value={rangeKey}
+          onChange={(e) => setRangeKey(e.target.value as AdsRangeKey)}
+          className="px-3 py-1.5 text-sm rounded-md border border-border bg-card cursor-pointer"
+        >
+          {ADS_RANGE_OPTIONS.map((o) => (
+            <option key={o.key} value={o.key}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+
       {/* Summary stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
         {adsLoading ? (
@@ -108,7 +143,7 @@ export function GoogleAdsPerformance() {
         <div className="border border-border rounded-lg bg-card overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <h3 className="font-semibold text-sm">{ads!.campaigns.length} campaigns</h3>
-            <span className="text-xs text-muted-foreground">Last 30 days · by spend</span>
+            <span className="text-xs text-muted-foreground">{rangeLabel} · by spend</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
