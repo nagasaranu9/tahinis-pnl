@@ -166,57 +166,6 @@ async def backfill_channels(
     return {"data": result, "errors": None}
 
 
-@router.get("/debug-selections", response_model=APIResponse[dict])
-async def debug_selections(
-    user: ManagerDep,
-    db: AsyncSessionDep,
-    location_id: uuid.UUID | None = Query(None),
-) -> dict:
-    """TEMP diagnostic: dump raw selection money fields from the latest order so we
-    can confirm which Toast field holds the real line price. Tenant-scoped."""
-    import json as _json
-
-    from sqlalchemy import desc, select as _select
-
-    from app.db.models.toast import ToastOrder
-
-    conds = [ToastOrder.tenant_id == user.tenant_id]
-    if location_id:
-        conds.append(ToastOrder.location_id == location_id)
-    rows = (await db.execute(
-        _select(ToastOrder.raw_data, ToastOrder.business_date, ToastOrder.amount)
-        .where(*conds)
-        .order_by(desc(ToastOrder.opened_at))
-        .limit(5)
-    )).all()
-
-    out = []
-    for r in rows:
-        raw = _json.loads(r.raw_data) if isinstance(r.raw_data, str) else (r.raw_data or {})
-        checks = raw.get("checks") or []
-        sels = []
-        for chk in checks:
-            for s in (chk.get("selections") or []):
-                if not isinstance(s, dict):
-                    continue
-                sels.append({
-                    "displayName": s.get("displayName"),
-                    "quantity": s.get("quantity"),
-                    "price": s.get("price"),
-                    "preDiscountPrice": s.get("preDiscountPrice"),
-                    "basePrice": s.get("basePrice"),
-                    "tax": s.get("tax"),
-                    "unitOfMeasure": s.get("unitOfMeasure"),
-                })
-        out.append({
-            "business_date": r.business_date,
-            "order_amount": str(r.amount),
-            "check_totalAmounts": [c.get("totalAmount") for c in checks],
-            "selections": sels,
-        })
-    return {"data": {"orders": out}, "errors": None}
-
-
 @router.get("/sync-jobs", response_model=PaginatedResponse[ToastSyncJobResponse])
 async def list_sync_jobs(
     user: CurrentUserDep,

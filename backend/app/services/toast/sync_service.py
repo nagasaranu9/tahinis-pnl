@@ -390,15 +390,16 @@ class ToastSyncService:
             if not isinstance(item, dict):
                 continue
             qty = item.get("quantity")
-            # Toast selection money fields are dollars, not cents (matches
-            # _sum_voided_selections / _sum_check_field which use them raw).
-            pre_disc = _dollars(item.get("preDiscountPrice"))
-            # Calculate unit_price from preDiscountPrice / quantity.
+            # Toast `price` = line total after discount (what customer paid).
+            # `preDiscountPrice` = line total before discount (list price).
+            # Use `price` to show actual unit cost paid, not list price.
+            line_total = _dollars(item.get("price"))
+            # Calculate unit_price from line total / quantity.
             # Toast's unitOfMeasure is the unit type (EACH, OUNCE, etc), not the price.
             unit_price = None
-            if pre_disc is not None and qty:
+            if line_total is not None and qty:
                 try:
-                    unit_price = pre_disc / Decimal(str(qty))
+                    unit_price = line_total / Decimal(str(qty))
                 except (ValueError, TypeError, ZeroDivisionError):
                     unit_price = None
             # Use item guid if present; fallback to order_id:index so items
@@ -414,7 +415,7 @@ class ToastSyncService:
                 "name": item.get("displayName", ""),
                 "quantity": qty,
                 "unit_price": unit_price,
-                "pre_discount_price": pre_disc,
+                "pre_discount_price": line_total,
                 "tax_amount": _dollars(item.get("tax")),
                 "discount_amount": _dollars(item.get("appliedDiscountAmount")),
                 "void_reason": _str_or_guid(item.get("voidReason")),
