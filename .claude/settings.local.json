@@ -88,7 +88,21 @@
       "Bash(rg -rl \"beat_schedule\" backend/app)",
       "Bash(rg -rln \"gmail_sync_all|def gmail_sync\" backend/app/workers)",
       "Bash(rg -rn \"gmail_sync_all|last_synced_at|is_active|def gmail_sync_all|for .* in .*config|sync_config\" backend/app/workers/tasks/email_sync.py)",
-      "Bash(git commit -q -m 'Google Ads tab: add date-range dropdown \\(7d/14d/30d/this/last month\\) *)"
+      "Bash(git commit -q -m 'Google Ads tab: add date-range dropdown \\(7d/14d/30d/this/last month\\) *)",
+      "Bash(rg -rln \"job-monitor\\\\|Job Monitor\\\\|jobMonitor\\\\|jobs\" frontend/src/app frontend/src/hooks)",
+      "Bash(rg -rln \"router.get.*jobs\\\\|/jobs\\\\|job_monitor\\\\|JobMonitor\" backend/app/api)",
+      "Bash(rg -rln \"Job Monitor|job-monitor|No jobs found\" frontend/src)",
+      "Bash(rg -rln \"No jobs found\" frontend/src)",
+      "Bash(rg -rln \"job_runs\\\\|JobRun\\\\|/jobs\\\\b\\\\|job-runs\\\\|task_runs\" backend/app)",
+      "Bash(rg -rln \"api/v1/jobs\\\\|prefix.*jobs\\\\|jobs.router\\\\|TrackedTask\\\\|job_runs\\\\|JobRunModel\\\\|class JobRun\" backend/app)",
+      "Bash(rg -rln \"class TrackedTask\\\\|TrackedTask\" backend/app/workers)",
+      "Bash(rg -rln \"TrackedTask\" backend/app)",
+      "Bash(rg -rln \"job.?monitor|JobMonitor|/jobs|sync.?jobs\" backend/app/api frontend/src)",
+      "Bash(rg -rn \"email_sync_jobs|EmailSyncJob|class.*Job\" backend/app/db/models/*.py)",
+      "Bash(rg -rn \"class TrackedTask|JobRun|def on_success|def on_failure|def __call__|def before_start\" backend/app/workers/*.py backend/app/workers/**/*.py)",
+      "Bash(sed -i '' 's/_extract_tenant_id\\(kwargs\\)/_extract_tenant_id\\(kwargs, args\\)/g' backend/app/workers/base_task.py)",
+      "Bash(python3 -m py_compile backend/app/workers/base_task.py)",
+      "Bash(git commit -q -m 'job_runs: capture tenant_id from positional args *)"
     ]
   }
 }

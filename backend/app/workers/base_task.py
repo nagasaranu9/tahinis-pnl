@@ -101,8 +101,25 @@ def _upsert_job(
     session.commit()
 
 
-def _extract_tenant_id(kwargs: dict) -> str | None:
-    return kwargs.get("tenant_id")
+def _extract_tenant_id(kwargs: dict, args: tuple = ()) -> str | None:
+    """Resolve tenant_id from kwargs, else the first positional arg.
+
+    Many tasks (email/ocr/reviews syncs) are dispatched with positional args —
+    `apply_async(args=[tenant_id, ...])` — so a kwargs-only lookup returned None
+    and their job_runs rows were written with tenant_id=NULL, making them
+    invisible in the tenant-scoped Job Monitor."""
+    tid = kwargs.get("tenant_id")
+    if tid:
+        return tid
+    if args:
+        first = args[0]
+        if isinstance(first, str):
+            try:
+                uuid.UUID(first)
+                return first
+            except ValueError:
+                pass
+    return None
 
 
 class TrackedTask(Task):
@@ -113,7 +130,7 @@ class TrackedTask(Task):
     def before_start(self, task_id: str, args: tuple, kwargs: dict) -> None:
         structlog.contextvars.bind_contextvars(task_id=task_id, task_name=self.name)
         logger.info("task_start")
-        tenant_id = _extract_tenant_id(kwargs)
+        tenant_id = _extract_tenant_id(kwargs, args)
         try:
             with _SyncSession() as session:
                 _upsert_job(
@@ -130,7 +147,7 @@ class TrackedTask(Task):
     def on_success(self, retval: Any, task_id: str, args: tuple, kwargs: dict) -> None:
         logger.info("task_success")
         finished = datetime.now(UTC)
-        tenant_id = _extract_tenant_id(kwargs)
+        tenant_id = _extract_tenant_id(kwargs, args)
         summary = retval if isinstance(retval, dict) else None
         try:
             with _SyncSession() as session:
@@ -161,7 +178,7 @@ class TrackedTask(Task):
         self, exc: Exception, task_id: str, args: tuple, kwargs: dict, einfo: Any
     ) -> None:
         logger.error("task_failure", error=str(exc), exc_info=True)
-        tenant_id = _extract_tenant_id(kwargs)
+        tenant_id = _extract_tenant_id(kwargs, args)
         try:
             with _SyncSession() as session:
                 _upsert_job(
@@ -180,7 +197,7 @@ class TrackedTask(Task):
         self, exc: Exception, task_id: str, args: tuple, kwargs: dict, einfo: Any
     ) -> None:
         logger.warning("task_retry", error=str(exc), retry_count=self.request.retries)
-        tenant_id = _extract_tenant_id(kwargs)
+        tenant_id = _extract_tenant_id(kwargs, args)
         try:
             with _SyncSession() as session:
                 _upsert_job(
