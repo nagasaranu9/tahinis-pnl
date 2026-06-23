@@ -256,6 +256,29 @@ class PnLCalculator:
             expenses.append(exp)
         return self._dedup_bank_vs_invoice(expenses)
 
+    # Words that carry no vendor identity — bank-description boilerplate,
+    # corporate suffixes, generic descriptors. Stripped before token matching.
+    _VENDOR_NOISE = frozenset({
+        "pre", "authorized", "pre-authorized", "preauthorized", "payment",
+        "payments", "pap", "pad", "debit", "credit", "chq", "cheque", "eft",
+        "bill", "online", "transfer", "purchase", "pos", "inc", "inc.", "ltd",
+        "ltd.", "llc", "corp", "co", "co.", "company", "the", "and", "of",
+        "service", "services", "wholesale", "store", "ca", "on", "toronto",
+    })
+
+    @classmethod
+    def _vendor_tokens(cls, name: str | None) -> frozenset[str]:
+        """Significant lowercased tokens for vendor matching. Punctuation
+        stripped, boilerplate/noise words removed (e.g. 'Pre-Authorized
+        Payment, ALEX FOOD' -> {'alex', 'food'})."""
+        if not name:
+            return frozenset()
+        import re
+        raw = re.split(r"[^a-z0-9]+", name.lower())
+        return frozenset(
+            t for t in raw if t and t not in cls._VENDOR_NOISE and len(t) > 1
+        )
+
     @staticmethod
     def _norm_vendor(name: str | None) -> str | None:
         if not name:
@@ -266,23 +289,37 @@ class PnLCalculator:
         """Bank statement wins. When a vendor has a bank-statement expense in the
         period, the actual cash already captures that spend, so drop that vendor's
         uploaded-invoice/receipt expenses to avoid double-counting (e.g. Alex Food
-        invoices + the bank payment to Alex)."""
-        bank_vendors = {
-            self._norm_vendor(e.vendor_name)
+        invoices + the bank payment to Alex).
+
+        Vendor identity matched on significant-token overlap, not substring:
+        bank descriptions ('Pre-Authorized Payment, ALEX FOOD') and invoice
+        vendor names ('Alex Food Service') rarely contain one another but share
+        identifying tokens ({'alex','food'})."""
+        bank_token_sets = [
+            self._vendor_tokens(e.vendor_name)
             for e in expenses
             if getattr(e, "_doc_type", None) == "bank_statement" and e.vendor_name
-        }
-        bank_vendors.discard(None)
-        if not bank_vendors:
+        ]
+        bank_token_sets = [s for s in bank_token_sets if s]
+        if not bank_token_sets:
             return expenses
+
+        def _matches_bank(inv: frozenset[str]) -> bool:
+            if not inv:
+                return False
+            for bank in bank_token_sets:
+                shared = inv & bank
+                # subset (one fully contained) or >=2 identifying tokens shared
+                if shared and (inv <= bank or bank <= inv or len(shared) >= 2):
+                    return True
+            return False
 
         kept: list[Expense] = []
         for e in expenses:
             if getattr(e, "_doc_type", None) == "bank_statement":
                 kept.append(e)
                 continue
-            v = self._norm_vendor(e.vendor_name)
-            if v and any(bv in v or v in bv for bv in bank_vendors):
+            if _matches_bank(self._vendor_tokens(e.vendor_name)):
                 logger.info(
                     "pnl_dedup_dropped_invoice",
                     vendor=e.vendor_name,

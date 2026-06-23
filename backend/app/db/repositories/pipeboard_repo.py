@@ -253,7 +253,6 @@ class PipeboardRepository:
             metric.ctr = ctr
             metric.cpc = cpc
             metric.roas = roas
-            metric.updated_at = now
         else:
             metric = PipeboardDailyMetric(
                 tenant_id=tenant_id,
@@ -269,7 +268,6 @@ class PipeboardRepository:
                 roas=roas,
                 currency_code=currency_code,
                 created_at=now,
-                updated_at=now,
             )
             self._db.add(metric)
 
