@@ -13,8 +13,8 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers
-revision = "0024_fix_toast_item_prices_undo_divide_100"
-down_revision = None  # Standalone migration - doesn't depend on prior migrations
+revision = "0024"
+down_revision = "0023"
 branch_labels = None
 depends_on = None
 

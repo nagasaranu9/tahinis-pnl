@@ -123,7 +123,8 @@
       "Skill(land-and-deploy)",
       "Skill(land-and-deploy:*)",
       "Bash(L/backend/alembic/versions/)",
-      "Bash(git commit -m 'fix: correct migration naming and down_revision chain *)"
+      "Bash(git commit -m 'fix: correct migration naming and down_revision chain *)",
+      "Bash(git commit -m 'fix: make migration standalone + defensive table check *)"
     ]
   }
 }
