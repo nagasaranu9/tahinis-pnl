@@ -108,7 +108,8 @@
       "Bash(git commit -q -m 'email sync: 6h cadence + stale banner on integration cards *)",
       "Bash(git commit -q -m 'product-mix: display avg price per unit, not total revenue *)",
       "Bash(git commit -q -m 'product-mix: show average unit_price, not total revenue *)",
-      "Bash(git commit -q -m 'product-mix: fallback calculation for NULL unit_price *)"
+      "Bash(git commit -q -m 'product-mix: fallback calculation for NULL unit_price *)",
+      "Bash(git commit -q -m 'toast: fix order item guid collision causing silent drops *)"
     ]
   }
 }

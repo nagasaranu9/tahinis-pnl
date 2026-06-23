@@ -386,7 +386,7 @@ class ToastSyncService:
         # Items — only first check's selections
         checks = raw.get("checks") or []
         first_check = checks[0] if isinstance(checks, list) and checks and isinstance(checks[0], dict) else {}
-        for item in first_check.get("selections", []) or []:
+        for idx, item in enumerate(first_check.get("selections", []) or []):
             if not isinstance(item, dict):
                 continue
             qty = item.get("quantity")
@@ -399,12 +399,15 @@ class ToastSyncService:
                     unit_price = pre_disc / Decimal(str(qty))
                 except (ValueError, TypeError, ZeroDivisionError):
                     unit_price = None
+            # Use item guid if present; fallback to order_id:index so items
+            # without a guid don't all collide on (tenant_id, "") constraint.
+            item_guid = item.get("guid") or f"{order_id}:{idx}"
             await self._repo.upsert_order_item({
                 "id": uuid.uuid4(),
                 "tenant_id": tenant_id,
                 "order_id": order_id,
                 "location_id": location_id,
-                "toast_guid": item.get("guid", ""),
+                "toast_guid": item_guid,
                 "menu_item_guid": _dict_get(item.get("itemGroup"), "guid"),
                 "name": item.get("displayName", ""),
                 "quantity": qty,
