@@ -175,3 +175,119 @@ async def _sync_all_async() -> None:
             queue="sync",
         )
     logger.info("reviews_daily_dispatched", count=len(rows))
+
+
+# ---------------------------------------------------------------------------
+# Places API (New) hourly refresh — works with just GOOGLE_PLACES_API_KEY, no
+# Business Profile allowlisting. Keeps the dashboard/marketing reviews dynamic
+# (rating + total count + up to 5 recent reviews) while GBP access is pending.
+# ---------------------------------------------------------------------------
+
+
+@celery_app.task(name="reviews.places_refresh_all_tenants")
+def places_refresh_all_tenants() -> None:
+    asyncio.run(_places_refresh_all_async())
+
+
+async def _places_refresh_all_async() -> None:
+    from sqlalchemy import select
+    from app.db.models.google_reviews import GoogleReviewConfig
+    from app.db.session import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(
+            select(GoogleReviewConfig).where(GoogleReviewConfig.is_active == True)
+        )).scalars().all()
+
+    for cfg in rows:
+        # Only refresh configs with a resolved Place ID; others need the
+        # one-time Places "Import reviews now" (search) on the Reviews tab first.
+        if cfg.place_id and cfg.place_id.startswith(("ChIJ", "places/")):
+            refresh_reviews_places.apply_async(
+                kwargs={"tenant_id": str(cfg.tenant_id), "location_id": str(cfg.location_id)},
+                queue="sync",
+            )
+    logger.info("reviews_places_refresh_dispatched", count=len(rows))
+
+
+@celery_app.task(
+    name="app.workers.tasks.reviews_sync.refresh_reviews_places",
+    bind=True,
+    queue="sync",
+    max_retries=2,
+    default_retry_delay=300,
+)
+def refresh_reviews_places(self, tenant_id: str, location_id: str) -> dict:
+    return asyncio.run(_places_refresh_one_async(tenant_id, location_id))
+
+
+async def _places_refresh_one_async(tenant_id_str: str, location_id_str: str) -> dict:
+    from app.core.config import settings
+    from app.db.repositories.reviews_repo import ReviewsRepository
+    from app.db.session import AsyncSessionLocal
+    from app.services.google.places_client import PlacesAPIError, get_place_reviews
+
+    api_key = settings.GOOGLE_PLACES_API_KEY
+    if not api_key:
+        logger.warning("places_refresh_no_key", tenant_id=tenant_id_str)
+        return {"status": "skipped", "reason": "no_api_key"}
+
+    tenant_id = uuid.UUID(tenant_id_str)
+    location_id = uuid.UUID(location_id_str)
+
+    async with AsyncSessionLocal() as db:
+        repo = ReviewsRepository(db)
+        config = await repo.get_config(tenant_id, location_id)
+        if not config or not config.is_active:
+            return {"status": "skipped", "reason": "no_config"}
+        if not (config.place_id and config.place_id.startswith(("ChIJ", "places/"))):
+            return {"status": "skipped", "reason": "no_place_id"}
+
+        try:
+            details = await get_place_reviews(config.place_id, api_key)
+        except PlacesAPIError as exc:
+            logger.error("places_refresh_failed", status=exc.status, body=exc.body[:200])
+            return {"status": "error", "http": exc.status}
+
+        imported = 0
+        sampled_stars: dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        for r in details["reviews"]:
+            if not r.get("name"):
+                continue
+            rating = int(r["rating"]) if r.get("rating") is not None else None
+            published = _parse_dt(r.get("publish_time"))
+            await repo.upsert_review(
+                tenant_id=tenant_id,
+                location_id=location_id,
+                review_id=r["name"],
+                author_name=r.get("author"),
+                rating=rating,
+                comment=r.get("text"),
+                published_at=published,
+                update_time=published,
+                reply_comment=None,
+                reply_update_time=None,
+            )
+            imported += 1
+            if isinstance(r.get("rating"), (int, float)) and 1 <= int(r["rating"]) <= 5:
+                sampled_stars[int(r["rating"])] += 1
+
+        await repo.save_snapshot(
+            tenant_id=tenant_id,
+            location_id=location_id,
+            snapshot_date=datetime.now(timezone.utc),
+            average_rating=details.get("rating"),
+            total_review_count=details.get("user_rating_count") or 0,
+            star_counts=sampled_stars,
+        )
+        await repo.mark_synced(config.id)
+        await db.commit()
+
+        logger.info(
+            "reviews_places_refreshed",
+            tenant_id=tenant_id_str,
+            imported=imported,
+            rating=details.get("rating"),
+            count=details.get("user_rating_count"),
+        )
+        return {"status": "ok", "imported": imported}

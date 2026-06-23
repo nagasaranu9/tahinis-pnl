@@ -36,6 +36,14 @@ celery_app.conf.beat_schedule = {
         "task": "reviews.daily_sync_all_tenants",
         "schedule": crontab(minute=0),  # top of every hour
     },
+    "reviews-places-refresh-hourly": {
+        # Places API (New) fallback — key-only, no GBP allowlisting. Keeps reviews
+        # dynamic (rating + count + recent) for any config with a stored Place ID,
+        # offset 15 min from the GBP poll above. This is the source that actually
+        # refreshes while Business Profile API access is pending.
+        "task": "reviews.places_refresh_all_tenants",
+        "schedule": crontab(minute=15),  # top+15 of every hour
+    },
     "pipeboard-sync-daily": {
         # Covers Pipeboard (Google Ads, Meta Ads, TikTok Ads) for all tenants
         "task": "pipeboard.daily_sync_all_tenants",
