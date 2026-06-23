@@ -81,7 +81,8 @@
       "Bash(python3 -m py_compile backend/app/api/v1/endpoints/dashboard.py)",
       "Bash(git commit -q -m 'Dashboard: fix Top Suppliers location filter, Meta Ads coming-soon, hide 0s channels *)",
       "Bash(git commit -q -m 'top-line-items: drop Balance Forward, merge item name variants *)",
-      "Bash(git commit -q -m 'Marketing/Google Ads: campaign performance cards + table from Pipeboard *)"
+      "Bash(git commit -q -m 'Marketing/Google Ads: campaign performance cards + table from Pipeboard *)",
+      "Bash(git commit -q -m 'Move Pipeboard connection management to Integrations; keep Google Ads metrics in Marketing *)"
     ]
   }
 }

@@ -10,6 +10,7 @@ import {
   useOutlookStatus, useOutlookAuthUrl, useOutlookSync, useOutlookDisconnect,
 } from "@/hooks/use-email-integrations";
 import { useImportPushOpsCsv } from "@/hooks/use-pushops-integration";
+import { PipeboardIntegration } from "@/components/pipeboard-integration";
 import { useLocations } from "@/hooks/use-locations";
 import type { EmailSyncConfig } from "@/types/email-sync";
 
@@ -285,6 +286,20 @@ export default function IntegrationsPage() {
         />
 
         <PushOpsCard />
+
+        {/* Google Ads via Pipeboard — connect, sync, job history */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center text-xl">📣</div>
+            <div>
+              <h3 className="font-semibold">Google Ads (Pipeboard)</h3>
+              <p className="text-xs text-muted-foreground">
+                Connect Pipeboard to sync Google Ads spend & performance into your P&amp;L marketing line
+              </p>
+            </div>
+          </div>
+          <PipeboardIntegration />
+        </div>
 
       </div>
     </div>

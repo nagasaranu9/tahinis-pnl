@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Megaphone, ArrowRight, Star, TrendingUp, BarChart3, CheckCircle, Unplug } from "lucide-react";
 import ReviewsPage from "../reviews/page";
-import { PipeboardIntegration } from "@/components/pipeboard-integration";
+import { GoogleAdsPerformance } from "@/components/pipeboard-integration";
 import {
   useMetaAdsStatus,
   useMetaAdsConnect,
@@ -140,7 +140,7 @@ export default function MarketingPage() {
       </div>
 
       {tab === "reviews" && <ReviewsPage />}
-      {tab === "googleAds" && <PipeboardIntegration />}
+      {tab === "googleAds" && <GoogleAdsPerformance />}
       {tab === "metaAds" && <MetaAdsConnector />}
       {tab === "spendAnalytics" && (
         <ComingSoon
