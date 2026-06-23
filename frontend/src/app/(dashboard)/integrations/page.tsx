@@ -175,8 +175,13 @@ function IntegrationCard({
 
       {connected.length > 0 && (
         <div className="space-y-2 border-t border-border pt-4">
-          {connected.map((account) => (
-            <div key={account.id} className="flex items-center justify-between text-sm">
+          {connected.map((account) => {
+          const lastMs = account.last_synced_at ? new Date(account.last_synced_at).getTime() : 0;
+          // Auto-sync runs every 6h; flag stale if no successful sync in >12h.
+          const stale = !account.last_synced_at || Date.now() - lastMs > 12 * 60 * 60 * 1000;
+          return (
+            <div key={account.id} className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
                 <CheckCircle className="h-4 w-4 text-green-400 shrink-0" />
                 <div>
@@ -207,7 +212,17 @@ function IntegrationCard({
                 </button>
               </div>
             </div>
-          ))}
+            {stale && (
+              <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-md px-2.5 py-1.5">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  No successful sync in over 12h. Auto-sync runs every 6h — click Sync to retry now. If it keeps failing, reconnect the account (token may have expired).
+                </span>
+              </div>
+            )}
+            </div>
+          );
+          })}
         </div>
       )}
     </div>

@@ -102,7 +102,10 @@
       "Bash(rg -rn \"class TrackedTask|JobRun|def on_success|def on_failure|def __call__|def before_start\" backend/app/workers/*.py backend/app/workers/**/*.py)",
       "Bash(sed -i '' 's/_extract_tenant_id\\(kwargs\\)/_extract_tenant_id\\(kwargs, args\\)/g' backend/app/workers/base_task.py)",
       "Bash(python3 -m py_compile backend/app/workers/base_task.py)",
-      "Bash(git commit -q -m 'job_runs: capture tenant_id from positional args *)"
+      "Bash(git commit -q -m 'job_runs: capture tenant_id from positional args *)",
+      "Bash(rg -n \"router\\\\.\\(get|post|put|delete\\)|def \" backend/app/api/v1/endpoints/email*.py)",
+      "Bash(python3 -m py_compile backend/app/workers/celery_beat.py)",
+      "Bash(git commit -q -m 'email sync: 6h cadence + stale banner on integration cards *)"
     ]
   }
 }

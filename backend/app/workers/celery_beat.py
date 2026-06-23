@@ -12,13 +12,16 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(minute="*"),
     },
     # ── Daily syncs (UTC) ─────────────────────────────────────────────────────
-    "gmail-sync-daily": {
+    # Every 6h (not once-daily): survives beat restarts, self-heals a missed
+    # slot, and guarantees a run lands inside the Job Monitor's visible window.
+    # Stagger gmail/outlook by 30min to avoid hammering the sync queue together.
+    "gmail-sync-6h": {
         "task": "email.gmail_sync_all",
-        "schedule": crontab(hour=3, minute=0),
+        "schedule": crontab(hour="*/6", minute=0),
     },
-    "outlook-sync-daily": {
+    "outlook-sync-6h": {
         "task": "email.outlook_sync_all",
-        "schedule": crontab(hour=3, minute=30),
+        "schedule": crontab(hour="*/6", minute=30),
     },
     "external-sync-daily": {
         # Covers Google Reviews + Google Ads for all tenants
