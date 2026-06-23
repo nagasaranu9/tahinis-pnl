@@ -109,7 +109,21 @@
       "Bash(git commit -q -m 'product-mix: display avg price per unit, not total revenue *)",
       "Bash(git commit -q -m 'product-mix: show average unit_price, not total revenue *)",
       "Bash(git commit -q -m 'product-mix: fallback calculation for NULL unit_price *)",
-      "Bash(git commit -q -m 'toast: fix order item guid collision causing silent drops *)"
+      "Bash(git commit -q -m 'toast: fix order item guid collision causing silent drops *)",
+      "Bash(git commit -m 'product-mix: fix SQLAlchemy case\\(\\) import crash; reviews: auto-refresh every 1h + recent reviews on dashboard *)",
+      "Bash(git commit -m 'toast: order-item prices are dollars not cents; self-heal on re-sync *)",
+      "Bash(python3 -m py_compile backend/app/workers/tasks/reviews_sync.py backend/app/workers/celery_beat.py)",
+      "Bash(git commit -m 'reviews: hourly Places API auto-refresh so dashboard/marketing stay dynamic *)",
+      "Bash(railway variables *)",
+      "Bash(python3 -m py_compile backend/app/api/v1/endpoints/toast_integrations.py)",
+      "Bash(git commit -m 'toast: TEMP debug-selections endpoint to inspect raw Toast line price fields *)",
+      "Bash(python3 -m py_compile backend/app/services/toast/sync_service.py backend/app/api/v1/endpoints/toast_integrations.py)",
+      "Bash(git commit -m 'toast: fix product-mix unit prices — use '\\\\''price'\\\\'' not '\\\\''preDiscountPrice'\\\\'' *)",
+      "Bash(git commit -m 'migration: fix Toast item prices by undoing old ÷100 bug *)",
+      "Skill(land-and-deploy)",
+      "Skill(land-and-deploy:*)",
+      "Bash(L/backend/alembic/versions/)",
+      "Bash(git commit -m 'fix: correct migration naming and down_revision chain *)"
     ]
   }
 }

@@ -4,8 +4,8 @@ Old code incorrectly applied cents_to_decimal (÷100) to selection price fields
 that were already in dollars. Multiply stored pre_discount_price, tax_amount,
 discount_amount by 100 to restore original values.
 
-Revision ID: 002_fix_toast_item_prices
-Revises: 001_initial
+Revision ID: 0024_fix_toast_item_prices_undo_divide_100
+Revises: 0023_pipeboard_alerts_audit_logs
 Create Date: 2026-06-23 20:00:00.000000
 """
 
@@ -13,8 +13,8 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers
-revision = "002_fix_toast_item_prices"
-down_revision = "001_initial"
+revision = "0024_fix_toast_item_prices_undo_divide_100"
+down_revision = "0023_pipeboard_alerts_audit_logs"
 branch_labels = None
 depends_on = None
 
