@@ -109,12 +109,15 @@ async def get_toast_status(
 
 @router.get("/debug-selection")
 async def debug_selection(
-    user: CurrentUserDep,
     db: AsyncSessionDep,
+    tenant_id: str = Query(...),
     name: str = Query("Chicken Shawarma - Original"),
 ) -> dict:
     """TEMP debug: return stored item row + raw Toast selection JSON for one
-    item, to diagnose price scaling. Remove after diagnosis."""
+    item, to diagnose price scaling. Remove after diagnosis.
+
+    Query params: ?tenant_id=<uuid>&name=<item_name>
+    """
     from sqlalchemy import text
 
     sql = text(
@@ -132,7 +135,7 @@ async def debug_selection(
         FETCH FIRST 3 ROWS ONLY
         """
     )
-    rows = (await db.execute(sql, {"tid": str(user.tenant_id), "name": name})).mappings().all()
+    rows = (await db.execute(sql, {"tid": tenant_id, "name": name})).mappings().all()
     return {"data": [dict(r) for r in rows], "errors": None}
 
 
