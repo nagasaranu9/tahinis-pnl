@@ -41,6 +41,8 @@ export function useReviewsSummary(locationId?: string) {
   });
 }
 
+export const useReviewsDetail = useReviewsSummary;
+
 export function useReviewsList(locationId?: string, page = 1, limit = 20) {
   return useQuery({
     queryKey: ["reviews-list", locationId, page, limit],
