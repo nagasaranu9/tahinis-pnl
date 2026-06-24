@@ -110,13 +110,13 @@ async def get_toast_status(
 @router.get("/debug-selection")
 async def debug_selection(
     db: AsyncSessionDep,
-    tenant_id: str = Query(...),
+    location_id: str = Query(...),
     name: str = Query("Chicken Shawarma - Original"),
 ) -> dict:
     """TEMP debug: return stored item row + raw Toast selection JSON for one
     item, to diagnose price scaling. Remove after diagnosis.
 
-    Query params: ?tenant_id=<uuid>&name=<item_name>
+    Query params: ?location_id=<uuid>&name=<item_name>
     """
     from sqlalchemy import text
 
@@ -129,13 +129,13 @@ async def debug_selection(
         CROSS JOIN LATERAL jsonb_array_elements(
             COALESCE((o.raw_data::jsonb #> '{checks,0,selections}'), '[]'::jsonb)
         ) AS sel(value)
-        WHERE oi.tenant_id = :tid
+        WHERE oi.location_id = :loc_id
           AND oi.name = :name
           AND sel.value ->> 'displayName' = :name
         FETCH FIRST 3 ROWS ONLY
         """
     )
-    rows = (await db.execute(sql, {"tid": tenant_id, "name": name})).mappings().all()
+    rows = (await db.execute(sql, {"loc_id": location_id, "name": name})).mappings().all()
     return {"data": [dict(r) for r in rows], "errors": None}
 
 
