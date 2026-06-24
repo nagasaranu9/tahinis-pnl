@@ -10,6 +10,7 @@ import type { Role } from "@/types/auth";
 import { useReconciliationFlags } from "@/hooks/use-reconciliation";
 import { useLocations } from "@/hooks/use-locations";
 import { useToastStatus } from "@/hooks/use-toast-integration";
+import { LocationSelector } from "@/components/layout/location-selector";
 import {
   LayoutDashboard,
   FileText,
@@ -119,12 +120,9 @@ export function SidebarNav() {
           <Menu className="h-5 w-5" />
         </button>
         <img src="/tahinis-icon.png" alt="Tahini's" className="w-7 h-7 object-contain" />
-        {selectedLocation && (
-          <span className="text-xs font-medium text-foreground truncate">
-            {selectedLocation.store_id ? `#${selectedLocation.store_id} · ` : ""}
-            {selectedLocation.name}
-          </span>
-        )}
+        <div className="min-w-0 flex-1">
+          <LocationSelector />
+        </div>
       </div>
       {/* Backdrop when drawer open */}
       {mobileOpen && (
@@ -162,21 +160,15 @@ export function SidebarNav() {
           />
         </Link>
 
-        {/* Location info */}
-        {selectedLocation && (
-          <div className="text-center text-xs space-y-0.5">
-            <div className="font-medium text-foreground truncate px-2">
-              {selectedLocation.store_id
-                ? `#${selectedLocation.store_id} · ${selectedLocation.name}`
-                : selectedLocation.name}
+        {/* Location switcher */}
+        <div className="flex flex-col items-center gap-1 text-xs">
+          <LocationSelector />
+          {selectedLocation && toastStatus && (
+            <div className="text-[10.5px] text-muted-foreground/70">
+              {formatRelative(toastStatus.last_synced_at)}
             </div>
-            {toastStatus && (
-              <div className="text-[10.5px] text-muted-foreground/70">
-                {formatRelative(toastStatus.last_synced_at)}
-              </div>
-            )}
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Theme toggle */}

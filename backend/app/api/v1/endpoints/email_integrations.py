@@ -106,8 +106,10 @@ async def gmail_callback(
         await db.commit()
         logger.info("gmail_connected", tenant_id=str(tenant_id), email=email_address)
     except Exception as e:
-        logger.error("gmail_callback_failed", error=str(e))
-        return RedirectResponse(_frontend_url("/integrations?error=gmail_failed"))
+        from urllib.parse import quote
+        logger.error("gmail_callback_failed", error=str(e), error_type=type(e).__name__)
+        reason = quote(str(e)[:180])
+        return RedirectResponse(_frontend_url(f"/integrations?error=gmail_failed&reason={reason}"))
 
     return RedirectResponse(_frontend_url("/integrations?connected=gmail"))
 

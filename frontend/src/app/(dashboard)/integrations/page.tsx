@@ -237,6 +237,7 @@ export default function IntegrationsPage() {
   const params = useSearchParams();
   const connected = params.get("connected");
   const error = params.get("error");
+  const errorReason = params.get("reason");
 
   const { data: gmailAccounts = [], isLoading: gmailLoading } = useGmailStatus();
   const { data: outlookAccounts = [], isLoading: outlookLoading } = useOutlookStatus();
@@ -264,9 +265,14 @@ export default function IntegrationsPage() {
         </div>
       )}
       {error && (
-        <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/5 border border-destructive/20 rounded-md px-4 py-2">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          Connection failed. Please try again.
+        <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/5 border border-destructive/20 rounded-md px-4 py-2">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+          <div>
+            <div>Connection failed. Please try again.</div>
+            {errorReason && (
+              <div className="text-xs text-destructive/80 mt-1 break-words">{errorReason}</div>
+            )}
+          </div>
         </div>
       )}
 

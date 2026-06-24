@@ -333,6 +333,7 @@ export default function DashboardPage() {
   const [customEnd, setCustomEnd] = useState("");
   const [showDateMenu, setShowDateMenu] = useState(false);
   const [showCustom, setShowCustom] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const dateRange = useMemo<DateRange>(() => {
     if (activePreset === "custom" && customStart && customEnd) {
@@ -489,8 +490,14 @@ export default function DashboardPage() {
 
   const unresolved = flags?.meta?.total ?? 0;
 
-  const handleRefresh = useCallback(() => {
-    qc.invalidateQueries();
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      // refetchType "all" also refetches inactive/background queries, not just mounted ones
+      await qc.invalidateQueries({ refetchType: "all" });
+    } finally {
+      setRefreshing(false);
+    }
   }, [qc]);
 
   const starPct = (n: number) =>
@@ -584,10 +591,11 @@ export default function DashboardPage() {
           </div>
           <button
             onClick={handleRefresh}
-            className="p-2 rounded-md border border-border bg-card text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors cursor-pointer"
+            disabled={refreshing}
+            className="p-2 rounded-md border border-border bg-card text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             title="Refresh"
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
           </button>
         </div>
       </div>
