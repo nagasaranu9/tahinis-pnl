@@ -254,6 +254,49 @@ async def fulfillment_time(
     }
 
 
+@router.get("/sales-by-hour", response_model=APIResponse[dict])
+async def sales_by_hour(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    date_from: str = Query(..., description="YYYY-MM-DD"),
+    date_to: str = Query(..., description="YYYY-MM-DD"),
+    location_id: uuid.UUID | None = Query(None),
+) -> dict:
+    """Net sales + order count grouped by hour of day (0-23) across the range.
+
+    Hour is extracted from opened_at (UTC) — adequate for an intraday shape;
+    not timezone-localised. Filtered by Toast business_date (4am boundary) for
+    consistency with the other tiles.
+    """
+    start, end = _parse_range(date_from, date_to)
+    conds = _toast_filters(user, location_id, start, end)
+    conds.append(ToastOrder.opened_at.isnot(None))
+
+    hr = func.extract("hour", ToastOrder.opened_at).label("hr")
+    rows = (await db.execute(
+        select(
+            hr,
+            func.coalesce(func.sum(ToastOrder.net_amount), 0).label("net"),
+            func.count(ToastOrder.id).label("n"),
+        )
+        .where(and_(*conds))
+        .group_by(hr)
+        .order_by(hr)
+    )).all()
+
+    by_hour = {int(r.hr): r for r in rows if r.hr is not None}
+    points = [
+        {
+            "hour": h,
+            "net_revenue": round(float(by_hour[h].net), 2) if h in by_hour else 0.0,
+            "orders": int(by_hour[h].n) if h in by_hour else 0,
+        }
+        for h in range(24)
+    ]
+    total = round(sum(p["net_revenue"] for p in points), 2)
+    return {"data": {"points": points, "total_revenue": total}, "errors": None}
+
+
 @router.get("/product-mix", response_model=APIResponse[dict])
 async def product_mix(
     user: CurrentUserDep,
@@ -841,13 +884,49 @@ async def profit_suggestions(
     date_from: str = Query(..., description="YYYY-MM-DD"),
     date_to: str = Query(..., description="YYYY-MM-DD"),
     location_id: uuid.UUID | None = Query(None),
+    refresh: bool = Query(False, description="Force regenerate, bypass daily cache"),
 ) -> dict:
     """AI suggestions to improve NET profit for the period.
 
     Runs the real P&L, hands the numbers to Claude, returns 3-5 concrete,
     restaurant-specific actions ranked by estimated monthly $ impact. On-demand
-    + synchronous (no async queue) so it's reliable; client should cache."""
+    + synchronous (no async queue) so it's reliable.
+
+    Server-side daily cache: the generated payload is stored in ai_insights keyed
+    by tenant + location + period. Re-requests for the same range return the
+    cached row, so a given period is generated at most once (≈1 Claude call/day
+    for the rolling "Today" range) regardless of how many times the dashboard
+    loads. Pass refresh=true to force regeneration."""
+    import json as _json
+    from app.db.models.ai_insight import AIInsight
+
     start, end = _parse_range(date_from, date_to)
+
+    # --- cache lookup -------------------------------------------------------
+    cache_conds = [
+        AIInsight.tenant_id == user.tenant_id,
+        AIInsight.insight_type == "pnl_summary",
+        AIInsight.period_start == date_from,
+        AIInsight.period_end == date_to,
+        AIInsight.is_dismissed == False,  # noqa: E712
+    ]
+    if location_id is not None:
+        cache_conds.append(AIInsight.location_id == location_id)
+    else:
+        cache_conds.append(AIInsight.location_id.is_(None))
+
+    if not refresh:
+        cached = (await db.execute(
+            select(AIInsight).where(and_(*cache_conds)).order_by(AIInsight.created_at.desc())
+        )).scalars().first()
+        if cached is not None:
+            try:
+                payload = _json.loads(cached.summary)
+                payload["available"] = True
+                payload["cached"] = True
+                return {"data": payload, "errors": None}
+            except Exception:
+                pass  # corrupt cache → regenerate
 
     from app.services.pnl.calculator import PnLCalculator
     report = await PnLCalculator(db).compute(user.tenant_id, start, end, location_id)
@@ -910,6 +989,28 @@ async def profit_suggestions(
         data = _json.loads(raw)
         data["available"] = True
         data["metrics"] = metrics
+
+        # --- persist to daily cache ----------------------------------------
+        try:
+            db.add(AIInsight(
+                tenant_id=user.tenant_id,
+                location_id=location_id,
+                insight_type="pnl_summary",
+                severity="info",
+                title=(data.get("headline") or "Profit suggestions")[:255],
+                summary=_json.dumps(data),
+                explanation=(data.get("headline") or "AI profit suggestions")[:2000],
+                confidence_score=Decimal("0.80"),
+                period_start=date_from,
+                period_end=date_to,
+                model_id="claude-haiku-4-5-20251001",
+            ))
+            await db.commit()
+        except Exception as cache_exc:
+            logger.warning("profit_suggestions_cache_write_failed", error=str(cache_exc))
+            await db.rollback()
+
+        data["cached"] = False
         return {"data": data, "errors": None}
     except Exception as exc:
         logger.warning("profit_suggestions_failed", error=str(exc))

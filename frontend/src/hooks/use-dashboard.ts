@@ -300,6 +300,25 @@ export function useTopLineItems(p: RangeParams & { vendor?: string; limit?: numb
   });
 }
 
+export interface HourPoint {
+  hour: number;
+  net_revenue: number;
+  orders: number;
+}
+
+export function useSalesByHour(p: RangeParams) {
+  return useQuery({
+    queryKey: ["dashboard-sales-by-hour", p],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{
+        data: { points: HourPoint[]; total_revenue: number };
+      }>(`${BASE}/sales-by-hour?${rangeQS(p)}`);
+      return data.data;
+    },
+    enabled: Boolean(p.date_from && p.date_to),
+  });
+}
+
 export interface ProfitSuggestion {
   title: string;
   detail: string;
@@ -315,19 +334,25 @@ export interface ProfitSuggestions {
   metrics?: Record<string, number>;
 }
 
-// Lazy: pass enabled=true (e.g. on button click) to spend Claude credits.
-export function useProfitSuggestions(p: RangeParams, enabled: boolean) {
+// Server-side daily cache makes this cheap to auto-load: the first request for a
+// period generates + caches; later loads serve the cached row. Pass refresh=true
+// for the Regenerate button to force a new Claude pass.
+export function useProfitSuggestions(p: RangeParams, enabled: boolean, refresh = false) {
   return useQuery({
-    queryKey: ["dashboard-profit-suggestions", p],
+    queryKey: ["dashboard-profit-suggestions", p, refresh],
     queryFn: async () => {
       const { data } = await apiClient.get<{ data: ProfitSuggestions }>(
-        `${BASE}/profit-suggestions?${rangeQS(p)}`
+        `${BASE}/profit-suggestions?${rangeQS(p)}${refresh ? "&refresh=true" : ""}`
       );
       return data.data;
     },
     enabled: enabled && Boolean(p.date_from && p.date_to),
     staleTime: 30 * 60_000,
   });
+}
+
+export interface ProfitSuggestionsExtra extends ProfitSuggestions {
+  cached?: boolean;
 }
 
 export function useReviewsSentiment(location_id?: string) {

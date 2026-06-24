@@ -23,7 +23,7 @@ import {
   Truck,
   Sparkles,
 } from "lucide-react";
-import { Area, AreaChart, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { Area, AreaChart, ResponsiveContainer, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { usePnLReport, useDailyBreakdown } from "@/hooks/use-pnl";
 import { useReconciliationFlags } from "@/hooks/use-reconciliation";
 import { usePlatformMetrics } from "@/hooks/use-pipeboard";
@@ -40,6 +40,7 @@ import {
   useProfitSuggestions,
   useTopLineItems,
   useProductMix,
+  useSalesByHour,
 } from "@/hooks/use-dashboard";
 import { useReviewsList } from "@/hooks/use-reviews";
 import { useLocations } from "@/hooks/use-locations";
@@ -417,12 +418,17 @@ export default function DashboardPage() {
   const { data: recentReviews } = useReviewsList(locationParam, 1, 2);
   const { data: flags } = useReconciliationFlags({ unresolved_only: true });
 
-  // AI net-profit suggestions — lazy (button-triggered) so it only spends credits on demand
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  // AI net-profit suggestions — auto-loaded (server caches daily, so this is
+  // ~1 Claude call/day/period). Regenerate forces a fresh pass.
+  const [refreshSuggestions, setRefreshSuggestions] = useState(false);
   const { data: profitSuggestions, isFetching: suggestionsLoading } = useProfitSuggestions(
     rangeArgs,
-    showSuggestions
+    true,
+    refreshSuggestions
   );
+
+  // Intraday sales shape
+  const { data: salesByHour } = useSalesByHour(rangeArgs);
 
   const li = pnl?.line_items;
   const prevLi = prevPnl?.line_items;
@@ -654,6 +660,47 @@ export default function DashboardPage() {
           </Tile>
         </div>
       </div>
+
+      {/* ── Sales Overview (intraday) ── */}
+      {salesByHour && salesByHour.points.some((p) => p.net_revenue > 0) && (
+        <div>
+          <RowLabel>Sales Overview</RowLabel>
+          <Tile>
+            <div className="flex items-baseline justify-between">
+              <TileHeader label="Net Sales by Hour" icon={TrendingUp} />
+              <span className="text-sm font-bold tabular-nums">{fmtCAD(salesByHour.total_revenue)}</span>
+            </div>
+            <div className="h-56 mt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={salesByHour.points} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="salesHourFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#185FA5" stopOpacity={0.25} />
+                      <stop offset="100%" stopColor="#185FA5" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-border" vertical={false} />
+                  <XAxis
+                    dataKey="hour"
+                    tickFormatter={(h: number) => (h === 0 ? "12a" : h < 12 ? `${h}a` : h === 12 ? "12p" : `${h - 12}p`)}
+                    interval={2}
+                    tick={{ fontSize: 11 }}
+                    stroke="currentColor"
+                    className="text-muted-foreground"
+                  />
+                  <YAxis tick={{ fontSize: 11 }} stroke="currentColor" className="text-muted-foreground" width={48} tickFormatter={(v: number) => `$${v >= 1000 ? (v / 1000).toFixed(1) + "k" : v}`} />
+                  <Tooltip
+                    formatter={(v: number) => [fmtCAD(v, 2), "Net sales"]}
+                    labelFormatter={(h: number) => `${h}:00`}
+                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                  />
+                  <Area type="monotone" dataKey="net_revenue" stroke="#185FA5" strokeWidth={2} fill="url(#salesHourFill)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </Tile>
+        </div>
+      )}
 
       {/* ── Row 2: Toast POS ── */}
       <div>
@@ -955,20 +1002,16 @@ export default function DashboardPage() {
               <span className="text-xs text-muted-foreground">· {dateRange.label}</span>
             </div>
             <button
-              onClick={() => setShowSuggestions(true)}
+              onClick={() => setRefreshSuggestions(true)}
               disabled={suggestionsLoading}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 hover:bg-amber-500/15 disabled:opacity-50 transition-colors cursor-pointer"
             >
               {suggestionsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              {showSuggestions ? "Regenerate" : "Get suggestions"}
+              Regenerate
             </button>
           </div>
 
-          {!showSuggestions ? (
-            <p className="text-xs text-muted-foreground mt-3">
-              Claude reads this period&apos;s P&amp;L and suggests concrete actions to lift net profit. Click to generate.
-            </p>
-          ) : suggestionsLoading ? (
+          {suggestionsLoading ? (
             <p className="text-xs text-muted-foreground mt-3">Analyzing your P&amp;L…</p>
           ) : !profitSuggestions?.available ? (
             <p className="text-xs text-muted-foreground mt-3">
