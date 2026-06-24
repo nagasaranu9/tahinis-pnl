@@ -41,7 +41,17 @@ export function useGmailSync() {
       );
       return data.data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["gmail-sync-jobs"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["gmail-sync-jobs"] });
+      // Sync runs async in a Celery worker; last_synced_at updates seconds later.
+      // Re-poll status so the "Last sync" banner reflects the result without a manual reload.
+      [2000, 6000, 12000].forEach((ms) =>
+        setTimeout(() => {
+          qc.invalidateQueries({ queryKey: ["gmail-status"] });
+          qc.invalidateQueries({ queryKey: ["gmail-sync-jobs"] });
+        }, ms)
+      );
+    },
   });
 }
 
@@ -107,7 +117,15 @@ export function useOutlookSync() {
       );
       return data.data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["outlook-sync-jobs"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["outlook-sync-jobs"] });
+      [2000, 6000, 12000].forEach((ms) =>
+        setTimeout(() => {
+          qc.invalidateQueries({ queryKey: ["outlook-status"] });
+          qc.invalidateQueries({ queryKey: ["outlook-sync-jobs"] });
+        }, ms)
+      );
+    },
   });
 }
 

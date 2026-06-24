@@ -142,7 +142,15 @@ class GmailClient:
         after_date: "YYYY/MM/DD" format, limits full scan start date.
         """
         if history_id:
-            return await self._incremental_messages(history_id)
+            try:
+                return await self._incremental_messages(history_id)
+            except ValueError as exc:
+                # Gmail purges history after ~1 week; a stale startHistoryId returns
+                # 404 "Requested entity was not found". Fall back to a full scan so
+                # sync self-heals instead of failing the job forever.
+                if "404" in str(exc):
+                    return await self._full_scan_messages(max_results, after_date=after_date)
+                raise
         return await self._full_scan_messages(max_results, after_date=after_date)
 
     async def _incremental_messages(
