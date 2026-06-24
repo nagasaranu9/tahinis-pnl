@@ -390,10 +390,9 @@ class ToastSyncService:
             if not isinstance(item, dict):
                 continue
             qty = item.get("quantity")
-            # Toast `price` = line total after discount (what customer paid).
-            # `preDiscountPrice` = line total before discount (list price).
-            # Use `price` to show actual unit cost paid, not list price.
-            line_total = _dollars(item.get("price"))
+            # DIAG: Try preDiscountPrice (per-unit list price in dollars) instead of price (post-discount line total).
+            # If prices jump to $10+, preDiscountPrice is correct. Then swap back + delete this comment.
+            line_total = _dollars(item.get("preDiscountPrice"))
             # Calculate unit_price from line total / quantity.
             # Toast's unitOfMeasure is the unit type (EACH, OUNCE, etc), not the price.
             unit_price = None

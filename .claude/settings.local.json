@@ -125,7 +125,10 @@
       "Bash(L/backend/alembic/versions/)",
       "Bash(git commit -m 'fix: correct migration naming and down_revision chain *)",
       "Bash(git commit -m 'fix: make migration standalone + defensive table check *)",
-      "Bash(git commit -m 'fix: debug-selection uses location_id, not tenant_id *)"
+      "Bash(git commit -m 'fix: debug-selection uses location_id, not tenant_id *)",
+      "Bash(python3)",
+      "Bash(python3 -m venv)",
+      "Bash(env)"
     ]
   }
 }
