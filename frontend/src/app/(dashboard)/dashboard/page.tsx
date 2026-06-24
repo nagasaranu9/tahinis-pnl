@@ -1116,7 +1116,7 @@ export default function DashboardPage() {
                   <li key={f.id} className="flex items-start gap-2 text-xs">
                     <span
                       className={`mt-1 h-1.5 w-1.5 rounded-full shrink-0 ${
-                        f.severity === "critical" ? "bg-red-500" : f.severity === "warning" ? "bg-amber-500" : "bg-muted-foreground/50"
+                        f.severity === "high" ? "bg-red-500" : f.severity === "medium" ? "bg-amber-500" : "bg-muted-foreground/50"
                       }`}
                     />
                     <span className="flex-1 min-w-0">

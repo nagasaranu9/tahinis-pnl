@@ -130,7 +130,17 @@
       "Bash(python3 -m venv)",
       "Bash(env)",
       "Bash(grep -E \"tsx|ts$\")",
-      "Bash(git commit -m 'fix: exclude Delivery order notes from product mix; ignore CLAUDE.md *)"
+      "Bash(git commit -m 'fix: exclude Delivery order notes from product mix; ignore CLAUDE.md *)",
+      "Bash(git rm *)",
+      "Bash(git commit -m 'chore: remove CLAUDE.md from tracking *)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(git reset *)",
+      "Bash(git commit -m ' *)",
+      "Bash(node -e \"require\\('fs'\\).readFileSync\\('frontend/src/app/\\(dashboard\\)/dashboard/page.tsx','utf8'\\)\")",
+      "Bash(git commit -m 'feat\\(dashboard\\): donut chart for Revenue by Channel \\(P2\\) *)",
+      "Bash(git commit -m 'feat\\(nav\\): user role card in sidebar footer \\(P4\\) *)",
+      "Bash(git commit -m 'feat\\(dashboard\\): Recent Alerts tile \\(P4\\) *)",
+      "Bash(git commit -m 'feat\\(dashboard\\): sparkline on Net Sales hero tile \\(P1\\) *)"
     ]
   }
 }
