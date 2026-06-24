@@ -735,8 +735,7 @@ export default function DashboardPage() {
                     {productMix.items.map((it, i) => (
                       <tr key={it.name}>
                         <td className="py-0.5 truncate max-w-[180px]" title={it.name}>{i + 1}. {it.name}</td>
-                        <td className="py-0.5 text-right text-muted-foreground w-12">{Math.round(it.quantity)}×</td>
-                        <td className="py-0.5 text-right font-mono">{fmtCAD(it.unit_price, 2)}</td>
+                        <td className="py-0.5 text-right text-muted-foreground">{Math.round(it.quantity)} orders</td>
                         <td className="py-0.5 text-right text-muted-foreground w-10">{Math.round(it.share * 100)}%</td>
                       </tr>
                     ))}

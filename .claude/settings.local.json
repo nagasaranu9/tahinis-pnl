@@ -128,7 +128,8 @@
       "Bash(git commit -m 'fix: debug-selection uses location_id, not tenant_id *)",
       "Bash(python3)",
       "Bash(python3 -m venv)",
-      "Bash(env)"
+      "Bash(env)",
+      "Bash(grep -E \"tsx|ts$\")"
     ]
   }
 }
