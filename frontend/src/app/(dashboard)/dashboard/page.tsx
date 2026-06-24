@@ -15,6 +15,7 @@ import {
   Megaphone,
   FileCheck2,
   Wallet,
+  Bell,
   Timer,
   UtensilsCrossed,
   Flame,
@@ -69,6 +70,19 @@ function fmtPct(val: string | number | null | undefined): string {
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+function fmtRelative(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (isNaN(then)) return "";
+  const mins = Math.floor((Date.now() - then) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
 }
 
 function fmtDuration(seconds: number | null | undefined): string {
@@ -1059,7 +1073,7 @@ export default function DashboardPage() {
       {/* ── Row 5: Invoices & Forecast ── */}
       <div>
         <RowLabel>Invoices &amp; forecast</RowLabel>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <Tile href="/reconciliation">
             <TileHeader label="Invoice Status" icon={FileCheck2} />
             {invoiceStatus ? (
@@ -1089,6 +1103,31 @@ export default function DashboardPage() {
               </>
             ) : (
               <p className="text-2xl font-bold text-muted-foreground">—</p>
+            )}
+          </Tile>
+          <Tile href="/reconciliation">
+            <TileHeader label="Recent Alerts" icon={Bell} />
+            {!flags?.data?.length ? (
+              <p className="text-sm text-muted-foreground mt-1">No open alerts.</p>
+            ) : (
+              <ul className="mt-1 space-y-1.5">
+                {flags.data.slice(0, 4).map((f) => (
+                  <li key={f.id} className="flex items-start gap-2 text-xs">
+                    <span
+                      className={`mt-1 h-1.5 w-1.5 rounded-full shrink-0 ${
+                        f.severity === "critical" ? "bg-red-500" : f.severity === "warning" ? "bg-amber-500" : "bg-muted-foreground/50"
+                      }`}
+                    />
+                    <span className="flex-1 min-w-0">
+                      <span className="block truncate text-foreground" title={f.message}>{f.message}</span>
+                      <span className="text-[10.5px] text-muted-foreground">{fmtRelative(f.created_at)}</span>
+                    </span>
+                  </li>
+                ))}
+                {unresolved > 4 && (
+                  <li className="text-[11px] text-muted-foreground pt-0.5">+{unresolved - 4} more open</li>
+                )}
+              </ul>
             )}
           </Tile>
         </div>
