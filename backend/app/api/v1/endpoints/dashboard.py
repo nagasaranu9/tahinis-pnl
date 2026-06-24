@@ -807,7 +807,14 @@ async def reviews_detail(
     avg_rating = round(rating_sum / rating_n, 1) if rating_n else None
     total_reviews = total
     from app.db.repositories.reviews_repo import ReviewsRepository
-    snap = await ReviewsRepository(db).get_latest_snapshot(user.tenant_id, snapshot_loc)
+    repo = ReviewsRepository(db)
+    snap = await repo.get_latest_snapshot(user.tenant_id, snapshot_loc)
+    # Snapshot may live under a different location than the sidebar selection
+    # (GBP config location). Fall back to tenant-wide so the tile shows the true
+    # aggregate (e.g. 4.8 / 1995) instead of the row sample (4.3 / 132), keeping
+    # it consistent with the Marketing tab.
+    if (snap is None or not snap.review_count_total) and snapshot_loc is not None:
+        snap = await repo.get_latest_snapshot(user.tenant_id, None)
     if snap is not None and snap.review_count_total:
         if snap.rating_average is not None:
             avg_rating = round(float(snap.rating_average), 1)

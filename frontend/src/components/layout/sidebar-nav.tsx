@@ -230,7 +230,7 @@ export function SidebarNav() {
               <Icon className={cn("h-[17px] w-[17px] shrink-0", active ? "text-primary" : "text-muted-foreground/80")} />
               <span className="flex-1 truncate">{item.label}</span>
               {item.href === "/reconciliation" && unresolvedCount > 0 && (
-                <span className="ml-auto text-[10px] font-semibold bg-red-500/12 text-red-500 px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-tight tabular-nums">
+                <span className="ml-auto text-[10px] font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-tight tabular-nums">
                   {unresolvedCount > 99 ? "99+" : unresolvedCount}
                 </span>
               )}

@@ -66,6 +66,10 @@ function fmtPct(val: string | number | null | undefined): string {
   return `${n.toFixed(1)}%`;
 }
 
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
 function fmtDuration(seconds: number | null | undefined): string {
   if (seconds == null) return "—";
   const m = Math.floor(seconds / 60);
@@ -465,6 +469,14 @@ export default function DashboardPage() {
 
   // Net profit vs last month
   const netProfit = li?.net_profit ? parseFloat(li.net_profit) : null;
+  // Costs (COGS/labor/opex) come from monthly invoices, not per-day. On a short
+  // range (e.g. "Today") they're often zero, making net_profit == net_sales,
+  // which misreads as 100% margin. Detect that and flag it instead.
+  const totalCosts =
+    (li?.cogs ? parseFloat(li.cogs) : 0) +
+    (li?.labor_cost ? parseFloat(li.labor_cost) : 0) +
+    (li?.operating_expenses ? parseFloat(li.operating_expenses) : 0);
+  const profitNoCosts = netProfit != null && totalCosts === 0;
   const lastMonthProfit = lastMonthPnl?.line_items?.net_profit
     ? parseFloat(lastMonthPnl.line_items.net_profit)
     : null;
@@ -500,6 +512,13 @@ export default function DashboardPage() {
     }
   }, [qc]);
 
+  const greeting = useMemo(() => {
+    const h = new Date().getHours();
+    if (h < 12) return "Good morning";
+    if (h < 18) return "Good afternoon";
+    return "Good evening";
+  }, []);
+
   const starPct = (n: number) =>
     reviewsDetail && reviewsDetail.total_reviews > 0
       ? (n / reviewsDetail.total_reviews) * 100
@@ -515,11 +534,11 @@ export default function DashboardPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight">
-              Tahini&apos;s {storeId ? `#${storeId}` : ""} {location?.name ? `— ${location.name}` : ""}
+              {greeting} <span aria-hidden>👋</span>
             </h1>
             <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
               <CheckCircle2 className="h-3 w-3 text-green-500" />
-              Synced · {dateRange.label}
+              Tahini&apos;s {storeId ? `#${storeId}` : ""}{location?.name ? ` · ${location.name}` : ""} · Synced · {dateRange.label}
             </p>
           </div>
         </div>
@@ -608,7 +627,7 @@ export default function DashboardPage() {
             <TileHeader label="Net Sales" icon={TrendingUp} />
             <p className="text-2xl font-bold tabular-nums text-primary">{pnlLoading ? "…" : fmtCAD(li?.net_revenue, 2)}</p>
             <div className="mt-1 flex items-center gap-1.5"><DeltaText delta={netDelta} /><span className="text-xs text-muted-foreground">vs prior</span></div>
-            <p className="text-xs text-muted-foreground">{orderCount} orders{dineInPct != null ? ` · Dine-in ${dineInPct.toFixed(0)}%` : ""}</p>
+            <p className="text-xs text-muted-foreground">{plural(orderCount, "order")}{dineInPct != null ? ` · Dine-in ${dineInPct.toFixed(0)}%` : ""}</p>
           </Tile>
           <Tile accent="border-t-purple-500" href="/pnl">
             <TileHeader label="MTD Sales" icon={DollarSign} />
@@ -623,9 +642,11 @@ export default function DashboardPage() {
           </Tile>
           <Tile accent="border-t-red-500" href="/pnl">
             <TileHeader label="Net Profit" icon={TrendingUp} />
-            <p className={`text-2xl font-bold tabular-nums ${profitColor(netProfit)}`}>{fmtCAD(netProfit, 2)}</p>
+            <p className={`text-2xl font-bold tabular-nums ${profitNoCosts ? "text-muted-foreground" : profitColor(netProfit)}`}>{profitNoCosts ? fmtCAD(netProfit, 2) : fmtCAD(netProfit, 2)}</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {profitBetterBy != null
+              {profitNoCosts
+                ? "Costs not yet allocated for this range"
+                : profitBetterBy != null
                 ? `${profitBetterBy >= 0 ? "▲ Better" : "▼ Worse"} ${fmtCAD(Math.abs(profitBetterBy))} vs ${lastMonth.label}`
                 : `${li?.net_profit_pct ? fmtPct(li.net_profit_pct) + " margin" : ""}`}
             </p>
@@ -717,7 +738,7 @@ export default function DashboardPage() {
                   {fulfillment.peak_hour != null && `Peak ${fulfillment.peak_hour}:00 ${fmtDuration(fulfillment.peak_hour_seconds)} · `}
                   fastest {fmtDuration(fulfillment.fastest_seconds)} · slowest {fmtDuration(fulfillment.slowest_seconds)}
                 </p>
-                <p className="text-xs text-muted-foreground">{fulfillment.sample_size} orders</p>
+                <p className="text-xs text-muted-foreground">{plural(fulfillment.sample_size, "order")}</p>
                 <div className="mt-3 space-y-1.5 border-t border-border pt-2">
                   {fulfillment.by_channel.filter((c) => (c.avg_seconds ?? 0) > 0).map((c) => (
                     <div key={c.channel} className="flex items-center justify-between text-xs">
@@ -743,7 +764,7 @@ export default function DashboardPage() {
                     {productMix.items.map((it, i) => (
                       <tr key={it.name}>
                         <td className="py-0.5 truncate max-w-[180px]" title={it.name}>{i + 1}. {it.name}</td>
-                        <td className="py-0.5 text-right text-muted-foreground">{Math.round(it.quantity)} orders</td>
+                        <td className="py-0.5 text-right text-muted-foreground">{plural(Math.round(it.quantity), "order")}</td>
                         <td className="py-0.5 text-right text-muted-foreground w-10">{Math.round(it.share * 100)}%</td>
                       </tr>
                     ))}
