@@ -24,7 +24,7 @@ import {
   Truck,
   Sparkles,
 } from "lucide-react";
-import { Area, AreaChart, ResponsiveContainer, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { usePnLReport, useDailyBreakdown } from "@/hooks/use-pnl";
 import { useReconciliationFlags } from "@/hooks/use-reconciliation";
 import { usePlatformMetrics } from "@/hooks/use-pipeboard";
@@ -729,29 +729,6 @@ export default function DashboardPage() {
               <p className="text-sm text-muted-foreground">No orders in this period.</p>
             ) : (
               <>
-              <div className="relative h-32 mt-1">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={channelMix.channels.slice(0, 6).map((c) => ({ name: c.channel, value: parseFloat(String(c.revenue)) }))}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius={38}
-                      outerRadius={56}
-                      paddingAngle={2}
-                      stroke="none"
-                    >
-                      {channelMix.channels.slice(0, 6).map((_, i) => (
-                        <Cell key={i} fill={CHANNEL_COLORS[i % CHANNEL_COLORS.length]} />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-sm font-bold tabular-nums">{fmtCAD(channelMix.total_revenue)}</span>
-                  <span className="text-[10px] text-muted-foreground">Total</span>
-                </div>
-              </div>
               <table className="w-full text-xs mt-1">
                 <tbody>
                   {channelMix.channels.slice(0, 6).map((c, i) => (
