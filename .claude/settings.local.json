@@ -129,7 +129,8 @@
       "Bash(python3)",
       "Bash(python3 -m venv)",
       "Bash(env)",
-      "Bash(grep -E \"tsx|ts$\")"
+      "Bash(grep -E \"tsx|ts$\")",
+      "Bash(git commit -m 'fix: exclude Delivery order notes from product mix; ignore CLAUDE.md *)"
     ]
   }
 }

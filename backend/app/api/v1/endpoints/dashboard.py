@@ -270,6 +270,7 @@ async def product_mix(
     start, end = _parse_range(date_from, date_to)
     conds = _toast_filters(user, location_id, start, end) + [
         ToastOrderItem.is_void == False,  # noqa: E712
+        ~ToastOrderItem.name.contains("Delivery"),  # Exclude delivery notes
     ]
 
     qty = func.coalesce(func.sum(ToastOrderItem.quantity), 0)

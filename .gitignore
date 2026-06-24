@@ -52,3 +52,6 @@ Thumbs.db
 # Secrets baseline
 .secrets.baseline
 backend/tahinis.db
+
+# Project instruction (local only)
+CLAUDE.md
