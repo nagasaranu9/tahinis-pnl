@@ -648,6 +648,7 @@ export default function DashboardPage() {
             <p className="text-2xl font-bold tabular-nums text-primary">{pnlLoading ? "…" : fmtCAD(li?.net_revenue, 2)}</p>
             <div className="mt-1 flex items-center gap-1.5"><DeltaText delta={netDelta} /><span className="text-xs text-muted-foreground">vs prior</span></div>
             <p className="text-xs text-muted-foreground">{plural(orderCount, "order")}{dineInPct != null ? ` · Dine-in ${dineInPct.toFixed(0)}%` : ""}</p>
+            {salesSpark.length > 1 && <Sparkline data={salesSpark} color="#185FA5" />}
           </Tile>
           <Tile accent="border-t-purple-500" href="/pnl">
             <TileHeader label="MTD Sales" icon={DollarSign} />
