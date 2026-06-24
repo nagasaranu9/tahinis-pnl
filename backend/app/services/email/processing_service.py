@@ -68,7 +68,15 @@ class EmailSyncService:
                     duplicates_skipped += 1
                     continue
 
-                full_msg, _ = await client.get_message(msg_id)
+                try:
+                    full_msg, _ = await client.get_message(msg_id)
+                except ValueError as exc:
+                    # Message appeared in history.list but is gone (deleted/moved/
+                    # purged). 404 here must not kill the whole sync — skip it.
+                    if "404" in str(exc):
+                        log.warning("gmail_message_gone", msg_id=msg_id)
+                        continue
+                    raise
                 meta = extract_message_metadata(full_msg)
                 attachments_in_msg = extract_attachments(full_msg)
 
@@ -183,7 +191,15 @@ class EmailSyncService:
                     duplicates_skipped += 1
                     continue
 
-                full_msg, _ = await client.get_message(msg_id)
+                try:
+                    full_msg, _ = await client.get_message(msg_id)
+                except ValueError as exc:
+                    # Message appeared in history.list but is gone (deleted/moved/
+                    # purged). 404 here must not kill the whole sync — skip it.
+                    if "404" in str(exc):
+                        log.warning("gmail_message_gone", msg_id=msg_id)
+                        continue
+                    raise
                 meta = extract_message_metadata(full_msg)
                 attachments_in_msg = extract_attachments(full_msg)
 
