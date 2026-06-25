@@ -178,8 +178,8 @@ export default function LoginPage() {
             <Image
               src="/tahinis-logo.png"
               alt="Tahini's Mediterranean Fusion"
-              width={220}
-              height={72}
+              width={300}
+              height={100}
               className="logo-flame"
               style={{ objectFit: "contain", display: "inline-block" }}
               priority

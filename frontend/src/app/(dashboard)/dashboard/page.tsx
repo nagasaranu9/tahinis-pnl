@@ -737,13 +737,13 @@ export default function DashboardPage() {
                         <span className="inline-block w-2 h-2 rounded-sm mr-1.5" style={{ background: CHANNEL_COLORS[i % CHANNEL_COLORS.length] }} />
                         {c.channel}
                       </td>
-                      <td className="py-0.5 text-left font-mono pr-3 border-r border-slate-700">{fmtCAD(c.revenue, 2)}</td>
+                      <td className="py-0.5 text-center font-mono px-2 border-r border-slate-600">{fmtCAD(c.revenue, 2)}</td>
                       <td className="py-0.5 text-right text-muted-foreground pl-3 w-12">{c.pct}%</td>
                     </tr>
                   ))}
                   <tr className="border-t border-border font-medium">
                     <td className="pt-1">Total</td>
-                    <td className="pt-1 text-left font-mono pr-3 border-r border-slate-700">{fmtCAD(channelMix.total_revenue, 2)}</td>
+                    <td className="pt-1 text-center font-mono px-2 border-r border-slate-600">{fmtCAD(channelMix.total_revenue, 2)}</td>
                     <td></td>
                   </tr>
                 </tbody>
