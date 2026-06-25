@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -197,7 +198,7 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
 
             <div className="anim d3">
-              <label htmlFor="storeId" className="field-label">Store ID</label>
+              <label htmlFor="storeId" className="field-label" style={{ fontSize: "14px", fontWeight: 500 }}>Store ID</label>
               <input
                 id="storeId"
                 type="text"
@@ -207,12 +208,12 @@ export default function LoginPage() {
                 required
                 maxLength={5}
                 inputMode="numeric"
-                className="field-input"
+                className="field-input" style={{ fontSize: "16px", padding: "14px 16px", minHeight: "48px" }}
               />
             </div>
 
             <div className="anim d4">
-              <label htmlFor="email" className="field-label">Email</label>
+              <label htmlFor="email" className="field-label" style={{ fontSize: "14px", fontWeight: 500 }}>Email</label>
               <input
                 id="email"
                 type="email"
@@ -220,20 +221,33 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@restaurant.com"
                 required
-                className="field-input"
+                className="field-input" style={{ fontSize: "16px", padding: "14px 16px", minHeight: "48px" }}
               />
             </div>
 
             <div className="anim d5">
-              <label htmlFor="password" className="field-label">Password</label>
+              <label htmlFor="password" className="field-label" style={{ fontSize: "14px", fontWeight: 500 }}>Password</label>
               <input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="field-input"
+                className="field-input" style={{ fontSize: "16px", padding: "14px 16px", minHeight: "48px" }}
               />
+            </div>
+
+            <div className="anim d5" style={{ textAlign: "right" }}>
+              <Link
+                href="/auth/forgot-password"
+                style={{
+                  fontSize: "12px",
+                  color: "rgba(100, 150, 255, 0.8)",
+                  textDecoration: "none",
+                }}
+              >
+                Forgot password?
+              </Link>
             </div>
 
             {error && (
@@ -241,7 +255,7 @@ export default function LoginPage() {
             )}
 
             <div className="anim d6">
-              <button type="submit" disabled={loading} className="signin-btn">
+              <button type="submit" disabled={loading} className="signin-btn" style={{ fontSize: "16px", padding: "14px 24px", minHeight: "48px", fontWeight: 600 }}>
                 {loading ? "Signing in…" : "Sign in"}
               </button>
             </div>
