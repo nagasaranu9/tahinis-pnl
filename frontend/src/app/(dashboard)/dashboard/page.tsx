@@ -545,7 +545,7 @@ export default function DashboardPage() {
       : 0;
 
   return (
-    <div className="space-y-5 max-w-7xl">
+    <div className="space-y-5 max-w-7xl mx-auto px-3 sm:px-4 overflow-x-hidden">
       {/* ── Header ── */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
@@ -737,13 +737,13 @@ export default function DashboardPage() {
                         <span className="inline-block w-2 h-2 rounded-sm mr-1.5" style={{ background: CHANNEL_COLORS[i % CHANNEL_COLORS.length] }} />
                         {c.channel}
                       </td>
-                      <td className="py-0.5 text-center font-mono px-2 border-r border-slate-600">{fmtCAD(c.revenue, 2)}</td>
-                      <td className="py-0.5 text-right text-muted-foreground pl-3 w-12">{c.pct}%</td>
+                      <td className="py-0.5 text-right font-mono pr-4 border-r border-border">{fmtCAD(c.revenue, 2)}</td>
+                      <td className="py-0.5 text-right text-muted-foreground pl-4 w-12">{c.pct}%</td>
                     </tr>
                   ))}
                   <tr className="border-t border-border font-medium">
                     <td className="pt-1">Total</td>
-                    <td className="pt-1 text-center font-mono px-2 border-r border-slate-600">{fmtCAD(channelMix.total_revenue, 2)}</td>
+                    <td className="pt-1 text-right font-mono pr-4 border-r border-border">{fmtCAD(channelMix.total_revenue, 2)}</td>
                     <td></td>
                   </tr>
                 </tbody>
