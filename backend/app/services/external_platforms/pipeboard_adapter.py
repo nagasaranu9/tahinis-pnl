@@ -210,6 +210,31 @@ class PipeboardAdapter(ABC):
         """Return [{id, currency_code, ...}] — used to validate token on connect."""
         ...
 
+    # --- Mutations (optimization execution) ---------------------------------
+    @abstractmethod
+    async def pause_campaign(self, api_token: str, customer_id: str, campaign_id: str) -> dict:
+        """Pause a Google Ads campaign."""
+        ...
+
+    @abstractmethod
+    async def update_campaign_budget(self, api_token: str, customer_id: str,
+                                     campaign_id: str, daily_budget: float) -> dict:
+        """Set a campaign's daily budget (account currency, major units)."""
+        ...
+
+    @abstractmethod
+    async def pause_keyword(self, api_token: str, customer_id: str,
+                            ad_group_id: str, criterion_id: str) -> dict:
+        """Pause a keyword (ad_group criterion)."""
+        ...
+
+    @abstractmethod
+    async def add_negative_keyword(self, api_token: str, customer_id: str,
+                                   campaign_id: str, keyword_text: str,
+                                   match_type: str = "EXACT") -> dict:
+        """Add a campaign-level negative keyword."""
+        ...
+
 
 # Platform -> (mcp host subdomain, tool-name infix, currency default)
 _PLATFORM_CFG = {
@@ -418,6 +443,42 @@ class PipeboardHttpAdapter(PipeboardAdapter):
                 _seg_rows(allres, customer_id, cur)
         return metrics
 
+    # --- Mutations ----------------------------------------------------------
+    async def pause_campaign(self, api_token: str, customer_id: str, campaign_id: str) -> dict:
+        client = self._client(api_token, "google_ads")
+        return await client.call_tool("pause_google_ads_campaign", {
+            "customer_id": customer_id,
+            "campaign_id": campaign_id,
+        })
+
+    async def update_campaign_budget(self, api_token: str, customer_id: str,
+                                     campaign_id: str, daily_budget: float) -> dict:
+        client = self._client(api_token, "google_ads")
+        return await client.call_tool("update_google_ads_campaign", {
+            "customer_id": customer_id,
+            "campaign_id": campaign_id,
+            "budget_amount": daily_budget,
+        })
+
+    async def pause_keyword(self, api_token: str, customer_id: str,
+                            ad_group_id: str, criterion_id: str) -> dict:
+        client = self._client(api_token, "google_ads")
+        return await client.call_tool("pause_google_ads_keyword", {
+            "customer_id": customer_id,
+            "ad_group_id": ad_group_id,
+            "criterion_id": criterion_id,
+        })
+
+    async def add_negative_keyword(self, api_token: str, customer_id: str,
+                                   campaign_id: str, keyword_text: str,
+                                   match_type: str = "EXACT") -> dict:
+        client = self._client(api_token, "google_ads")
+        return await client.call_tool("add_google_ads_negative_keywords", {
+            "customer_id": customer_id,
+            "campaign_id": campaign_id,
+            "keywords": [{"text": keyword_text, "match_type": match_type}],
+        })
+
 
 class MockPipeboardAdapter(PipeboardAdapter):
     """Mock adapter for development / tests — no network."""
@@ -454,6 +515,22 @@ class MockPipeboardAdapter(PipeboardAdapter):
                 roas=Decimal("2.35"),
             ),
         ]
+
+    async def pause_campaign(self, api_token: str, customer_id: str, campaign_id: str) -> dict:
+        return {"success": True, "campaign_id": campaign_id, "status": "PAUSED", "_mock": True}
+
+    async def update_campaign_budget(self, api_token: str, customer_id: str,
+                                     campaign_id: str, daily_budget: float) -> dict:
+        return {"success": True, "campaign_id": campaign_id, "daily_budget": daily_budget, "_mock": True}
+
+    async def pause_keyword(self, api_token: str, customer_id: str,
+                            ad_group_id: str, criterion_id: str) -> dict:
+        return {"success": True, "criterion_id": criterion_id, "status": "PAUSED", "_mock": True}
+
+    async def add_negative_keyword(self, api_token: str, customer_id: str,
+                                   campaign_id: str, keyword_text: str,
+                                   match_type: str = "EXACT") -> dict:
+        return {"success": True, "keyword": keyword_text, "match_type": match_type, "_mock": True}
 
 
 class PipeboardAdapterFactory:

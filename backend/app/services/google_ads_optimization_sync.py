@@ -64,18 +64,23 @@ class GoogleAdsOptimizationSync:
                 logger.warning("no_api_token", tenant_id=tenant_id)
                 return sync_result
 
-            # Pull campaign metrics from Pipeboard
+            # Optimization reads pipeboard_daily_metrics, refreshed by the daily
+            # Pipeboard sync (07:30 UTC) — this job runs 08:30 UTC on fresh data.
             today = datetime.now(UTC).strftime("%Y-%m-%d")
-            await self._sync_campaign_metrics(tenant_id, api_token, today)
             sync_result["campaigns_synced"] = await self._count_recent_campaigns(tenant_id)
 
             # Generate recommendations
             rec_count = await self._engine.generate_daily_recommendations(tenant_id, today)
             sync_result["recommendations_generated"] = rec_count
 
+            # Resolve Google Ads customer id (single account per tenant).
+            customer_id = await self._resolve_customer_id(api_token)
+
             # Get and execute pending recommendations (auto-mode)
             pending_recs = await self._optimization_repo.get_pending_recommendations(tenant_id, today)
-            action_count = await self._execute_recommendations(tenant_id, api_token, pending_recs)
+            action_count = await self._execute_recommendations(
+                tenant_id, api_token, customer_id, pending_recs
+            )
             sync_result["actions_executed"] = action_count
 
             # Update Pipeboard account sync timestamp
@@ -93,39 +98,32 @@ class GoogleAdsOptimizationSync:
 
         return sync_result
 
-    async def _sync_campaign_metrics(self, tenant_id: uuid.UUID, api_token: str, sync_date: str) -> None:
-        """Fetch campaign metrics from Pipeboard and store in DB."""
-        try:
-            # Call Pipeboard to get Google Ads metrics
-            # This depends on Pipeboard API structure - adjust based on actual API
-            metrics_data = await self._adapter.get_campaign_metrics(api_token, sync_date)
-
-            if not metrics_data:
-                logger.info("no_metrics_returned", tenant_id=tenant_id, sync_date=sync_date)
-                return
-
-            # Store metrics in database
-            # This assumes metrics_data is structured; adjust as needed
-            # for now, metrics should already be in pipeboard_daily_metrics
-            logger.info("metrics_synced", tenant_id=tenant_id, count=len(metrics_data))
-
-        except Exception as e:
-            logger.warning(
-                "failed_to_sync_metrics",
-                tenant_id=tenant_id,
-                error=str(e),
-            )
-            raise
-
     async def _count_recent_campaigns(self, tenant_id: uuid.UUID) -> int:
         """Count active Google Ads campaigns."""
         campaigns = await self._engine._get_active_campaigns(tenant_id)
         return len(campaigns)
 
+    async def _resolve_customer_id(self, api_token: str) -> str:
+        """Resolve the Google Ads customer id (first account on token)."""
+        accounts = await self._adapter.list_accounts(api_token, "google_ads")
+        if not accounts:
+            raise ValueError("no_google_ads_accounts")
+        return str(accounts[0].get("id") or accounts[0].get("customer_id") or "")
+
+    async def _get_google_campaign_id(self, campaign_id: uuid.UUID) -> str:
+        """Map internal campaign uuid -> pipeboard/google campaign id."""
+        from app.db.models.external_platform import PipeboardCampaign
+
+        campaign = await self._db.get(PipeboardCampaign, campaign_id)
+        if not campaign:
+            raise ValueError(f"campaign_not_found:{campaign_id}")
+        return campaign.pipeboard_campaign_id
+
     async def _execute_recommendations(
         self,
         tenant_id: uuid.UUID,
         api_token: str,
+        customer_id: str,
         recommendations: list,
     ) -> int:
         """Execute optimization recommendations against Google Ads API."""
@@ -133,34 +131,26 @@ class GoogleAdsOptimizationSync:
         today = datetime.now(UTC).strftime("%Y-%m-%d")
 
         for rec in recommendations:
+            # Create action record (pending) before the call for audit trail.
+            action = await self._optimization_repo.create_action(
+                tenant_id=tenant_id,
+                campaign_id=rec.campaign_id,
+                action_type=rec.recommendation_type,
+                entity_type=rec.entity_type,
+                entity_id=rec.entity_id,
+                request_data=rec.recommendation_data,
+                action_date=today,
+                recommendation_id=rec.id,
+            )
+
             try:
-                # Execute based on recommendation type
-                if rec.recommendation_type == "pause_keyword":
-                    await self._execute_pause_keyword(tenant_id, api_token, rec)
-                elif rec.recommendation_type == "increase_budget":
-                    await self._execute_increase_budget(tenant_id, api_token, rec)
-                elif rec.recommendation_type == "pause_campaign":
-                    await self._execute_pause_campaign(tenant_id, api_token, rec)
+                response = await self._dispatch_action(api_token, customer_id, rec)
 
-                # Create action record
-                action = await self._optimization_repo.create_action(
-                    tenant_id=tenant_id,
-                    campaign_id=rec.campaign_id,
-                    action_type=rec.recommendation_type,
-                    entity_type=rec.entity_type,
-                    entity_id=rec.entity_id,
-                    request_data=rec.recommendation_data,
-                    action_date=today,
-                    recommendation_id=rec.id,
-                )
-
-                # Mark recommendation as executed
                 await self._optimization_repo.mark_recommendation_executed(rec.id, datetime.now(UTC))
-
-                # Update action status
                 await self._optimization_repo.update_action_status(
                     action.id,
                     "success",
+                    response_data=response if isinstance(response, dict) else {"raw": str(response)},
                     executed_at=datetime.now(UTC),
                 )
 
@@ -179,49 +169,49 @@ class GoogleAdsOptimizationSync:
                     recommendation_id=str(rec.id),
                     error=str(e),
                 )
-                # Mark recommendation as skipped on failure
+                await self._optimization_repo.update_action_status(
+                    action.id,
+                    "failed",
+                    error_message=str(e),
+                )
                 rec.status = "skipped"
                 await self._db.flush()
 
         return executed_count
 
-    async def _execute_pause_keyword(
-        self, tenant_id: uuid.UUID, api_token: str, recommendation
-    ) -> None:
-        """Pause a low-performing keyword via Google Ads API."""
-        # Call Google Ads API via Pipeboard adapter to pause keyword
-        keyword_id = recommendation.entity_id
-        logger.info(
-            "pausing_keyword",
-            tenant_id=tenant_id,
-            keyword_id=keyword_id,
-            reason=recommendation.recommendation_data.get("reason"),
-        )
-        # Implementation: call self._adapter.pause_keyword(api_token, keyword_id)
+    async def _dispatch_action(
+        self, api_token: str, customer_id: str, rec
+    ) -> dict:
+        """Route a recommendation to the correct adapter mutation."""
+        rec_type = rec.recommendation_type
+        data = rec.recommendation_data or {}
 
-    async def _execute_increase_budget(
-        self, tenant_id: uuid.UUID, api_token: str, recommendation
-    ) -> None:
-        """Increase campaign budget via Google Ads API."""
-        campaign_id = str(recommendation.campaign_id)
-        suggested_budget = recommendation.recommendation_data.get("suggested_budget")
-        logger.info(
-            "increasing_campaign_budget",
-            tenant_id=tenant_id,
-            campaign_id=campaign_id,
-            suggested_budget=suggested_budget,
-        )
-        # Implementation: call self._adapter.update_campaign_budget(api_token, campaign_id, suggested_budget)
+        if rec_type == "pause_campaign":
+            google_id = await self._get_google_campaign_id(rec.campaign_id)
+            return await self._adapter.pause_campaign(api_token, customer_id, google_id)
 
-    async def _execute_pause_campaign(
-        self, tenant_id: uuid.UUID, api_token: str, recommendation
-    ) -> None:
-        """Pause a low-ROAS campaign via Google Ads API."""
-        campaign_id = str(recommendation.campaign_id)
-        logger.info(
-            "pausing_campaign",
-            tenant_id=tenant_id,
-            campaign_id=campaign_id,
-            reason=recommendation.recommendation_data.get("reason"),
-        )
-        # Implementation: call self._adapter.pause_campaign(api_token, campaign_id)
+        if rec_type == "increase_budget":
+            google_id = await self._get_google_campaign_id(rec.campaign_id)
+            budget = float(data.get("suggested_budget") or 0)
+            return await self._adapter.update_campaign_budget(
+                api_token, customer_id, google_id, budget
+            )
+
+        if rec_type == "pause_keyword":
+            # entity_id encodes ad_group:criterion when available, else campaign sentinel.
+            parts = str(rec.entity_id).split(":")
+            if len(parts) == 2:
+                return await self._adapter.pause_keyword(api_token, customer_id, parts[0], parts[1])
+            # Sentinel (campaign-level low CTR) -> add negative instead of pausing a real id.
+            google_id = await self._get_google_campaign_id(rec.campaign_id)
+            term = data.get("keyword_text") or rec.entity_name or "low_ctr_placeholder"
+            return await self._adapter.add_negative_keyword(api_token, customer_id, google_id, term)
+
+        if rec_type == "add_negative":
+            google_id = await self._get_google_campaign_id(rec.campaign_id)
+            return await self._adapter.add_negative_keyword(
+                api_token, customer_id, google_id,
+                data.get("keyword_text", ""), data.get("match_type", "EXACT"),
+            )
+
+        raise ValueError(f"unknown_recommendation_type:{rec_type}")

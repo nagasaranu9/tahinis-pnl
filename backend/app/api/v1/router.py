@@ -8,6 +8,7 @@ from app.api.v1.endpoints import (
     email_integrations,
     expenses,
     external_platforms,
+    google_ads_optimization,
     jobs,
     locations,
     password_reset,
@@ -35,6 +36,7 @@ api_router.include_router(external_platforms.router, prefix="/external", tags=["
 api_router.include_router(toast_integrations.router, prefix="/integrations/toast", tags=["toast"])
 api_router.include_router(pushops_integrations.router, prefix="/integrations/pushops", tags=["pushops"])
 api_router.include_router(pipeboard_integrations.router, prefix="/integrations/pipeboard", tags=["pipeboard"])
+api_router.include_router(google_ads_optimization.router, prefix="/google-ads/optimization", tags=["google-ads-optimization"])
 api_router.include_router(email_integrations.router, prefix="/integrations", tags=["email-drive"])
 api_router.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
 api_router.include_router(reviews.router, prefix="/reviews", tags=["reviews"])
