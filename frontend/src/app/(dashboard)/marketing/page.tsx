@@ -19,8 +19,11 @@ export default function MarketingPage() {
   const recentReviews = reviewsData?.data || reviews?.recent_reviews;
 
   const { data: platformMetrics, isLoading: metricsLoading } = usePlatformMetrics();
-  const googleAds = platformMetrics?.find((m) => m.platform === 'google_ads');
-  const metaAds = platformMetrics?.find((m) => m.platform === 'meta_ads');
+  // Endpoint returns display labels ("Google Ads"), not raw keys ("google_ads").
+  const matchPlatform = (m: { platform: string }, key: string) =>
+    m.platform.toLowerCase().replace(/[\s_]/g, '') === key;
+  const googleAds = platformMetrics?.find((m) => matchPlatform(m, 'googleads'));
+  const metaAds = platformMetrics?.find((m) => matchPlatform(m, 'metaads'));
 
   const formatDate = (isoDate: string | null) => {
     if (!isoDate) return 'Never';
