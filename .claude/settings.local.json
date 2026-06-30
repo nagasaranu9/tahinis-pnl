@@ -140,7 +140,12 @@
       "Bash(git commit -m 'feat\\(dashboard\\): donut chart for Revenue by Channel \\(P2\\) *)",
       "Bash(git commit -m 'feat\\(nav\\): user role card in sidebar footer \\(P4\\) *)",
       "Bash(git commit -m 'feat\\(dashboard\\): Recent Alerts tile \\(P4\\) *)",
-      "Bash(git commit -m 'feat\\(dashboard\\): sparkline on Net Sales hero tile \\(P1\\) *)"
+      "Bash(git commit -m 'feat\\(dashboard\\): sparkline on Net Sales hero tile \\(P1\\) *)",
+      "Bash(python3 -m scripts.onboard_store --tenant-id 1955 --store-name 'Tahinis Dundas' --email tahinisdundas@gmail.com --password 'Bhanu1955$' --role owner --address '#6, 690 Dundas St E, Toronto' --timezone America/Toronto)",
+      "Bash(docker-compose exec *)",
+      "Bash(git commit -m 'refactor\\(ui\\): enlarge login form inputs and add divider to revenue by channel *)",
+      "Bash(git commit -m 'fix\\(ui\\): adjust revenue alignment, divider opacity, and login logo size *)",
+      "Bash(git commit -m 'fix\\(ui\\): align revenue right, match divider style, prevent overflow at 100% zoom *)"
     ]
   }
 }

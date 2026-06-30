@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     external_platforms,
     jobs,
     locations,
+    password_reset,
     pipeboard_integrations,
     pnl,
     pushops_integrations,
@@ -22,6 +23,7 @@ from app.api.v1.endpoints import (
 api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(password_reset.router, prefix="/auth", tags=["auth"])
 api_router.include_router(tenants.router, prefix="/tenants", tags=["tenants"])
 api_router.include_router(locations.router, prefix="/locations", tags=["locations"])
 api_router.include_router(documents.router, prefix="/documents", tags=["documents"])

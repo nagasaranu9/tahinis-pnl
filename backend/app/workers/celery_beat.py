@@ -49,6 +49,11 @@ celery_app.conf.beat_schedule = {
         "task": "pipeboard.daily_sync_all_tenants",
         "schedule": crontab(hour=7, minute=30),
     },
+    "google-ads-optimization-daily": {
+        # Auto-optimize Google Ads campaigns daily (1 hour after Pipeboard sync)
+        "task": "google_ads.optimize_all_tenants",
+        "schedule": crontab(hour=8, minute=30),
+    },
     "reconciliation-daily": {
         # weekly_reconciliation_all_tenants builds its own (run_id, tenant_id,
         # period) per tenant — run_reconciliation itself requires those as

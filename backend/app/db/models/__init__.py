@@ -2,6 +2,7 @@ from app.db.models.ai_insight import AIInsight
 from app.db.models.audit import AuditLog
 from app.db.models.expense import Expense
 from app.db.models.external_platform import GoogleAdsCampaign, GoogleAdsDailyMetric, GoogleReviewSnapshot
+from app.db.models.google_ads_optimization import GoogleAdsOptimizationRecommendation, GoogleAdsOptimizationAction
 from app.db.models.pnl import PnLSnapshot
 from app.db.models.reconciliation import ReconciliationFlag, ReconciliationRun
 from app.db.models.email_sync import (
@@ -28,6 +29,7 @@ from app.db.models.toast import (
     ToastTimeEntry,
 )
 from app.db.models.user import RefreshToken, User
+from app.db.models.password_reset import PasswordResetToken
 
 __all__ = [
     "AIInsight",
@@ -36,6 +38,8 @@ __all__ = [
     "GoogleAdsCampaign",
     "GoogleAdsDailyMetric",
     "GoogleReviewSnapshot",
+    "GoogleAdsOptimizationRecommendation",
+    "GoogleAdsOptimizationAction",
     "PnLSnapshot",
     "ReconciliationFlag",
     "ReconciliationRun",
@@ -62,4 +66,5 @@ __all__ = [
     "ToastSyncJob",
     "ToastTimeEntry",
     "User",
+    "PasswordResetToken",
 ]
