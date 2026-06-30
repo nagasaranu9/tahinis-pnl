@@ -3,8 +3,10 @@
 import { useAuthStore } from '@/lib/auth-store';
 import { useLocations } from '@/hooks/use-locations';
 import { useReviewsSummary, useReviewsList } from '@/hooks/use-reviews';
+import { usePlatformMetrics } from '@/hooks/use-pipeboard';
 import { Tile, TileHeader } from '@/components/ui/tile';
-import { Star, RefreshCw, Settings } from 'lucide-react';
+import { MarketingMetricsTile } from '@/components/marketing-metrics-tile';
+import { Star, RefreshCw, Settings, Zap } from 'lucide-react';
 import Link from 'next/link';
 
 export default function MarketingPage() {
@@ -15,6 +17,10 @@ export default function MarketingPage() {
   const { data: reviews, isLoading } = useReviewsSummary(locationId);
   const { data: reviewsData } = useReviewsList(locationId, 1, 5);
   const recentReviews = reviewsData?.data || reviews?.recent_reviews;
+
+  const { data: platformMetrics, isLoading: metricsLoading } = usePlatformMetrics();
+  const googleAds = platformMetrics?.find((m) => m.platform === 'google_ads');
+  const metaAds = platformMetrics?.find((m) => m.platform === 'meta_ads');
 
   const formatDate = (isoDate: string | null) => {
     if (!isoDate) return 'Never';
@@ -138,19 +144,50 @@ export default function MarketingPage() {
         )}
       </div>
 
-      {/* Ads Sections (Placeholder) */}
+      {/* Google Ads */}
       <div className="space-y-4">
-        <h2 className="text-xl font-semibold">Google Ads</h2>
-        <Tile className="h-40 flex items-center justify-center">
-          <div className="text-muted-foreground">Google Ads integration coming soon</div>
-        </Tile>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold">Google Ads</h2>
+          <Link
+            href="/google-ads"
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-muted/60 transition-colors"
+          >
+            <Zap className="h-4 w-4" />
+            Optimization
+          </Link>
+        </div>
+        {metricsLoading ? (
+          <Tile className="h-40 flex items-center justify-center">
+            <div className="text-muted-foreground">Loading Google Ads…</div>
+          </Tile>
+        ) : googleAds ? (
+          <MarketingMetricsTile {...googleAds} />
+        ) : (
+          <Tile className="h-40 flex items-center justify-center">
+            <div className="text-muted-foreground text-center">
+              No Google Ads data.{' '}
+              <Link href="/settings?tab=integrations" className="text-primary hover:underline">
+                Connect Pipeboard
+              </Link>
+            </div>
+          </Tile>
+        )}
       </div>
 
+      {/* Meta Ads */}
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">Meta Ads</h2>
-        <Tile className="h-40 flex items-center justify-center">
-          <div className="text-muted-foreground">Meta Ads integration coming soon</div>
-        </Tile>
+        {metricsLoading ? (
+          <Tile className="h-40 flex items-center justify-center">
+            <div className="text-muted-foreground">Loading Meta Ads…</div>
+          </Tile>
+        ) : metaAds ? (
+          <MarketingMetricsTile {...metaAds} />
+        ) : (
+          <Tile className="h-40 flex items-center justify-center">
+            <div className="text-muted-foreground">Meta Ads integration coming soon</div>
+          </Tile>
+        )}
       </div>
     </main>
   );
