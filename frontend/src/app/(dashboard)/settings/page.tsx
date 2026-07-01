@@ -474,7 +474,7 @@ function LocationCard({ loc }: { loc: Location }) {
               </Field>
             </div>
 
-            <Field label="Address" hint="Enter manually or search Google Maps to autofill hours and timezone.">
+            <Field label="Address" hint="Search Google Maps to autofill address, timezone, and business hours.">
               <Input value={address} onChange={(v) => setAddress(v)} placeholder="123 King St W, Toronto, ON" />
               {process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && (
                 <div className="mt-2">
@@ -528,9 +528,6 @@ function LocationCard({ loc }: { loc: Location }) {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Toast POS ID">
                 <Input value={toastId} onChange={setToastId} placeholder="Toast restaurant GUID" icon={Hash} mono />
-              </Field>
-              <Field label="Store Login ID" hint="4-5 digit staff login code">
-                <Input value={storeId} onChange={(v) => setStoreId(v.replace(/\D/g, "").slice(0, 5))} placeholder="10001" mono icon={Hash} />
               </Field>
               {googlePlaceId && (
                 <Field label="Google Place ID" hint="Auto-filled from address search.">
