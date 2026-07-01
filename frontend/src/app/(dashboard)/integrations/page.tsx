@@ -21,19 +21,35 @@ import type { EmailSyncConfig } from "@/types/email-sync";
 // Brand logo — official mark via Simple Icons CDN, graceful icon fallback
 // ---------------------------------------------------------------------------
 
-function BrandLogo({ slug, fallback }: { slug?: string; fallback: React.ReactNode }) {
-  const [failed, setFailed] = useState(false);
+// Logo resolution is a 3-tier fallback chain because Simple Icons has dropped
+// several brand marks (Microsoft, Toast) over trademark policy, so a fixed slug
+// can 404. Tier 1: Simple Icons (crisp SVG). Tier 2: Google favicon service by
+// domain (always resolves, colored). Tier 3: the provided icon.
+function BrandLogo({ slug, domain, fallback }: {
+  slug?: string;
+  domain?: string;
+  fallback: React.ReactNode;
+}) {
+  const [tier, setTier] = useState<0 | 1 | 2>(0);
+
+  const src =
+    tier === 0 && slug
+      ? `https://cdn.simpleicons.org/${slug}`
+      : tier <= 1 && domain
+        ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64`
+        : null;
+
   return (
-    <div className="h-10 w-10 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
-      {slug && !failed ? (
+    <div className="h-10 w-10 rounded-lg bg-muted/60 flex items-center justify-center shrink-0 overflow-hidden">
+      {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={`https://cdn.simpleicons.org/${slug}`}
+          src={src}
           alt=""
           width={20}
           height={20}
           className="h-5 w-5"
-          onError={() => setFailed(true)}
+          onError={() => setTier((t) => (t === 0 ? (domain ? 1 : 2) : 2))}
         />
       ) : (
         fallback
@@ -326,11 +342,12 @@ function ConnectedRow({
 // ---------------------------------------------------------------------------
 
 function AvailableCard({
-  title, description, slug, fallbackIcon, onConnect, connecting,
+  title, description, slug, domain, fallbackIcon, onConnect, connecting,
 }: {
   title: string;
   description: string;
   slug?: string;
+  domain?: string;
   fallbackIcon: React.ReactNode;
   onConnect: () => void;
   connecting: boolean;
@@ -339,7 +356,7 @@ function AvailableCard({
     <div className="rounded-lg border border-border bg-card p-4 hover:border-primary/40 transition-colors">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <BrandLogo slug={slug} fallback={fallbackIcon} />
+          <BrandLogo slug={slug} domain={domain} fallback={fallbackIcon} />
           <div>
             <h3 className="font-semibold text-sm">{title}</h3>
             <p className="text-xs text-muted-foreground">{description}</p>
@@ -363,12 +380,14 @@ function AvailableCard({
 // ---------------------------------------------------------------------------
 
 function EmailIntegration({
-  title, description, slug, fallbackIcon, accounts, isLoading,
+  title, description, slug, domain, fallbackIcon, accounts, isLoading,
   onConnect, onSync, onDisconnect, connecting, syncing, disconnecting,
+  defaultCollapsed = false,
 }: {
   title: string;
   description: string;
   slug?: string;
+  domain?: string;
   fallbackIcon: React.ReactNode;
   accounts: EmailSyncConfig[];
   isLoading: boolean;
@@ -378,8 +397,10 @@ function EmailIntegration({
   connecting: boolean;
   syncing: boolean;
   disconnecting: boolean;
+  defaultCollapsed?: boolean;
 }) {
   const connected = accounts.filter((a) => a.is_active);
+  const [open, setOpen] = useState(!defaultCollapsed);
 
   if (isLoading) {
     return (
@@ -395,6 +416,7 @@ function EmailIntegration({
         title={title}
         description={description}
         slug={slug}
+        domain={domain}
         fallbackIcon={fallbackIcon}
         onConnect={onConnect}
         connecting={connecting}
@@ -404,25 +426,59 @@ function EmailIntegration({
 
   return (
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-      <div className="flex items-center gap-3">
-        <BrandLogo slug={slug} fallback={fallbackIcon} />
-        <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-3 text-left cursor-pointer"
+      >
+        <BrandLogo slug={slug} domain={domain} fallback={fallbackIcon} />
+        <div className="min-w-0 flex-1">
           <h3 className="font-semibold text-sm">{title}</h3>
-          <p className="text-xs text-muted-foreground">{description}</p>
+          <p className="text-xs text-muted-foreground truncate">
+            {connected.length} account{connected.length === 1 ? "" : "s"} connected · {description}
+          </p>
         </div>
-      </div>
-      <div className="space-y-2">
-        {connected.map((account) => (
-          <ConnectedRow
-            key={account.id}
-            account={account}
-            syncing={syncing}
-            disconnecting={disconnecting}
-            onSync={onSync}
-            onDisconnect={onDisconnect}
-          />
-        ))}
-      </div>
+        <ChevronDown className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="space-y-2">
+          {connected.map((account) => (
+            <ConnectedRow
+              key={account.id}
+              account={account}
+              syncing={syncing}
+              disconnecting={disconnecting}
+              onSync={onSync}
+              onDisconnect={onDisconnect}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Google Ads (Pipeboard) — collapsible, minimized by default
+// ---------------------------------------------------------------------------
+
+function PipeboardCard() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-3 text-left cursor-pointer"
+      >
+        <BrandLogo slug="googleads" domain="ads.google.com" fallback={<Megaphone className="h-5 w-5 text-primary" />} />
+        <div className="min-w-0 flex-1">
+          <h3 className="font-semibold text-sm">Google Ads (Pipeboard)</h3>
+          <p className="text-xs text-muted-foreground truncate">
+            Sync Google Ads spend &amp; performance into your P&amp;L marketing line
+          </p>
+        </div>
+        <ChevronDown className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && <PipeboardIntegration />}
     </div>
   );
 }
@@ -431,16 +487,17 @@ function EmailIntegration({
 // Coming soon row
 // ---------------------------------------------------------------------------
 
-function ComingSoonRow({ title, description, slug, fallbackIcon }: {
+function ComingSoonRow({ title, description, slug, domain, fallbackIcon }: {
   title: string;
   description: string;
   slug?: string;
+  domain?: string;
   fallbackIcon: React.ReactNode;
 }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card/50 p-4">
       <div className="flex items-center gap-3">
-        <BrandLogo slug={slug} fallback={fallbackIcon} />
+        <BrandLogo slug={slug} domain={domain} fallback={fallbackIcon} />
         <div>
           <h3 className="font-semibold text-sm">{title}</h3>
           <p className="text-xs text-muted-foreground">{description}</p>
@@ -484,9 +541,9 @@ function SectionHeader({ dot, title, count, subtitle, action }: {
 // ---------------------------------------------------------------------------
 
 const COMING_SOON = [
-  { title: "Dropbox", description: "Import files from Dropbox", slug: "dropbox" },
-  { title: "QuickBooks Online", description: "Sync financial data and transactions", slug: "quickbooks" },
-  { title: "Google Drive", description: "Import files from Google Drive", slug: "googledrive" },
+  { title: "Dropbox", description: "Import files from Dropbox", slug: "dropbox", domain: "dropbox.com" },
+  { title: "QuickBooks Online", description: "Sync financial data and transactions", slug: "quickbooks", domain: "quickbooks.intuit.com" },
+  { title: "Google Drive", description: "Import files from Google Drive", slug: "googledrive", domain: "drive.google.com" },
 ];
 
 export default function IntegrationsPage() {
@@ -565,7 +622,7 @@ export default function IntegrationsPage() {
           <div className="rounded-lg border border-green-500/30 bg-green-500/[0.04] p-3 hover:bg-green-500/[0.07] transition-colors">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <BrandLogo slug="toasttab" fallback={<Store className="h-5 w-5 text-primary" />} />
+                <BrandLogo slug="toasttab" domain="toasttab.com" fallback={<Store className="h-5 w-5 text-primary" />} />
                 <div>
                   <h3 className="font-semibold text-sm">Toast POS</h3>
                   <p className="text-xs text-muted-foreground">Sales, orders, labor, and menu data</p>
@@ -583,6 +640,7 @@ export default function IntegrationsPage() {
           title="Gmail"
           description="Import invoices and receipts from Gmail attachments"
           slug="gmail"
+          domain="gmail.com"
           fallbackIcon={<span className="text-sm font-bold text-primary">G</span>}
           accounts={gmailAccounts}
           isLoading={gmailLoading}
@@ -592,12 +650,14 @@ export default function IntegrationsPage() {
           connecting={connectingGmail}
           syncing={syncingGmail}
           disconnecting={disconnectingGmail}
+          defaultCollapsed
         />
 
         <EmailIntegration
           title="Outlook / Microsoft 365"
           description="Import invoices and receipts from Outlook attachments"
           slug="microsoftoutlook"
+          domain="outlook.com"
           fallbackIcon={<span className="text-sm font-bold text-primary">O</span>}
           accounts={outlookAccounts}
           isLoading={outlookLoading}
@@ -611,19 +671,7 @@ export default function IntegrationsPage() {
 
         <PushOpsCard />
 
-        {/* Google Ads via Pipeboard — connect, sync, job history */}
-        <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-          <div className="flex items-center gap-3">
-            <BrandLogo fallback={<Megaphone className="h-5 w-5 text-primary" />} />
-            <div>
-              <h3 className="font-semibold text-sm">Google Ads (Pipeboard)</h3>
-              <p className="text-xs text-muted-foreground">
-                Connect Pipeboard to sync Google Ads spend &amp; performance into your P&amp;L marketing line
-              </p>
-            </div>
-          </div>
-          <PipeboardIntegration />
-        </div>
+        <PipeboardCard />
       </section>
 
       {/* ── Coming soon ── */}
@@ -641,6 +689,7 @@ export default function IntegrationsPage() {
               title={item.title}
               description={item.description}
               slug={item.slug}
+              domain={item.domain}
               fallbackIcon={<Clock className="h-5 w-5 text-muted-foreground" />}
             />
           ))}
