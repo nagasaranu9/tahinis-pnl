@@ -6,7 +6,7 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import PipeboardDailyMetric, PipeboardCampaign
+from app.db.models.external_platform import PipeboardDailyMetric, PipeboardCampaign
 from app.db.repositories.google_ads_optimization_repo import GoogleAdsOptimizationRepository
 
 
