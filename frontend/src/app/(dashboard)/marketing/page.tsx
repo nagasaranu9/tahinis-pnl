@@ -1,24 +1,124 @@
 'use client';
 
+import { useState, useMemo } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 import { useLocations } from '@/hooks/use-locations';
 import { useReviewsSummary, useReviewsList } from '@/hooks/use-reviews';
 import { usePlatformMetrics } from '@/hooks/use-pipeboard';
 import { Tile, TileHeader } from '@/components/ui/tile';
 import { MarketingMetricsTile } from '@/components/marketing-metrics-tile';
-import { Star, RefreshCw, Settings, Zap } from 'lucide-react';
+import { Star, RefreshCw, Settings, Zap, Calendar, ChevronDown } from 'lucide-react';
 import Link from 'next/link';
+
+type PresetKey = 'today' | 'yesterday' | 'last7' | 'last30' | 'thisMonth' | 'lastMonth' | 'thisYear' | 'ytd' | 'custom';
+
+interface DateRange {
+  start: string;
+  end: string;
+  label: string;
+}
+
+function toISO(d: Date): string {
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
+function getPreset(key: PresetKey): DateRange {
+  const now = new Date();
+  const today = toISO(now);
+  switch (key) {
+    case 'today':
+      return { start: today, end: today, label: 'Today' };
+    case 'yesterday': {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      const yesterday = toISO(y);
+      return { start: yesterday, end: yesterday, label: 'Yesterday' };
+    }
+    case 'last7': {
+      const s = new Date(now);
+      s.setDate(s.getDate() - 6);
+      return { start: toISO(s), end: today, label: 'Last 7 days' };
+    }
+    case 'last30': {
+      const s = new Date(now);
+      s.setDate(s.getDate() - 29);
+      return { start: toISO(s), end: today, label: 'Last 30 days' };
+    }
+    case 'thisMonth':
+      return {
+        start: toISO(new Date(now.getFullYear(), now.getMonth(), 1)),
+        end: today,
+        label: 'This month',
+      };
+    case 'lastMonth': {
+      const s = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const e = new Date(now.getFullYear(), now.getMonth(), 0);
+      return { start: toISO(s), end: toISO(e), label: 'Last month' };
+    }
+    case 'thisYear':
+      return {
+        start: toISO(new Date(now.getFullYear(), 0, 1)),
+        end: today,
+        label: 'This year',
+      };
+    case 'ytd':
+      return {
+        start: toISO(new Date(now.getFullYear(), 0, 1)),
+        end: today,
+        label: 'Year to date',
+      };
+    default:
+      return { start: today, end: today, label: 'Today' };
+  }
+}
+
+const PRESETS: { key: PresetKey; label: string }[] = [
+  { key: 'today', label: 'Today' },
+  { key: 'yesterday', label: 'Yesterday' },
+  { key: 'last7', label: 'Last 7 days' },
+  { key: 'last30', label: 'Last 30 days' },
+  { key: 'thisMonth', label: 'This month' },
+  { key: 'lastMonth', label: 'Last month' },
+  { key: 'thisYear', label: 'This year' },
+  { key: 'ytd', label: 'Year to date' },
+  { key: 'custom', label: 'Custom' },
+];
 
 export default function MarketingPage() {
   const { getLocationId } = useAuthStore();
   const { selectedLocationId } = useLocations();
   const locationId = selectedLocationId ?? getLocationId() ?? undefined;
 
-  const { data: reviews, isLoading } = useReviewsSummary(locationId);
-  const { data: reviewsData } = useReviewsList(locationId, 1, 5);
+  const [activePreset, setActivePreset] = useState<PresetKey>('last30');
+  const [showDateMenu, setShowDateMenu] = useState(false);
+  const [showCustom, setShowCustom] = useState(false);
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+
+  const dateRange: DateRange = useMemo(() => {
+    if (activePreset === 'custom' && customStart && customEnd) {
+      return { start: customStart, end: customEnd, label: `${customStart} to ${customEnd}` };
+    }
+    if (activePreset === 'custom') return getPreset('last30');
+    return getPreset(activePreset);
+  }, [activePreset, customStart, customEnd]);
+
+  const { data: reviews, isLoading } = useReviewsSummary(locationId, {
+    from: dateRange.start,
+    to: dateRange.end,
+  });
+  const { data: reviewsData } = useReviewsList(locationId, 1, 5, {
+    from: dateRange.start,
+    to: dateRange.end,
+  });
   const recentReviews = reviewsData?.data || reviews?.recent_reviews;
 
-  const { data: platformMetrics, isLoading: metricsLoading } = usePlatformMetrics();
+  const { data: platformMetrics, isLoading: metricsLoading } = usePlatformMetrics({
+    from: dateRange.start,
+    to: dateRange.end,
+  });
   // Endpoint returns display labels ("Google Ads"), not raw keys ("google_ads").
   const matchPlatform = (m: { platform: string }, key: string) =>
     m.platform.toLowerCase().replace(/[\s_]/g, '') === key;
@@ -46,6 +146,72 @@ export default function MarketingPage() {
           <h1 className="text-3xl font-bold">Marketing</h1>
           <p className="text-sm text-muted-foreground mt-1">Reviews, Google Ads, Meta Ads, and spend analytics.</p>
         </div>
+      </div>
+
+      {/* Date Range Selector */}
+      <div className="relative">
+        <button
+          onClick={() => {
+            setShowDateMenu(!showDateMenu);
+            setShowCustom(false);
+          }}
+          className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary/10 border border-primary/25 text-sm font-semibold text-primary hover:bg-primary/15 transition-colors cursor-pointer"
+        >
+          <Calendar className="h-3.5 w-3.5" />
+          {dateRange.label}
+          <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+        </button>
+        {showDateMenu && (
+          <div className="absolute left-0 top-full mt-1 w-52 rounded-md border border-border bg-card shadow-lg z-50 py-1">
+            {PRESETS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => {
+                  if (p.key === 'custom') {
+                    setShowCustom(true);
+                  } else {
+                    setActivePreset(p.key);
+                    setShowDateMenu(false);
+                    setShowCustom(false);
+                  }
+                }}
+                className={`w-full text-left px-4 py-2 text-sm hover:bg-accent transition-colors cursor-pointer ${
+                  activePreset === p.key ? 'text-primary font-medium' : 'text-foreground'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+            {showCustom && (
+              <div className="px-4 py-3 border-t border-border space-y-2">
+                <input
+                  type="date"
+                  value={customStart}
+                  onChange={(e) => setCustomStart(e.target.value)}
+                  className="w-full rounded border border-border bg-background px-2 py-1 text-xs"
+                />
+                <input
+                  type="date"
+                  value={customEnd}
+                  onChange={(e) => setCustomEnd(e.target.value)}
+                  className="w-full rounded border border-border bg-background px-2 py-1 text-xs"
+                />
+                <button
+                  onClick={() => {
+                    if (customStart && customEnd) {
+                      setActivePreset('custom');
+                      setShowDateMenu(false);
+                      setShowCustom(false);
+                    }
+                  }}
+                  className="w-full rounded bg-primary text-primary-foreground text-xs py-1.5 font-medium hover:opacity-90 transition-opacity cursor-pointer"
+                >
+                  Apply
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Reviews Section */}

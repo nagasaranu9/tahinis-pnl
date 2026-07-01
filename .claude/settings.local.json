@@ -145,7 +145,18 @@
       "Bash(docker-compose exec *)",
       "Bash(git commit -m 'refactor\\(ui\\): enlarge login form inputs and add divider to revenue by channel *)",
       "Bash(git commit -m 'fix\\(ui\\): adjust revenue alignment, divider opacity, and login logo size *)",
-      "Bash(git commit -m 'fix\\(ui\\): align revenue right, match divider style, prevent overflow at 100% zoom *)"
+      "Bash(git commit -m 'fix\\(ui\\): align revenue right, match divider style, prevent overflow at 100% zoom *)",
+      "Bash(railway logs *)",
+      "Bash(timeout 30 railway ssh -s tahinis-pnl -- bash -c \"ls alembic/versions/ | tail -5 && echo '---' && alembic current\")",
+      "Bash(railway up *)",
+      "Bash(python3 -c \"import app.main\")",
+      "Bash(docker cp *)",
+      "Bash(git commit *)",
+      "Bash(timeout 20 railway ssh -s tahinis-pnl -- \"ls alembic/versions/ | tail -3 && echo --- && grep google_ads_optimization app/api/v1/router.py\")",
+      "Bash(timeout 20 railway ssh -s tahinis-pnl -- \"cat > /tmp/check_metrics.py\")",
+      "Bash(timeout 20 railway ssh -s tahinis-pnl -- \"python3 /tmp/check_metrics.py\")",
+      "Bash(vercel --version)",
+      "Bash(curl -sI https://tahinis-pnl.vercel.app/marketing)"
     ]
   }
 }

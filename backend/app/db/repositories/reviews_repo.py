@@ -170,10 +170,16 @@ class ReviewsRepository:
         location_id: uuid.UUID | None = None,
         page: int = 1,
         limit: int = 20,
+        date_from: str | None = None,
+        date_to: str | None = None,
     ) -> tuple[list[GoogleReview], int]:
         conditions = [GoogleReview.tenant_id == tenant_id]
         if location_id:
             conditions.append(GoogleReview.location_id == location_id)
+        if date_from:
+            conditions.append(GoogleReview.published_at >= datetime.fromisoformat(date_from))
+        if date_to:
+            conditions.append(GoogleReview.published_at <= datetime.fromisoformat(date_to).replace(hour=23, minute=59, second=59))
 
         total = (
             await self._db.execute(
@@ -193,11 +199,19 @@ class ReviewsRepository:
         return list(rows), total
 
     async def get_summary(
-        self, tenant_id: uuid.UUID, location_id: uuid.UUID | None = None
+        self,
+        tenant_id: uuid.UUID,
+        location_id: uuid.UUID | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
     ) -> dict:
         conditions = [GoogleReview.tenant_id == tenant_id]
         if location_id:
             conditions.append(GoogleReview.location_id == location_id)
+        if date_from:
+            conditions.append(GoogleReview.published_at >= datetime.fromisoformat(date_from))
+        if date_to:
+            conditions.append(GoogleReview.published_at <= datetime.fromisoformat(date_to).replace(hour=23, minute=59, second=59))
 
         rows = (
             await self._db.execute(
@@ -223,8 +237,18 @@ class ReviewsRepository:
                 star_counts[r] += 1
 
         avg = round(sum(r for r in rows if r) / total, 2) if total else None
-        # Prefer the true aggregate (Places API gives real rating + full count);
-        # the per-row average of a 5-review sample would otherwise mislead.
+        # Date filters: use calculated avg from rows (don't prefer snapshot for time ranges)
+        if date_from or date_to:
+            return {
+                "average_rating": avg,
+                "total_review_count": total,
+                "five_star": star_counts[5],
+                "four_star": star_counts[4],
+                "three_star": star_counts[3],
+                "two_star": star_counts[2],
+                "one_star": star_counts[1],
+            }
+        # No date filter: prefer the true aggregate (Places API gives real rating + full count)
         snap = await self.get_latest_snapshot(tenant_id, location_id)
         if snap is not None and snap.review_count_total:
             avg = float(snap.rating_average) if snap.rating_average is not None else avg

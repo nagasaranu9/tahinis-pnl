@@ -124,10 +124,12 @@ async def reviews_summary(
     user: CurrentUserDep,
     db: AsyncSessionDep,
     location_id: uuid.UUID | None = Query(None),
+    date_from: str | None = Query(None, description="YYYY-MM-DD"),
+    date_to: str | None = Query(None, description="YYYY-MM-DD"),
 ) -> dict:
     repo = ReviewsRepository(db)
-    summary = await repo.get_summary(user.tenant_id, location_id)
-    recent, _ = await repo.list_reviews(user.tenant_id, location_id, page=1, limit=5)
+    summary = await repo.get_summary(user.tenant_id, location_id, date_from=date_from, date_to=date_to)
+    recent, _ = await repo.list_reviews(user.tenant_id, location_id, page=1, limit=5, date_from=date_from, date_to=date_to)
     return {
         "data": ReviewsSummaryResponse(
             **summary,
@@ -144,9 +146,11 @@ async def reviews_list(
     location_id: uuid.UUID | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    date_from: str | None = Query(None, description="YYYY-MM-DD"),
+    date_to: str | None = Query(None, description="YYYY-MM-DD"),
 ) -> dict:
     repo = ReviewsRepository(db)
-    rows, total = await repo.list_reviews(user.tenant_id, location_id, page=page, limit=limit)
+    rows, total = await repo.list_reviews(user.tenant_id, location_id, page=page, limit=limit, date_from=date_from, date_to=date_to)
     return {
         "data": [GoogleReviewResponse.model_validate(r) for r in rows],
         "meta": PaginatedMeta(page=page, limit=limit, total=total),

@@ -28,12 +28,16 @@ export function useReviewsAuthUrl() {
   });
 }
 
-export function useReviewsSummary(locationId?: string) {
+export function useReviewsSummary(locationId?: string, dateRange?: { from?: string; to?: string }) {
   return useQuery({
-    queryKey: ["reviews-summary", locationId],
+    queryKey: ["reviews-summary", locationId, dateRange],
     queryFn: async () => {
-      const params = locationId ? `?location_id=${locationId}` : "";
-      const { data } = await apiClient.get<{ data: ReviewsSummary }>(`${BASE}/summary${params}`);
+      const qs = new URLSearchParams();
+      if (locationId) qs.set("location_id", locationId);
+      if (dateRange?.from) qs.set("date_from", dateRange.from);
+      if (dateRange?.to) qs.set("date_to", dateRange.to);
+      const query = qs.toString() ? `?${qs}` : "";
+      const { data } = await apiClient.get<{ data: ReviewsSummary }>(`${BASE}/summary${query}`);
       return data.data;
     },
     staleTime: 60 * 60_000,
@@ -43,12 +47,19 @@ export function useReviewsSummary(locationId?: string) {
 
 export const useReviewsDetail = useReviewsSummary;
 
-export function useReviewsList(locationId?: string, page = 1, limit = 20) {
+export function useReviewsList(
+  locationId?: string,
+  page = 1,
+  limit = 20,
+  dateRange?: { from?: string; to?: string }
+) {
   return useQuery({
-    queryKey: ["reviews-list", locationId, page, limit],
+    queryKey: ["reviews-list", locationId, page, limit, dateRange],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (locationId) params.set("location_id", locationId);
+      if (dateRange?.from) params.set("date_from", dateRange.from);
+      if (dateRange?.to) params.set("date_to", dateRange.to);
       const { data } = await apiClient.get<{ data: GoogleReview[]; meta: { total: number } }>(
         `${BASE}/list?${params}`
       );
