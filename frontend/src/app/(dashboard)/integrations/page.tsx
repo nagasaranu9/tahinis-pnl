@@ -425,14 +425,17 @@ function EmailIntegration({
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+    <div className="rounded-lg border border-green-500/30 bg-green-500/[0.04] p-4 space-y-3">
       <button
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center gap-3 text-left cursor-pointer"
       >
         <BrandLogo slug={slug} domain={domain} fallback={fallbackIcon} />
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-sm">{title}</h3>
+          <div className="flex items-center gap-1.5">
+            <CheckCircle className="h-3.5 w-3.5 text-green-500 shrink-0" />
+            <h3 className="font-semibold text-sm">{title}</h3>
+          </div>
           <p className="text-xs text-muted-foreground truncate">
             {connected.length} account{connected.length === 1 ? "" : "s"} connected · {description}
           </p>
@@ -464,14 +467,17 @@ function EmailIntegration({
 function PipeboardCard() {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+    <div className="rounded-lg border border-green-500/30 bg-green-500/[0.04] p-4 space-y-3">
       <button
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center gap-3 text-left cursor-pointer"
       >
         <BrandLogo slug="googleads" domain="ads.google.com" fallback={<Megaphone className="h-5 w-5 text-primary" />} />
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-sm">Google Ads (Pipeboard)</h3>
+          <div className="flex items-center gap-1.5">
+            <CheckCircle className="h-3.5 w-3.5 text-green-500 shrink-0" />
+            <h3 className="font-semibold text-sm">Google Ads (Pipeboard)</h3>
+          </div>
           <p className="text-xs text-muted-foreground truncate">
             Sync Google Ads spend &amp; performance into your P&amp;L marketing line
           </p>
@@ -562,14 +568,53 @@ export default function IntegrationsPage() {
   const { mutate: syncOutlook, isPending: syncingOutlook } = useOutlookSync();
   const { mutate: disconnectOutlook, isPending: disconnectingOutlook } = useOutlookDisconnect();
 
-  const gmailConnected = gmailAccounts.filter((a) => a.is_active).length;
-  const outlookConnected = outlookAccounts.filter((a) => a.is_active).length;
-  // Toast + PushOps + Pipeboard are always-present connected surfaces on this page.
-  const connectedCount = gmailConnected + outlookConnected + 3;
+  const gmailConnected = gmailAccounts.filter((a) => a.is_active).length > 0;
+  const outlookConnected = outlookAccounts.filter((a) => a.is_active).length > 0;
+  // Toast + Pipeboard (Google Ads) are always-connected surfaces on this page.
+  const connectedCount = 2 + (gmailConnected ? 1 : 0) + (outlookConnected ? 1 : 0);
+  // PushOps is an upload (no persistent connection); count it under Not connected.
+  const notConnectedCount = 1 + (gmailConnected ? 0 : 1) + (outlookConnected ? 0 : 1);
   const anyStale =
     [...gmailAccounts, ...outlookAccounts]
       .filter((a) => a.is_active)
       .some((a) => !a.last_synced_at || Date.now() - new Date(a.last_synced_at).getTime() > 12 * 60 * 60 * 1000);
+
+  const gmailEl = (
+    <EmailIntegration
+      title="Gmail"
+      description="Import invoices and receipts from Gmail attachments"
+      slug="gmail"
+      domain="gmail.com"
+      fallbackIcon={<span className="text-sm font-bold text-primary">G</span>}
+      accounts={gmailAccounts}
+      isLoading={gmailLoading}
+      onConnect={() => connectGmail()}
+      onSync={syncGmail}
+      onDisconnect={disconnectGmail}
+      connecting={connectingGmail}
+      syncing={syncingGmail}
+      disconnecting={disconnectingGmail}
+      defaultCollapsed
+    />
+  );
+
+  const outlookEl = (
+    <EmailIntegration
+      title="Outlook / Microsoft 365"
+      description="Import invoices and receipts from Outlook attachments"
+      slug="microsoftoutlook"
+      domain="outlook.com"
+      fallbackIcon={<span className="text-sm font-bold text-primary">O</span>}
+      accounts={outlookAccounts}
+      isLoading={outlookLoading}
+      onConnect={() => connectOutlook()}
+      onSync={syncOutlook}
+      onDisconnect={disconnectOutlook}
+      connecting={connectingOutlook}
+      syncing={syncingOutlook}
+      disconnecting={disconnectingOutlook}
+    />
+  );
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -636,42 +681,27 @@ export default function IntegrationsPage() {
           </div>
         </Link>
 
-        <EmailIntegration
-          title="Gmail"
-          description="Import invoices and receipts from Gmail attachments"
-          slug="gmail"
-          domain="gmail.com"
-          fallbackIcon={<span className="text-sm font-bold text-primary">G</span>}
-          accounts={gmailAccounts}
-          isLoading={gmailLoading}
-          onConnect={() => connectGmail()}
-          onSync={syncGmail}
-          onDisconnect={disconnectGmail}
-          connecting={connectingGmail}
-          syncing={syncingGmail}
-          disconnecting={disconnectingGmail}
-          defaultCollapsed
-        />
+        {gmailConnected && gmailEl}
 
-        <EmailIntegration
-          title="Outlook / Microsoft 365"
-          description="Import invoices and receipts from Outlook attachments"
-          slug="microsoftoutlook"
-          domain="outlook.com"
-          fallbackIcon={<span className="text-sm font-bold text-primary">O</span>}
-          accounts={outlookAccounts}
-          isLoading={outlookLoading}
-          onConnect={() => connectOutlook()}
-          onSync={syncOutlook}
-          onDisconnect={disconnectOutlook}
-          connecting={connectingOutlook}
-          syncing={syncingOutlook}
-          disconnecting={disconnectingOutlook}
-        />
-
-        <PushOpsCard />
+        {outlookConnected && outlookEl}
 
         <PipeboardCard />
+      </section>
+
+      {/* ── Not connected ── */}
+      <section className="rounded-xl border border-border p-4 space-y-4">
+        <SectionHeader
+          dot="bg-muted-foreground/50"
+          title="Not connected"
+          count={notConnectedCount}
+          subtitle="Connect these to pull in more of your data."
+        />
+
+        {!gmailConnected && gmailEl}
+
+        {!outlookConnected && outlookEl}
+
+        <PushOpsCard />
       </section>
 
       {/* ── Coming soon ── */}
