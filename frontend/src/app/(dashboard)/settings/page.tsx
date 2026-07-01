@@ -282,9 +282,6 @@ function LocationCard({ loc }: { loc: Location }) {
   );
   const [storeId, setStoreId] = useState(loc.store_id ?? "");
   const [toastId, setToastId] = useState(loc.toast_location_id ?? "");
-  const [uberEatsId, setUberEatsId] = useState(loc.uber_eats_id ?? "");
-  const [skipId, setSkipId] = useState(loc.skip_the_dishes_id ?? "");
-  const [doordashId, setDoordashId] = useState(loc.doordash_id ?? "");
   const [rentMonthly, setRentMonthly] = useState(loc.rent_monthly_incl_hst ?? "");
   const [googlePlaceId, setGooglePlaceId] = useState(loc.google_place_id ?? "");
 
@@ -421,9 +418,6 @@ function LocationCard({ loc }: { loc: Location }) {
         timezone,
         store_id: storeId || null,
         toast_location_id: toastId || null,
-        uber_eats_id: uberEatsId || null,
-        skip_the_dishes_id: skipId || null,
-        doordash_id: doordashId || null,
         google_place_id: googlePlaceId || null,
         business_hours: hours,
         rent_monthly_incl_hst: rentMonthly ? String(rentMonthly) : null,
@@ -537,15 +531,6 @@ function LocationCard({ loc }: { loc: Location }) {
               </Field>
               <Field label="Store Login ID" hint="4-5 digit staff login code">
                 <Input value={storeId} onChange={(v) => setStoreId(v.replace(/\D/g, "").slice(0, 5))} placeholder="10001" mono icon={Hash} />
-              </Field>
-              <Field label="Uber Eats ID">
-                <Input value={uberEatsId} onChange={setUberEatsId} placeholder="Store UUID from Uber Eats" icon={UtensilsCrossed} mono />
-              </Field>
-              <Field label="Skip The Dishes ID">
-                <Input value={skipId} onChange={setSkipId} placeholder="Skip restaurant ID" icon={UtensilsCrossed} mono />
-              </Field>
-              <Field label="DoorDash ID">
-                <Input value={doordashId} onChange={setDoordashId} placeholder="DoorDash store ID" icon={UtensilsCrossed} mono />
               </Field>
               {googlePlaceId && (
                 <Field label="Google Place ID" hint="Auto-filled from address search.">
