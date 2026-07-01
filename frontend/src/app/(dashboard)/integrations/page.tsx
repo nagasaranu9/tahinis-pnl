@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { format } from "date-fns";
-import { CheckCircle, RefreshCw, Unplug, Plug, AlertCircle, ArrowRight, Upload, Users, Megaphone, Store } from "lucide-react";
+import {
+  CheckCircle, RefreshCw, Unplug, Plug, AlertCircle, ArrowRight, Upload,
+  Users, Megaphone, Store, MoreHorizontal, ChevronDown, ShieldCheck, Clock,
+} from "lucide-react";
 import {
   useGmailStatus, useGmailAuthUrl, useGmailSync, useGmailDisconnect,
   useOutlookStatus, useOutlookAuthUrl, useOutlookSync, useOutlookDisconnect,
@@ -21,19 +24,111 @@ import type { EmailSyncConfig } from "@/types/email-sync";
 function BrandLogo({ slug, fallback }: { slug?: string; fallback: React.ReactNode }) {
   const [failed, setFailed] = useState(false);
   return (
-    <div className="h-9 w-9 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
+    <div className="h-10 w-10 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
       {slug && !failed ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={`https://cdn.simpleicons.org/${slug}`}
           alt=""
-          width={18}
-          height={18}
-          className="h-[18px] w-[18px]"
+          width={20}
+          height={20}
+          className="h-5 w-5"
           onError={() => setFailed(true)}
         />
       ) : (
         fallback
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Confirm dialog — modal overlay for dangerous actions
+// ---------------------------------------------------------------------------
+
+function ConfirmDialog({
+  open, title, message, confirmLabel, onConfirm, onCancel, pending,
+}: {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  pending: boolean;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onCancel]);
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
+      <div className="relative w-full max-w-sm rounded-xl border border-border bg-card p-5 shadow-xl space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="h-9 w-9 rounded-lg bg-destructive/10 flex items-center justify-center shrink-0">
+            <AlertCircle className="h-4.5 w-4.5 text-destructive" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-sm">{title}</h3>
+            <p className="text-xs text-muted-foreground mt-1">{message}</p>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            disabled={pending}
+            className="px-3 py-1.5 text-sm rounded-md border border-border hover:bg-muted/50 transition-colors cursor-pointer disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={pending}
+            className="px-3 py-1.5 text-sm rounded-md bg-destructive text-destructive-foreground font-semibold hover:bg-destructive/90 transition-colors cursor-pointer disabled:opacity-50"
+          >
+            {pending ? "Removing…" : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Overflow menu — houses dangerous actions (never inline on card)
+// ---------------------------------------------------------------------------
+
+function OverflowMenu({ children }: { children: (close: () => void) => React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", onClick);
+    return () => window.removeEventListener("mousedown", onClick);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="h-8 w-8 flex items-center justify-center rounded-md border border-border hover:bg-muted/50 transition-colors cursor-pointer"
+        aria-label="More options"
+      >
+        <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-44 rounded-md border border-border bg-card shadow-lg z-20 py-1">
+          {children(() => setOpen(false))}
+        </div>
       )}
     </div>
   );
@@ -63,10 +158,10 @@ function PushOpsCard() {
     (error ? "Import failed. Check the file format." : null);
 
   return (
-    <div className="border border-border rounded-lg p-4 bg-card space-y-4">
+    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <BrandLogo fallback={<Users className="h-[18px] w-[18px] text-primary" />} />
+          <BrandLogo fallback={<Users className="h-5 w-5 text-primary" />} />
           <div>
             <h3 className="font-semibold text-sm">PushOperations Payroll</h3>
             <p className="text-xs text-muted-foreground">
@@ -77,7 +172,7 @@ function PushOpsCard() {
         <button
           onClick={() => inputRef.current?.click()}
           disabled={isPending}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors cursor-pointer shrink-0"
         >
           <Upload className="h-3.5 w-3.5" />
           {isPending ? "Importing…" : "Upload CSV / Image"}
@@ -91,15 +186,9 @@ function PushOpsCard() {
         />
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        Export the Payroll Summary report as CSV if your tier allows it. No CSV? Upload
-        a clear screenshot or PDF instead — it&apos;s read via OCR. Re-importing the same
-        file is safe — duplicates are skipped.
-      </p>
-
       {data && (
-        <div className="border-t border-border pt-4 text-sm space-y-1">
-          <div className="flex items-center gap-2 text-green-400">
+        <div className="border-t border-border pt-3 text-sm space-y-1">
+          <div className="flex items-center gap-2 text-green-500">
             <CheckCircle className="h-4 w-4 shrink-0" />
             <span className="font-medium">
               Imported {data.expenses_created} payroll line
@@ -116,7 +205,7 @@ function PushOpsCard() {
       )}
 
       {errMsg && (
-        <div className="border-t border-border pt-4 flex items-center gap-2 text-sm text-destructive">
+        <div className="border-t border-border pt-3 flex items-center gap-2 text-sm text-destructive">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {errMsg}
         </div>
@@ -126,10 +215,157 @@ function PushOpsCard() {
 }
 
 // ---------------------------------------------------------------------------
-// Integration card
+// Connected integration row — compact, green accent, expandable details.
+// Sync inline; dangerous actions live only in the overflow menu.
 // ---------------------------------------------------------------------------
 
-interface IntegrationCardProps {
+function ConnectedRow({
+  account, syncing, disconnecting, onSync, onDisconnect,
+}: {
+  account: EmailSyncConfig;
+  syncing: boolean;
+  disconnecting: boolean;
+  onSync: (id: string) => void;
+  onDisconnect: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const lastMs = account.last_synced_at ? new Date(account.last_synced_at).getTime() : 0;
+  // Auto-sync runs every 6h; flag stale if no successful sync in >12h.
+  const stale = !account.last_synced_at || Date.now() - lastMs > 12 * 60 * 60 * 1000;
+  const lastLabel = account.last_synced_at
+    ? format(new Date(account.last_synced_at), "MMM d, HH:mm")
+    : "Never";
+
+  return (
+    <div className="rounded-lg border border-green-500/30 bg-green-500/[0.04] overflow-hidden">
+      <div className="flex items-center justify-between gap-3 p-3">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center gap-2 min-w-0 text-left cursor-pointer"
+        >
+          <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+          <div className="min-w-0">
+            <p className="font-medium text-sm truncate">{account.email_address ?? "Connected"}</p>
+            <p className="text-xs text-muted-foreground">Last sync: {lastLabel}</p>
+          </div>
+          <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`} />
+        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => onSync(account.id)}
+            disabled={syncing}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-md bg-card hover:bg-muted/50 disabled:opacity-50 transition-colors cursor-pointer"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+            Sync now
+          </button>
+          <OverflowMenu>
+            {(close) => (
+              <button
+                onClick={() => { close(); setConfirmOpen(true); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+              >
+                <Unplug className="h-3.5 w-3.5" />
+                Disconnect
+              </button>
+            )}
+          </OverflowMenu>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="border-t border-green-500/20 px-3 py-3 space-y-2 text-xs">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <p className="text-muted-foreground">Account</p>
+              <p className="font-medium">{account.email_address ?? "—"}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Sync frequency</p>
+              <p className="font-medium">Every 6 hours</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Last successful sync</p>
+              <p className="font-medium">{lastLabel}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Status</p>
+              <p className={`font-medium ${stale ? "text-amber-500" : "text-green-500"}`}>
+                {stale ? "Attention needed" : "Healthy"}
+              </p>
+            </div>
+          </div>
+          {stale && (
+            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-md px-2.5 py-1.5">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                No successful sync in over 12h. Auto-sync runs every 6h — click Sync now to retry. If it keeps failing, disconnect and reconnect (token may have expired).
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Disconnect account?"
+        message={`This removes ${account.email_address ?? "this account"} and stops syncing. Imported data is kept. You can reconnect anytime.`}
+        confirmLabel="Disconnect"
+        pending={disconnecting}
+        onCancel={() => setConfirmOpen(false)}
+        onConfirm={() => { onDisconnect(account.id); setConfirmOpen(false); }}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Available integration card — higher contrast, single primary Connect button
+// ---------------------------------------------------------------------------
+
+function AvailableCard({
+  title, description, slug, fallbackIcon, onConnect, connecting,
+}: {
+  title: string;
+  description: string;
+  slug?: string;
+  fallbackIcon: React.ReactNode;
+  onConnect: () => void;
+  connecting: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-4 hover:border-primary/40 transition-colors">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <BrandLogo slug={slug} fallback={fallbackIcon} />
+          <div>
+            <h3 className="font-semibold text-sm">{title}</h3>
+            <p className="text-xs text-muted-foreground">{description}</p>
+          </div>
+        </div>
+        <button
+          onClick={onConnect}
+          disabled={connecting}
+          className="flex items-center gap-1.5 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors cursor-pointer shrink-0"
+        >
+          <Plug className="h-3.5 w-3.5" />
+          {connecting ? "Connecting…" : "Connect"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Email integration — renders connected rows OR an available card
+// ---------------------------------------------------------------------------
+
+function EmailIntegration({
+  title, description, slug, fallbackIcon, accounts, isLoading,
+  onConnect, onSync, onDisconnect, connecting, syncing, disconnecting,
+}: {
   title: string;
   description: string;
   slug?: string;
@@ -142,89 +378,103 @@ interface IntegrationCardProps {
   connecting: boolean;
   syncing: boolean;
   disconnecting: boolean;
-}
-
-function IntegrationCard({
-  title, description, slug, fallbackIcon, accounts, isLoading,
-  onConnect, onSync, onDisconnect,
-  connecting, syncing, disconnecting,
-}: IntegrationCardProps) {
+}) {
   const connected = accounts.filter((a) => a.is_active);
 
-  return (
-    <div className="border border-border rounded-lg p-4 bg-card space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <BrandLogo slug={slug} fallback={fallbackIcon} />
-          <div>
-            <h3 className="font-semibold text-sm">{title}</h3>
-            <p className="text-xs text-muted-foreground">{description}</p>
-          </div>
-        </div>
-        <button
-          onClick={onConnect}
-          disabled={connecting}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors"
-        >
-          <Plug className="h-3.5 w-3.5" />
-          {connecting ? "Connecting…" : "Connect"}
-        </button>
+  if (isLoading) {
+    return (
+      <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
+        Loading {title}…
       </div>
+    );
+  }
 
-      {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+  if (connected.length === 0) {
+    return (
+      <AvailableCard
+        title={title}
+        description={description}
+        slug={slug}
+        fallbackIcon={fallbackIcon}
+        onConnect={onConnect}
+        connecting={connecting}
+      />
+    );
+  }
 
-      {connected.length > 0 && (
-        <div className="space-y-2 border-t border-border pt-4">
-          {connected.map((account) => {
-          const lastMs = account.last_synced_at ? new Date(account.last_synced_at).getTime() : 0;
-          // Auto-sync runs every 6h; flag stale if no successful sync in >12h.
-          const stale = !account.last_synced_at || Date.now() - lastMs > 12 * 60 * 60 * 1000;
-          return (
-            <div key={account.id} className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-4 w-4 text-green-400 shrink-0" />
-                <div>
-                  <p className="font-medium">{account.email_address ?? "Connected"}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Last sync: {account.last_synced_at
-                      ? format(new Date(account.last_synced_at), "MMM d, HH:mm")
-                      : "Never"}
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => onSync(account.id)}
-                  disabled={syncing}
-                  className="flex items-center gap-1 px-2 py-1 text-xs border border-border rounded-md hover:bg-muted/50 disabled:opacity-50 transition-colors"
-                >
-                  <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />
-                  Sync
-                </button>
-                <button
-                  onClick={() => onDisconnect(account.id)}
-                  disabled={disconnecting}
-                  className="flex items-center gap-1 px-2 py-1 text-xs border border-destructive text-destructive rounded hover:bg-destructive/10 disabled:opacity-50"
-                >
-                  <Unplug className="h-3 w-3" />
-                  Remove
-                </button>
-              </div>
-            </div>
-            {stale && (
-              <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-md px-2.5 py-1.5">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                <span>
-                  No successful sync in over 12h. Auto-sync runs every 6h — click Sync to retry now. If it keeps failing, reconnect the account (token may have expired).
-                </span>
-              </div>
-            )}
-            </div>
-          );
-          })}
+  return (
+    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+      <div className="flex items-center gap-3">
+        <BrandLogo slug={slug} fallback={fallbackIcon} />
+        <div>
+          <h3 className="font-semibold text-sm">{title}</h3>
+          <p className="text-xs text-muted-foreground">{description}</p>
         </div>
-      )}
+      </div>
+      <div className="space-y-2">
+        {connected.map((account) => (
+          <ConnectedRow
+            key={account.id}
+            account={account}
+            syncing={syncing}
+            disconnecting={disconnecting}
+            onSync={onSync}
+            onDisconnect={onDisconnect}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Coming soon row
+// ---------------------------------------------------------------------------
+
+function ComingSoonRow({ title, description, slug, fallbackIcon }: {
+  title: string;
+  description: string;
+  slug?: string;
+  fallbackIcon: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card/50 p-4">
+      <div className="flex items-center gap-3">
+        <BrandLogo slug={slug} fallback={fallbackIcon} />
+        <div>
+          <h3 className="font-semibold text-sm">{title}</h3>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+      </div>
+      <span className="px-3 py-1.5 text-xs font-medium rounded-md bg-muted text-muted-foreground shrink-0">
+        Coming soon
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section header with count
+// ---------------------------------------------------------------------------
+
+function SectionHeader({ dot, title, count, subtitle, action }: {
+  dot: string;
+  title: string;
+  count: number;
+  subtitle: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <div className="flex items-center gap-2">
+          <span className={`h-2 w-2 rounded-full ${dot}`} />
+          <h2 className="font-semibold text-sm">{title}</h2>
+          <span className="text-sm text-muted-foreground">({count})</span>
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+      </div>
+      {action}
     </div>
   );
 }
@@ -233,9 +483,15 @@ function IntegrationCard({
 // Page
 // ---------------------------------------------------------------------------
 
+const COMING_SOON = [
+  { title: "Dropbox", description: "Import files from Dropbox", slug: "dropbox" },
+  { title: "QuickBooks Online", description: "Sync financial data and transactions", slug: "quickbooks" },
+  { title: "Google Drive", description: "Import files from Google Drive", slug: "googledrive" },
+];
+
 export default function IntegrationsPage() {
   const params = useSearchParams();
-  const connected = params.get("connected");
+  const connectedParam = params.get("connected");
   const error = params.get("error");
   const errorReason = params.get("reason");
 
@@ -249,19 +505,28 @@ export default function IntegrationsPage() {
   const { mutate: syncOutlook, isPending: syncingOutlook } = useOutlookSync();
   const { mutate: disconnectOutlook, isPending: disconnectingOutlook } = useOutlookDisconnect();
 
+  const gmailConnected = gmailAccounts.filter((a) => a.is_active).length;
+  const outlookConnected = outlookAccounts.filter((a) => a.is_active).length;
+  // Toast + PushOps + Pipeboard are always-present connected surfaces on this page.
+  const connectedCount = gmailConnected + outlookConnected + 3;
+  const anyStale =
+    [...gmailAccounts, ...outlookAccounts]
+      .filter((a) => a.is_active)
+      .some((a) => !a.last_synced_at || Date.now() - new Date(a.last_synced_at).getTime() > 12 * 60 * 60 * 1000);
+
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Integrations</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Connect Toast POS, email, and cloud storage to sync sales data and import financial documents.
+          Connect and sync your tools to keep sales and financial data in one place.
         </p>
       </div>
 
-      {connected && (
-        <div className="flex items-center gap-2 text-sm text-green-400 bg-green-500/10 border border-green-500/20 rounded-md px-4 py-2">
+      {connectedParam && (
+        <div className="flex items-center gap-2 text-sm text-green-500 bg-green-500/10 border border-green-500/20 rounded-md px-4 py-2">
           <CheckCircle className="h-4 w-4 shrink-0" />
-          Successfully connected {connected === "gmail" ? "Gmail" : "Outlook"}.
+          Successfully connected {connectedParam === "gmail" ? "Gmail" : "Outlook"}.
         </div>
       )}
       {error && (
@@ -276,21 +541,37 @@ export default function IntegrationsPage() {
         </div>
       )}
 
-      <div className="space-y-4">
-        {/* Toast POS — dedicated page */}
+      {/* ── Connected ── */}
+      <section className="rounded-xl border border-border p-4 space-y-4">
+        <SectionHeader
+          dot="bg-green-500"
+          title="Connected"
+          count={connectedCount}
+          subtitle="These integrations are active and syncing."
+          action={
+            <span className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border ${
+              anyStale
+                ? "text-amber-500 border-amber-500/30 bg-amber-500/10"
+                : "text-green-500 border-green-500/30 bg-green-500/10"
+            }`}>
+              {anyStale ? <AlertCircle className="h-3.5 w-3.5" /> : <CheckCircle className="h-3.5 w-3.5" />}
+              {anyStale ? "Attention needed" : "All systems operational"}
+            </span>
+          }
+        />
+
+        {/* Toast POS — dedicated config page */}
         <Link href="/integrations/toast" className="block group">
-          <div className="border border-border rounded-lg p-4 bg-card hover:border-primary/50 hover:bg-primary/5 transition-colors">
+          <div className="rounded-lg border border-green-500/30 bg-green-500/[0.04] p-3 hover:bg-green-500/[0.07] transition-colors">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <BrandLogo slug="toasttab" fallback={<Store className="h-[18px] w-[18px] text-primary" />} />
+                <BrandLogo slug="toasttab" fallback={<Store className="h-5 w-5 text-primary" />} />
                 <div>
                   <h3 className="font-semibold text-sm">Toast POS</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Sync sales, orders, labor, and menu data from Toast
-                  </p>
+                  <p className="text-xs text-muted-foreground">Sales, orders, labor, and menu data</p>
                 </div>
               </div>
-              <span className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md font-semibold group-hover:bg-primary/90 transition-colors">
+              <span className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border bg-card rounded-md font-medium group-hover:bg-muted/50 transition-colors shrink-0">
                 Configure
                 <ArrowRight className="h-3.5 w-3.5" />
               </span>
@@ -298,7 +579,7 @@ export default function IntegrationsPage() {
           </div>
         </Link>
 
-        <IntegrationCard
+        <EmailIntegration
           title="Gmail"
           description="Import invoices and receipts from Gmail attachments"
           slug="gmail"
@@ -313,7 +594,7 @@ export default function IntegrationsPage() {
           disconnecting={disconnectingGmail}
         />
 
-        <IntegrationCard
+        <EmailIntegration
           title="Outlook / Microsoft 365"
           description="Import invoices and receipts from Outlook attachments"
           slug="microsoftoutlook"
@@ -331,9 +612,9 @@ export default function IntegrationsPage() {
         <PushOpsCard />
 
         {/* Google Ads via Pipeboard — connect, sync, job history */}
-        <div className="border border-border rounded-lg p-4 bg-card space-y-4">
+        <div className="rounded-lg border border-border bg-card p-4 space-y-3">
           <div className="flex items-center gap-3">
-            <BrandLogo fallback={<Megaphone className="h-[18px] w-[18px] text-primary" />} />
+            <BrandLogo fallback={<Megaphone className="h-5 w-5 text-primary" />} />
             <div>
               <h3 className="font-semibold text-sm">Google Ads (Pipeboard)</h3>
               <p className="text-xs text-muted-foreground">
@@ -343,7 +624,33 @@ export default function IntegrationsPage() {
           </div>
           <PipeboardIntegration />
         </div>
+      </section>
 
+      {/* ── Coming soon ── */}
+      <section className="rounded-xl border border-border p-4 space-y-4">
+        <SectionHeader
+          dot="bg-muted-foreground/50"
+          title="Coming soon"
+          count={COMING_SOON.length}
+          subtitle="These integrations are on our roadmap."
+        />
+        <div className="space-y-2">
+          {COMING_SOON.map((item) => (
+            <ComingSoonRow
+              key={item.title}
+              title={item.title}
+              description={item.description}
+              slug={item.slug}
+              fallbackIcon={<Clock className="h-5 w-5 text-muted-foreground" />}
+            />
+          ))}
+        </div>
+      </section>
+
+      {/* ── Security footer ── */}
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <ShieldCheck className="h-4 w-4 shrink-0" />
+        Your data is secure. We never delete or modify your original files.
       </div>
     </div>
   );
