@@ -6,7 +6,7 @@ from app.core.exceptions import UnauthorizedError
 from app.core.security import hash_password, hash_refresh_token
 from app.db.repositories.password_reset_repo import PasswordResetRepository
 from app.db.repositories.user_repo import UserRepository
-from app.db.session import get_async_session
+from app.db.session import get_db
 from app.services.email.resend_client import ResendClient
 from app.core.config import settings
 
@@ -28,7 +28,7 @@ class PasswordResetResponse(BaseModel):
 
 @router.post("/password-reset/request", response_model=PasswordResetResponse)
 async def request_password_reset(
-    req: PasswordResetRequest, db=Depends(get_async_session)
+    req: PasswordResetRequest, db=Depends(get_db)
 ) -> PasswordResetResponse:
     """Request password reset. Sends email with reset link."""
     user_repo = UserRepository(db)
@@ -58,7 +58,7 @@ async def request_password_reset(
 
 @router.post("/password-reset/confirm", response_model=PasswordResetResponse)
 async def confirm_password_reset(
-    req: PasswordResetConfirm, db=Depends(get_async_session)
+    req: PasswordResetConfirm, db=Depends(get_db)
 ) -> PasswordResetResponse:
     """Confirm password reset with token. Sets new password."""
     reset_repo = PasswordResetRepository(db)
