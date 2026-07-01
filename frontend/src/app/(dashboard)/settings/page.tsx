@@ -6,7 +6,6 @@ import {
   MapPin,
   Loader2,
   Check,
-  Hash,
   Phone,
   Mail,
   User,
@@ -14,7 +13,6 @@ import {
   DollarSign,
   ChevronDown,
   ChevronUp,
-  UtensilsCrossed,
   Search,
   AlertCircle,
 } from "lucide-react";
@@ -281,7 +279,8 @@ function LocationCard({ loc }: { loc: Location }) {
     loc.timezone && loc.timezone !== "UTC" ? loc.timezone : "America/Toronto"
   );
   const [storeId, setStoreId] = useState(loc.store_id ?? "");
-  const [toastId, setToastId] = useState(loc.toast_location_id ?? "");
+  // Toast POS ID is managed under Integrations; preserved here on save so it isn't wiped.
+  const [toastId] = useState(loc.toast_location_id ?? "");
   const [rentMonthly, setRentMonthly] = useState(loc.rent_monthly_incl_hst ?? "");
   const [googlePlaceId, setGooglePlaceId] = useState(loc.google_place_id ?? "");
 
@@ -520,21 +519,6 @@ function LocationCard({ loc }: { loc: Location }) {
                 />
               </div>
             </Field>
-          </div>
-
-          {/* ── Platform IDs ── */}
-          <div className="p-5 space-y-4">
-            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Platform Integration IDs</p>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Toast POS ID">
-                <Input value={toastId} onChange={setToastId} placeholder="Toast restaurant GUID" icon={Hash} mono />
-              </Field>
-              {googlePlaceId && (
-                <Field label="Google Place ID" hint="Auto-filled from address search.">
-                  <Input value={googlePlaceId} readOnly mono />
-                </Field>
-              )}
-            </div>
           </div>
 
           {/* ── Business Hours ── */}
