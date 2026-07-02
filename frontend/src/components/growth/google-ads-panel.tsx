@@ -7,7 +7,26 @@ import {
   useOptimizationActions,
   useRunOptimization,
 } from '@/hooks/use-google-ads-optimization';
-import { Zap, RefreshCw, CheckCircle2, XCircle, Clock, TrendingUp, Pause, Plus } from 'lucide-react';
+import { useAdsDetail, useAdsCampaigns } from '@/hooks/use-dashboard';
+import { useLocations } from '@/hooks/use-locations';
+import { Zap, RefreshCw, CheckCircle2, XCircle, Clock, TrendingUp, Pause, Plus, DollarSign, Megaphone } from 'lucide-react';
+
+function fmtCAD(n: number, digits = 0): string {
+  return new Intl.NumberFormat('en-CA', {
+    style: 'currency',
+    currency: 'CAD',
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(n);
+}
+
+function last30(): { date_from: string; date_to: string } {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - 29);
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  return { date_from: iso(from), date_to: iso(to) };
+}
 
 const STATUS_STYLES: Record<string, string> = {
   healthy: 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30',
@@ -47,15 +66,99 @@ export function GoogleAdsPanel() {
   const { data: actions, isLoading: actionsLoading } = useOptimizationActions();
   const runOptimization = useRunOptimization();
 
+  const { selectedLocationId } = useLocations();
+  const range = last30();
+  const adsParams = { ...range, location_id: selectedLocationId ?? undefined };
+  const { data: ads } = useAdsDetail(adsParams);
+  const { data: campaigns } = useAdsCampaigns(adsParams);
+
   const status = summary?.status ?? 'watch';
 
   return (
     <div className="space-y-6">
+      {/* Live Google Ads performance (last 30 days) */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold">Performance · last 30 days</h3>
+          {ads?.roas != null && (
+            <span className="text-xs text-muted-foreground">ROAS {ads.roas.toFixed(2)}x</span>
+          )}
+        </div>
+        {ads && ads.spend > 0 ? (
+          <>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <Tile>
+                <TileHeader label="Spend" icon={DollarSign} />
+                <p className="text-2xl font-bold mt-3 tabular-nums">{fmtCAD(ads.spend)}</p>
+              </Tile>
+              <Tile>
+                <TileHeader label="Clicks" icon={TrendingUp} />
+                <p className="text-2xl font-bold mt-3 tabular-nums">{ads.clicks.toLocaleString('en-CA')}</p>
+                <p className="text-xs text-muted-foreground mt-1">CTR {ads.ctr}% · CPC {fmtCAD(ads.cpc, 2)}</p>
+              </Tile>
+              <Tile>
+                <TileHeader label="Conversions" icon={CheckCircle2} />
+                <p className="text-2xl font-bold mt-3 tabular-nums">{ads.conversions}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {ads.cost_per_conversion != null ? `${fmtCAD(ads.cost_per_conversion, 2)}/conv` : '—'}
+                </p>
+              </Tile>
+              <Tile>
+                <TileHeader label="Impressions" icon={Zap} />
+                <p className="text-2xl font-bold mt-3 tabular-nums">{ads.impressions.toLocaleString('en-CA')}</p>
+              </Tile>
+            </div>
+
+            {campaigns?.campaigns && campaigns.campaigns.length > 0 && (
+              <Tile className="mt-4">
+                <TileHeader label="Campaigns" icon={Megaphone} />
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-xs text-muted-foreground border-b border-border">
+                        <th className="text-left font-medium py-1.5">Campaign</th>
+                        <th className="text-right font-medium py-1.5">Spend</th>
+                        <th className="text-right font-medium py-1.5">Clicks</th>
+                        <th className="text-right font-medium py-1.5">Conv</th>
+                        <th className="text-right font-medium py-1.5">ROAS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {campaigns.campaigns.map((c) => (
+                        <tr key={c.campaign_id} className="border-b border-border/50 last:border-0">
+                          <td className="py-1.5 pr-2">
+                            <span className="truncate block max-w-[240px]">{c.name}</span>
+                            <span className="text-[10px] text-muted-foreground uppercase">{c.status}</span>
+                          </td>
+                          <td className="text-right tabular-nums">{fmtCAD(c.spend)}</td>
+                          <td className="text-right tabular-nums">{c.clicks.toLocaleString('en-CA')}</td>
+                          <td className="text-right tabular-nums">{c.conversions}</td>
+                          <td className="text-right tabular-nums">{c.roas != null ? `${c.roas.toFixed(1)}x` : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Tile>
+            )}
+          </>
+        ) : (
+          <div className="border border-border rounded-lg bg-card p-8 text-center text-sm text-muted-foreground">
+            No Google Ads spend in the last 30 days for this location.
+          </div>
+        )}
+      </div>
+
+      <div className="h-px bg-border" />
+
       {/* Header row: description + run button */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <p className="text-sm text-muted-foreground">
-          Auto-optimization runs daily. Recommendations are executed automatically.
-        </p>
+        <div>
+          <h3 className="text-sm font-semibold">Auto-optimization</h3>
+          <p className="text-sm text-muted-foreground">
+            Runs daily. Recommendations are executed automatically.
+          </p>
+        </div>
         <button
           onClick={() => runOptimization.mutate()}
           disabled={runOptimization.isPending}

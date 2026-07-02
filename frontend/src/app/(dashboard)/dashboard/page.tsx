@@ -44,7 +44,6 @@ import {
   useProductMix,
   useSalesByHour,
 } from "@/hooks/use-dashboard";
-import { useReviewsList } from "@/hooks/use-reviews";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { useLocations } from "@/hooks/use-locations";
 import { useLocationStore } from "@/lib/location-store";
@@ -431,7 +430,6 @@ export default function DashboardPage() {
   const { data: googleAds } = useAdsDetail({ ...adsArgs, platform: "google_ads" });
   const { data: reviewsDetail } = useReviewsDetail(locationParam);
   const { data: sentiment } = useReviewsSentiment(locationParam);
-  const { data: recentReviews } = useReviewsList(locationParam, 1, 2);
   const { data: flags } = useReconciliationFlags({ unresolved_only: true });
 
   // AI net-profit suggestions — auto-loaded (server caches daily, so this is
@@ -977,21 +975,6 @@ export default function DashboardPage() {
                   <p className="text-xs text-muted-foreground mt-2 leading-snug">
                     {sentiment.positive_pct}% positive · praise: {sentiment.top_praise} · complaint: {sentiment.top_complaint}
                   </p>
-                )}
-                {recentReviews?.data && recentReviews.data.length > 0 && (
-                  <div className="mt-3 space-y-2 border-t border-border pt-2">
-                    {recentReviews.data.map((r) => (
-                      <div key={r.id} className="space-y-0.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-medium truncate max-w-[100px]">{r.author_name ?? "Guest"}</span>
-                          <span className="text-yellow-400 text-[10px]">{"★".repeat(r.rating ?? 0)}</span>
-                        </div>
-                        {r.comment && (
-                          <p className="text-[10px] text-muted-foreground line-clamp-2 leading-snug">{r.comment}</p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
                 )}
               </>
             ) : (
