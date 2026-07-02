@@ -403,6 +403,138 @@ async def discover_review_location(
     }
 
 
+@router.get("/gbp-diagnostic", response_model=APIResponse[dict])
+async def gbp_diagnostic(user: OwnerDep, db: AsyncSessionDep) -> dict:
+    """Probe each Google Business Profile API step to pinpoint what's blocked.
+
+    Returns per-step status so the owner can tell an allowlist/enablement problem
+    (403/PERMISSION_DENIED / SERVICE_DISABLED) from a scope/token problem
+    (401/UNAUTHENTICATED) — the two look identical in the generic sync error."""
+    import httpx
+    from sqlalchemy import select
+
+    from app.services.google.reviews_client import (
+        GBP_ACCOUNTS_URL,
+        GBP_LOCATIONS_URL,
+        GBP_REVIEWS_URL,
+        GoogleReviewsClient,
+    )
+
+    cred_row = (await db.execute(
+        select(IntegrationCredential).where(
+            IntegrationCredential.tenant_id == user.tenant_id,
+            IntegrationCredential.provider == "google_business",
+        ).order_by(IntegrationCredential.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    if cred_row is None:
+        return {"data": {"connected": False, "hint": "Connect Google Business first."}, "errors": None}
+
+    access_token = decrypt_value(cred_row.access_token_encrypted)
+    refresh_token = decrypt_value(cred_row.refresh_token_encrypted)
+    steps: list[dict] = []
+
+    async with GoogleReviewsClient(access_token, refresh_token) as client:
+        token = await client.get_fresh_access_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        async with httpx.AsyncClient(timeout=25.0) as http:
+            # 1) Token scopes.
+            try:
+                ti = await http.get(
+                    "https://oauth2.googleapis.com/tokeninfo", params={"access_token": token}
+                )
+                scopes = ti.json().get("scope", "") if ti.status_code == 200 else ""
+                steps.append({
+                    "step": "token_scopes",
+                    "status": ti.status_code,
+                    "ok": "business.manage" in scopes,
+                    "detail": scopes or ti.text[:200],
+                })
+            except Exception as exc:  # noqa: BLE001
+                steps.append({"step": "token_scopes", "status": None, "ok": False, "detail": str(exc)})
+
+            # 2) Account Management API.
+            account_name = None
+            try:
+                r = await http.get(GBP_ACCOUNTS_URL, headers=headers)
+                ok = r.status_code == 200
+                if ok:
+                    accts = r.json().get("accounts", [])
+                    account_name = accts[0].get("name") if accts else None
+                steps.append({
+                    "step": "account_management_api",
+                    "status": r.status_code,
+                    "ok": ok,
+                    "detail": (account_name or "no accounts") if ok else r.text[:300],
+                })
+            except Exception as exc:  # noqa: BLE001
+                steps.append({"step": "account_management_api", "status": None, "ok": False, "detail": str(exc)})
+
+            # 3) Business Information API (locations) — needs an account.
+            location_name = None
+            if account_name:
+                try:
+                    r = await http.get(
+                        f"{GBP_LOCATIONS_URL}/{account_name}/locations",
+                        headers=headers,
+                        params={"readMask": "name,title"},
+                    )
+                    ok = r.status_code == 200
+                    if ok:
+                        locs = r.json().get("locations", [])
+                        location_name = locs[0].get("name") if locs else None
+                    steps.append({
+                        "step": "business_information_api",
+                        "status": r.status_code,
+                        "ok": ok,
+                        "detail": (location_name or "no locations") if ok else r.text[:300],
+                    })
+                except Exception as exc:  # noqa: BLE001
+                    steps.append({"step": "business_information_api", "status": None, "ok": False, "detail": str(exc)})
+
+            # 4) My Business v4 reviews — needs account + location.
+            if account_name and location_name:
+                acct_id = account_name.split("/")[-1]
+                loc_id = location_name.split("/")[-1]
+                try:
+                    r = await http.get(
+                        f"{GBP_REVIEWS_URL}/accounts/{acct_id}/locations/{loc_id}/reviews",
+                        headers=headers,
+                        params={"pageSize": 1},
+                    )
+                    ok = r.status_code == 200
+                    steps.append({
+                        "step": "reviews_v4_api",
+                        "status": r.status_code,
+                        "ok": ok,
+                        "detail": (f"totalReviewCount={r.json().get('totalReviewCount')}" if ok else r.text[:300]),
+                    })
+                except Exception as exc:  # noqa: BLE001
+                    steps.append({"step": "reviews_v4_api", "status": None, "ok": False, "detail": str(exc)})
+
+    all_ok = all(s["ok"] for s in steps) and len(steps) >= 4
+    first_fail = next((s for s in steps if not s["ok"]), None)
+    verdict = "ready" if all_ok else "blocked"
+    hint = ""
+    if first_fail:
+        st = first_fail["status"]
+        if st in (401,):
+            hint = "401 UNAUTHENTICATED — token missing business.manage scope; reconnect and grant it."
+        elif st in (403,):
+            hint = (
+                "403 — the API is disabled for this GCP project or the project isn't "
+                "allowlisted for the Business Profile APIs. In GCP console enable: "
+                "My Business Account Management API, My Business Business Information API, "
+                "Google My Business API — then request GBP API access via the "
+                "Business Profile APIs application form."
+            )
+        elif st == 429:
+            hint = "429 — daily quota hit; retry later."
+    return {
+        "data": {"connected": True, "verdict": verdict, "first_failure": first_fail, "steps": steps, "hint": hint},
+        "errors": None,
+    }
+
+
 def _parse_iso(val: str | None) -> datetime | None:
     if not val:
         return None

@@ -160,6 +160,23 @@ export function usePlacesSync() {
   });
 }
 
+export interface GbpDiagnostic {
+  connected: boolean;
+  verdict?: "ready" | "blocked";
+  hint?: string;
+  first_failure?: { step: string; status: number | null; detail: string } | null;
+  steps?: { step: string; status: number | null; ok: boolean; detail: string }[];
+}
+
+export function useGbpDiagnostic() {
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await apiClient.get<{ data: GbpDiagnostic }>(`${BASE}/gbp-diagnostic`);
+      return data.data;
+    },
+  });
+}
+
 export function useReviewsDisconnect() {
   const qc = useQueryClient();
   return useMutation({
