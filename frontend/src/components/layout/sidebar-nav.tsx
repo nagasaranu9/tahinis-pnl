@@ -29,7 +29,6 @@ import {
   Menu,
   X,
   Star,
-  BarChart3,
   Sparkles,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -72,7 +71,6 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Growth",
     items: [
-      { label: "Overview", href: "/marketing", icon: BarChart3, roles: ALL },
       { label: "Campaigns", href: "/campaigns", icon: Megaphone, roles: ALL },
       { label: "Reviews", href: "/reviews", icon: Star, roles: ALL },
       { label: "AI Marketing", href: "/ai-marketing", icon: Sparkles, roles: ALL },

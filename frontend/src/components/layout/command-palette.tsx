@@ -6,7 +6,7 @@ import { useTheme } from "next-themes";
 import {
   LayoutDashboard, FileText, DollarSign, GitMerge, TrendingUp, Bot,
   Settings, Building2, Megaphone, Activity, Star, Search, Moon, Sun,
-  BarChart3, Sparkles,
+  Sparkles,
 } from "lucide-react";
 
 interface Command {
@@ -39,8 +39,7 @@ export function CommandPalette() {
       { label: "Documents", group: "Operations", icon: FileText, href: "/documents" },
       { label: "Integrations", group: "Operations", icon: Building2, href: "/integrations", keywords: "connect toast gmail" },
       { label: "Job Monitor", group: "Operations", icon: Activity, href: "/jobs" },
-      { label: "Growth Overview", group: "Growth", icon: BarChart3, href: "/marketing", keywords: "marketing" },
-      { label: "Campaigns", group: "Growth", icon: Megaphone, href: "/campaigns", keywords: "google ads meta tiktok spend roas" },
+      { label: "Campaigns", group: "Growth", icon: Megaphone, href: "/campaigns", keywords: "google ads meta tiktok spend roas marketing" },
       { label: "Reviews", group: "Growth", icon: Star, href: "/reviews", keywords: "google rating" },
       { label: "AI Marketing", group: "Growth", icon: Sparkles, href: "/ai-marketing", keywords: "competitor intel threat opportunity" },
       { label: "AI Advisor", group: "AI", icon: Bot, href: "/insights", keywords: "insights recommendations" },
