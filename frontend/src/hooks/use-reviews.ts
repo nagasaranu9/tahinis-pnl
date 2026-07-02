@@ -164,6 +164,7 @@ export interface GbpDiagnostic {
   connected: boolean;
   verdict?: "ready" | "blocked";
   hint?: string;
+  pinned?: boolean;
   first_failure?: { step: string; status: number | null; detail: string } | null;
   steps?: { step: string; status: number | null; ok: boolean; detail: string }[];
 }

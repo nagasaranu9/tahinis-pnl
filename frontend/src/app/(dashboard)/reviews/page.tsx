@@ -112,6 +112,11 @@ function GbpAccessCard() {
               </div>
             ))}
           </div>
+          {data.pinned && (
+            <p className="text-xs text-green-600 flex items-center gap-1.5">
+              <CheckCircle className="h-3.5 w-3.5" /> Account + location pinned — click Sync Now to pull full history.
+            </p>
+          )}
           {data.hint && (
             <p className="text-xs text-muted-foreground border-t border-border pt-2 mt-2 leading-relaxed">
               {data.hint}

@@ -511,6 +511,24 @@ async def gbp_diagnostic(user: OwnerDep, db: AsyncSessionDep) -> dict:
                 except Exception as exc:  # noqa: BLE001
                     steps.append({"step": "reviews_v4_api", "status": None, "ok": False, "detail": str(exc)})
 
+    # If we reached real account + location IDs, pin them on the active config.
+    # Account Management is per-minute-quota-limited, so caching the IDs means
+    # future syncs hit only the v4 reviews API (separate quota) — no re-discovery.
+    pinned = False
+    if account_name and location_name:
+        repo = ReviewsRepository(db)
+        configs = await repo.list_configs(user.tenant_id)
+        config = next((c for c in configs if c.is_active), None)
+        if config and (config.account_name != account_name or config.location_name != location_name):
+            await repo.set_manual_location(
+                tenant_id=user.tenant_id,
+                location_id=config.location_id,
+                account_name=account_name,
+                location_name=location_name,
+            )
+            await db.commit()
+            pinned = True
+
     all_ok = all(s["ok"] for s in steps) and len(steps) >= 4
     first_fail = next((s for s in steps if not s["ok"]), None)
     verdict = "ready" if all_ok else "blocked"
@@ -528,9 +546,22 @@ async def gbp_diagnostic(user: OwnerDep, db: AsyncSessionDep) -> dict:
                 "Business Profile APIs application form."
             )
         elif st == 429:
-            hint = "429 — daily quota hit; retry later."
+            hint = (
+                "429 — the Business Profile Account Management API is enabled but the "
+                "per-minute request quota is exhausted (default GBP quota is very low). "
+                "Wait ~60s and Check access again; if it keeps 429, request a quota "
+                "increase for the Business Profile APIs in the GCP console. Once the "
+                "account/location IDs pin, sync uses the separate reviews-API quota."
+            )
     return {
-        "data": {"connected": True, "verdict": verdict, "first_failure": first_fail, "steps": steps, "hint": hint},
+        "data": {
+            "connected": True,
+            "verdict": verdict,
+            "first_failure": first_fail,
+            "steps": steps,
+            "hint": hint,
+            "pinned": pinned,
+        },
         "errors": None,
     }
 
