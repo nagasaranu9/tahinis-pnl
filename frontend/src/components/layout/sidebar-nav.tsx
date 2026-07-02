@@ -29,6 +29,7 @@ import {
   Sun,
   Menu,
   X,
+  Star,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -39,18 +40,50 @@ interface NavItem {
   roles: Role[];
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["owner", "manager", "viewer"] },
-  { label: "P&L Reports", href: "/pnl", icon: TrendingUp, roles: ["owner", "manager", "viewer"] },
-  { label: "Documents", href: "/documents", icon: FileText, roles: ["owner", "manager", "viewer"] },
-  { label: "Expenses", href: "/expenses", icon: DollarSign, roles: ["owner", "manager", "viewer"] },
-  { label: "Reconciliation", href: "/reconciliation", icon: GitMerge, roles: ["owner", "manager", "viewer"] },
-  { label: "AI Insights", href: "/insights", icon: Bot, roles: ["owner", "manager", "viewer"] },
-  { label: "Marketing", href: "/marketing", icon: Megaphone, roles: ["owner", "manager", "viewer"] },
-  { label: "Google Ads", href: "/google-ads", icon: Zap, roles: ["owner", "manager", "viewer"] },
-  { label: "Job Monitor", href: "/jobs", icon: Activity, roles: ["owner", "manager"] },
-  { label: "Integrations", href: "/integrations", icon: Building2, roles: ["owner"] },
-  { label: "Settings", href: "/settings", icon: Settings, roles: ["owner"] },
+interface NavGroup {
+  label: string | null; // null = ungrouped (no caption)
+  items: NavItem[];
+}
+
+const ALL: Role[] = ["owner", "manager", "viewer"];
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: null,
+    items: [{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ALL }],
+  },
+  {
+    label: "Finance",
+    items: [
+      { label: "P&L Reports", href: "/pnl", icon: TrendingUp, roles: ALL },
+      { label: "Expenses", href: "/expenses", icon: DollarSign, roles: ALL },
+      { label: "Reconciliation", href: "/reconciliation", icon: GitMerge, roles: ALL },
+    ],
+  },
+  {
+    label: "Operations",
+    items: [
+      { label: "Documents", href: "/documents", icon: FileText, roles: ALL },
+      { label: "Integrations", href: "/integrations", icon: Building2, roles: ["owner"] },
+      { label: "Job Monitor", href: "/jobs", icon: Activity, roles: ["owner", "manager"] },
+    ],
+  },
+  {
+    label: "Marketing",
+    items: [
+      { label: "Marketing", href: "/marketing", icon: Megaphone, roles: ALL },
+      { label: "Google Ads", href: "/google-ads", icon: Zap, roles: ALL },
+      { label: "Reviews", href: "/reviews", icon: Star, roles: ALL },
+    ],
+  },
+  {
+    label: "AI",
+    items: [{ label: "AI Advisor", href: "/insights", icon: Bot, roles: ALL }],
+  },
+  {
+    label: null,
+    items: [{ label: "Settings", href: "/settings", icon: Settings, roles: ["owner"] }],
+  },
 ];
 
 function formatRelative(iso: string | null): string {
@@ -87,12 +120,20 @@ export function SidebarNav() {
     setMobileOpen(false);
   }, [pathname]);
 
+  // Bottom nav "More" button opens the drawer via a global event.
+  useEffect(() => {
+    const open = () => setMobileOpen(true);
+    window.addEventListener("toggle-sidebar", open);
+    return () => window.removeEventListener("toggle-sidebar", open);
+  }, []);
+
   const { data: flags } = useReconciliationFlags({ unresolved_only: true });
   const unresolvedCount = flags?.meta?.total ?? 0;
 
-  const visibleItems = NAV_ITEMS.filter((item) =>
-    role ? item.roles.includes(role) : false
-  );
+  const visibleGroups = NAV_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((item) => (role ? item.roles.includes(role) : false)),
+  })).filter((g) => g.items.length > 0);
 
   async function handleLogout() {
     if (refreshToken) {
@@ -211,34 +252,43 @@ export function SidebarNav() {
             <div className="h-px bg-border/60 mx-1 mb-1" />
           </>
         )}
-        {visibleItems.map((item) => {
-          const Icon = item.icon;
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "relative flex items-center gap-3 pl-3.5 pr-2.5 py-[7px] rounded-md text-[13.5px] font-medium transition-colors duration-150 cursor-pointer",
-                active
-                  ? "bg-primary/8 text-primary"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
-              )}
-            >
-              {active && (
-                <span className="absolute left-0 top-1.5 bottom-1.5 w-[2.5px] rounded-full bg-primary" />
-              )}
-              <Icon className={cn("h-[17px] w-[17px] shrink-0", active ? "text-primary" : "text-muted-foreground/80")} />
-              <span className="flex-1 truncate">{item.label}</span>
-              {item.href === "/reconciliation" && unresolvedCount > 0 && (
-                <span className="ml-auto text-[10px] font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-tight tabular-nums">
-                  {unresolvedCount > 99 ? "99+" : unresolvedCount}
-                </span>
-              )}
-            </Link>
-          );
-        })}
+        {visibleGroups.map((group, gi) => (
+          <div key={group.label ?? `g${gi}`} className={gi > 0 ? "mt-3" : ""}>
+            {group.label && (
+              <p className="px-3.5 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/50">
+                {group.label}
+              </p>
+            )}
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              const active = pathname === item.href || pathname.startsWith(item.href + "/");
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "relative flex items-center gap-3 pl-3.5 pr-2.5 py-[7px] rounded-md text-[13.5px] font-medium transition-colors duration-150 cursor-pointer",
+                    active
+                      ? "bg-primary/8 text-primary"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                  )}
+                >
+                  {active && (
+                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2.5px] rounded-full bg-primary" />
+                  )}
+                  <Icon className={cn("h-[17px] w-[17px] shrink-0", active ? "text-primary" : "text-muted-foreground/80")} />
+                  <span className="flex-1 truncate">{item.label}</span>
+                  {item.href === "/reconciliation" && unresolvedCount > 0 && (
+                    <span className="ml-auto text-[10px] font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-tight tabular-nums">
+                      {unresolvedCount > 99 ? "99+" : unresolvedCount}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       {/* Footer */}

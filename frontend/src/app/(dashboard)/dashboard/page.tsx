@@ -44,6 +44,7 @@ import {
   useSalesByHour,
 } from "@/hooks/use-dashboard";
 import { useReviewsList } from "@/hooks/use-reviews";
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { useLocations } from "@/hooks/use-locations";
 import { useLocationStore } from "@/lib/location-store";
 import { useQueryClient } from "@tanstack/react-query";
@@ -640,17 +641,19 @@ export default function DashboardPage() {
       {/* ── Row 1: Hero ── */}
       <div>
         <RowLabel>Hero metrics</RowLabel>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory pb-1 -mx-3 px-3 sm:mx-0 sm:px-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:overflow-visible [&>*]:snap-start [&>*]:shrink-0 [&>*]:min-w-[78%] sm:[&>*]:min-w-0 [&>*]:w-full [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <Tile href="/pnl">
             <TileHeader label="Net Sales" icon={TrendingUp} />
-            <p className="text-3xl font-bold tabular-nums tracking-tight text-primary">{pnlLoading ? "…" : fmtCAD(li?.net_revenue, 2)}</p>
+            <p className="text-3xl font-bold tabular-nums tracking-tight text-primary">
+              {pnlLoading ? "…" : <AnimatedNumber value={li?.net_revenue != null ? parseFloat(li.net_revenue) : null} format={(n) => fmtCAD(n, 2)} />}
+            </p>
             <div className="mt-1 flex items-center gap-1.5"><DeltaText delta={netDelta} /><span className="text-xs text-muted-foreground">vs prior</span></div>
             <p className="text-xs text-muted-foreground">{plural(orderCount, "order")}{dineInPct != null ? ` · Dine-in ${dineInPct.toFixed(0)}%` : ""}</p>
             {salesSpark.length > 1 && <Sparkline data={salesSpark} color="#185FA5" />}
           </Tile>
           <Tile href="/pnl">
             <TileHeader label="MTD Sales" icon={DollarSign} />
-            <p className="text-3xl font-bold tabular-nums tracking-tight">{fmtCAD(mtdNet)}</p>
+            <p className="text-3xl font-bold tabular-nums tracking-tight"><AnimatedNumber value={mtdNet} format={(n) => fmtCAD(n)} /></p>
             <div className="mt-1 flex items-center gap-1.5">
               {pace != null && (
                 <span className={`text-xs font-semibold ${pace >= 100 ? "text-green-500" : pace >= 85 ? "text-yellow-500" : "text-red-500"}`}>
@@ -674,7 +677,7 @@ export default function DashboardPage() {
           </Tile>
           <Tile href="/pnl">
             <TileHeader label="Net Profit" icon={TrendingUp} />
-            <p className={`text-3xl font-bold tabular-nums tracking-tight ${profitNoCosts ? "text-muted-foreground" : profitColor(netProfit)}`}>{profitNoCosts ? fmtCAD(netProfit, 2) : fmtCAD(netProfit, 2)}</p>
+            <p className={`text-3xl font-bold tabular-nums tracking-tight ${profitNoCosts ? "text-muted-foreground" : profitColor(netProfit)}`}><AnimatedNumber value={netProfit} format={(n) => fmtCAD(n, 2)} /></p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {profitNoCosts
                 ? "Awaiting cost data"
