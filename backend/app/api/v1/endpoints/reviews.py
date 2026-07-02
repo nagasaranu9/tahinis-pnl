@@ -279,6 +279,11 @@ async def reviews_sync(
             if res.get("status") == "ok":
                 refreshed += 1
 
+        # Commit the Places repoint NOW so the GBP import below (which runs in its
+        # own DB session) sees the corrected cfg.location_id — otherwise it would
+        # write full-history rows under the pre-repoint location.
+        await db.commit()
+
         # 2) If GBP account+location are pinned, pull FULL history via the v4
         # reviews API inline (own session, own commit). Runs even if the Celery
         # worker is down; GoogleAPIRateLimitError just stops this attempt.
