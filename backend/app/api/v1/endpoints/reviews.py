@@ -163,33 +163,131 @@ async def reviews_list(
     }
 
 
+async def _resolve_tenant_place_id(db, tenant_id: uuid.UUID, config) -> str | None:
+    """Best usable Google Place ID: a real config.place_id, else any tenant
+    Location's google_place_id (the id AI Marketing uses). Ignores the "pending"
+    OAuth placeholder."""
+    from sqlalchemy import select
+    from app.db.models.location import Location
+
+    def usable(pid: str | None) -> bool:
+        return bool(pid) and pid.split("/")[-1].startswith("ChIJ")
+
+    if usable(config.place_id):
+        return config.place_id
+    rows = (await db.execute(
+        select(Location).where(
+            Location.tenant_id == tenant_id,
+            Location.google_place_id.isnot(None),
+        )
+    )).scalars().all()
+    for loc in rows:
+        if usable(loc.google_place_id):
+            return loc.google_place_id
+    return None
+
+
+async def _places_refresh_core(db, repo: ReviewsRepository, tenant_id: uuid.UUID, config, api_key: str) -> dict:
+    """Synchronous Places (New) refresh for one config: resolve place_id, pull
+    rating + recent reviews, self-heal onto the matching Location, snapshot."""
+    from app.services.google.places_client import PlacesAPIError, get_place_reviews
+
+    place_id = await _resolve_tenant_place_id(db, tenant_id, config)
+    if not place_id:
+        return {"status": "skipped", "reason": "no_place_id"}
+    try:
+        details = await get_place_reviews(place_id, api_key)
+    except PlacesAPIError as exc:
+        logger.error("sync_places_refresh_failed", status=exc.status, body=exc.body[:200])
+        return {"status": "error", "http": exc.status}
+
+    target = await repo.find_location_id_by_place_id(tenant_id, details["place_id"])
+    if target and target != config.location_id:
+        await repo.repoint_config(config, target)
+    write_location_id = config.location_id
+
+    imported = 0
+    sampled_stars: dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    for r in details["reviews"]:
+        if not r.get("name"):
+            continue
+        rating = int(r["rating"]) if r.get("rating") is not None else None
+        published = _parse_iso(r.get("publish_time"))
+        await repo.upsert_review(
+            tenant_id=tenant_id,
+            location_id=write_location_id,
+            review_id=r["name"],
+            author_name=r.get("author"),
+            rating=rating,
+            comment=r.get("text"),
+            published_at=published,
+            update_time=published,
+            reply_comment=None,
+            reply_update_time=None,
+        )
+        imported += 1
+        if isinstance(r.get("rating"), (int, float)) and 1 <= int(r["rating"]) <= 5:
+            sampled_stars[int(r["rating"])] += 1
+
+    await repo.save_snapshot(
+        tenant_id=tenant_id,
+        location_id=write_location_id,
+        snapshot_date=datetime.now(UTC),
+        average_rating=details.get("rating"),
+        total_review_count=details.get("user_rating_count") or 0,
+        star_counts=sampled_stars,
+    )
+    config.place_id = details["place_id"]
+    await repo.mark_synced(config.id)
+    return {
+        "status": "ok",
+        "imported": imported,
+        "rating": details.get("rating"),
+        "total_review_count": details.get("user_rating_count"),
+    }
+
+
 @router.post("/sync", response_model=APIResponse[dict])
 async def reviews_sync(
     user: ManagerDep,
     db: AsyncSessionDep,
     location_id: uuid.UUID | None = Query(None),
 ) -> dict:
-    from app.workers.tasks.reviews_sync import refresh_reviews_places, sync_reviews
+    """Sync Now. Runs the Places (New) refresh INLINE (synchronous) so it works
+    even if the Celery worker is down, and also dispatches the GBP sync task for
+    full history when the worker is available."""
+    from app.core.config import settings
+    from app.workers.tasks.reviews_sync import sync_reviews
 
     repo = ReviewsRepository(db)
     configs = await repo.list_configs(user.tenant_id)
     if not configs:
-        return {"data": {"queued": 0}, "errors": None}
+        return {"data": {"queued": 0, "refreshed": 0}, "errors": None}
 
     targets = [c for c in configs if not location_id or c.location_id == location_id]
+    api_key = settings.GOOGLE_PLACES_API_KEY
+    refreshed = 0
+    results: list[dict] = []
     for cfg in targets:
-        sync_reviews.apply_async(
-            kwargs={"tenant_id": str(user.tenant_id), "location_id": str(cfg.location_id)},
-            queue="sync",
-        )
-        # Also kick the Places refresh: GBP sync is daily-quota-limited and needs
-        # allowlisting, so on-demand "Sync Now" leans on Places (New) to keep the
-        # rating + recent reviews fresh. The task resolves the place_id itself
-        # (config.place_id or the Location's google_place_id).
-        refresh_reviews_places.apply_async(
-            kwargs={"tenant_id": str(user.tenant_id), "location_id": str(cfg.location_id)},
-            queue="sync",
-        )
+        # Best-effort GBP full-history sync via the worker (may be down / quota).
+        try:
+            sync_reviews.apply_async(
+                kwargs={"tenant_id": str(user.tenant_id), "location_id": str(cfg.location_id)},
+                queue="sync",
+            )
+        except Exception as exc:  # noqa: BLE001 — worker/broker optional
+            logger.warning("reviews_sync_dispatch_failed", error=str(exc))
+        # Inline Places refresh — the reliable path (no worker needed).
+        if api_key:
+            res = await _places_refresh_core(db, repo, user.tenant_id, cfg, api_key)
+            results.append(res)
+            if res.get("status") == "ok":
+                refreshed += 1
+    await db.commit()
+    return {
+        "data": {"queued": len(targets), "refreshed": refreshed, "results": results},
+        "errors": None,
+    }
 
     return {"data": {"queued": len(targets)}, "errors": None}
 
