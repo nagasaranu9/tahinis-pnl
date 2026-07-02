@@ -30,6 +30,7 @@ import { useReconciliationFlags } from "@/hooks/use-reconciliation";
 import { usePlatformMetrics } from "@/hooks/use-pipeboard";
 import {
   useChannelMix,
+  useGuestCount,
   useFulfillment,
   useTopVendors,
   useCashForecast,
@@ -406,6 +407,8 @@ export default function DashboardPage() {
 
   // Operational
   const { data: channelMix, isLoading: channelLoading } = useChannelMix(rangeArgs);
+  const { data: guests } = useGuestCount(rangeArgs);
+  const { data: prevGuests } = useGuestCount({ date_from: prevPeriod.start, date_to: prevPeriod.end, location_id: locationParam });
   const { data: discVoids } = useDiscountsVoids(rangeArgs);
   const { data: fulfillment, isLoading: fulfillmentLoading } = useFulfillment(rangeArgs);
   const { data: productMix } = useProductMix({ ...rangeArgs, limit: 6 });
@@ -458,6 +461,7 @@ export default function DashboardPage() {
   // Net sales delta — show even on Today (vs yesterday) per spec
   const netDelta = calcDelta(li?.net_revenue, prevLi?.net_revenue);
   const avgCheckDelta = calcDelta(avgCheck, prevAvgCheck);
+  const guestDelta = calcDelta(guests?.total_guests, prevGuests?.total_guests);
 
   const dineInPct = useMemo(() => {
     const c = channelMix?.channels.find((x) => /dine/i.test(x.channel));
@@ -784,6 +788,39 @@ export default function DashboardPage() {
             ) : (
               <p className="text-sm text-muted-foreground">—</p>
             )}
+          </Tile>
+        </div>
+      </div>
+
+      {/* ── Guests & cash ── */}
+      <div>
+        <RowLabel>Guests &amp; cash</RowLabel>
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+          <Tile>
+            <TileHeader label="Guest Count" icon={Users} />
+            <p className="text-3xl font-bold tabular-nums tracking-tight">
+              <AnimatedNumber value={guests?.total_guests ?? null} format={(n) => Math.round(n).toLocaleString("en-CA")} />
+            </p>
+            <div className="mt-1 flex items-center gap-1.5">
+              <DeltaText delta={guestDelta} />
+              <span className="text-xs text-muted-foreground">
+                {guests?.avg_party_size != null ? `${guests.avg_party_size} avg party` : "vs prior"}
+              </span>
+            </div>
+          </Tile>
+          <Tile>
+            <TileHeader label="Avg Party Size" icon={Users} />
+            <p className="text-3xl font-bold tabular-nums tracking-tight">
+              {guests?.avg_party_size != null ? guests.avg_party_size.toFixed(1) : "—"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {guests?.order_count ? `${plural(guests.order_count, "order")}` : " "}
+            </p>
+          </Tile>
+          <Tile>
+            <TileHeader label="Cash Position" icon={Wallet} />
+            <p className="text-3xl font-bold text-muted-foreground">—</p>
+            <ComingSoon note="Live cash position lands once bank feeds are connected." />
           </Tile>
         </div>
       </div>

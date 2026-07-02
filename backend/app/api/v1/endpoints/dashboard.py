@@ -143,6 +143,34 @@ async def channel_mix(
     return {"data": {"total_revenue": round(total, 2), "channels": channels}, "errors": None}
 
 
+@router.get("/guest-count", response_model=APIResponse[dict])
+async def guest_count(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    date_from: str = Query(..., description="YYYY-MM-DD"),
+    date_to: str = Query(..., description="YYYY-MM-DD"),
+    location_id: uuid.UUID | None = Query(None),
+) -> dict:
+    """Total guests served (Toast numberOfGuests) plus order count and average
+    party size over the range. Filtered by business_date (4am boundary)."""
+    start, end = _parse_range(date_from, date_to)
+
+    row = (await db.execute(
+        select(
+            func.coalesce(func.sum(ToastOrder.guest_count), 0).label("guests"),
+            func.count(ToastOrder.id).label("orders"),
+        ).where(and_(*_toast_filters(user, location_id, start, end)))
+    )).one()
+
+    guests = int(row.guests or 0)
+    orders = int(row.orders or 0)
+    avg_party = round(guests / orders, 1) if orders > 0 else None
+    return {
+        "data": {"total_guests": guests, "order_count": orders, "avg_party_size": avg_party},
+        "errors": None,
+    }
+
+
 @router.get("/discounts-voids", response_model=APIResponse[dict])
 async def discounts_voids(
     user: CurrentUserDep,

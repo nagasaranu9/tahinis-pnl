@@ -36,6 +36,26 @@ export function useChannelMix(p: RangeParams) {
   });
 }
 
+export interface GuestCount {
+  total_guests: number;
+  order_count: number;
+  avg_party_size: number | null;
+}
+
+export function useGuestCount(p: RangeParams) {
+  return useQuery({
+    queryKey: ["dashboard-guest-count", p],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: GuestCount }>(
+        `${BASE}/guest-count?${rangeQS(p)}`
+      );
+      return data.data;
+    },
+    enabled: Boolean(p.date_from && p.date_to),
+    staleTime: 60_000,
+  });
+}
+
 export interface Fulfillment {
   avg_seconds: number | null;
   target_seconds: number;
