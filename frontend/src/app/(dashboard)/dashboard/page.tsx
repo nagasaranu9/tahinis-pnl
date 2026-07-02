@@ -445,6 +445,17 @@ export default function DashboardPage() {
 
   // Intraday sales shape
   const { data: salesByHour } = useSalesByHour(rangeArgs);
+  // Service day runs 9am → 4am next day. Rotate the 24 hourly points to start
+  // at 9a and skip the 5a–8a dead hours (restaurant closed) so the curve fills
+  // the axis instead of a long flat pre-open stretch.
+  const hourlyOrdered = useMemo(() => {
+    if (!salesByHour) return [];
+    const byHour = new Map(salesByHour.points.map((p) => [p.hour, p.net_revenue]));
+    return Array.from({ length: 20 }, (_, i) => {
+      const hour = (9 + i) % 24;
+      return { idx: i, hour, net_revenue: byHour.get(hour) ?? 0 };
+    });
+  }, [salesByHour]);
 
   const li = pnl?.line_items;
   const prevLi = prevPnl?.line_items;
@@ -705,7 +716,7 @@ export default function DashboardPage() {
             </div>
             <div className="h-56 mt-2">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={salesByHour.points} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                <AreaChart data={hourlyOrdered} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
                   <defs>
                     <linearGradient id="salesHourFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#185FA5" stopOpacity={0.25} />
@@ -714,8 +725,12 @@ export default function DashboardPage() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-border" vertical={false} />
                   <XAxis
-                    dataKey="hour"
-                    tickFormatter={(h: number) => (h === 0 ? "12a" : h < 12 ? `${h}a` : h === 12 ? "12p" : `${h - 12}p`)}
+                    dataKey="idx"
+                    tickFormatter={(idx: number) => {
+                      const h = hourlyOrdered[idx]?.hour;
+                      if (h == null) return "";
+                      return h === 0 ? "12a" : h < 12 ? `${h}a` : h === 12 ? "12p" : `${h - 12}p`;
+                    }}
                     interval={2}
                     tick={{ fontSize: 11 }}
                     stroke="currentColor"
@@ -724,7 +739,7 @@ export default function DashboardPage() {
                   <YAxis tick={{ fontSize: 11 }} stroke="currentColor" className="text-muted-foreground" width={48} tickFormatter={(v: number) => `$${v >= 1000 ? (v / 1000).toFixed(1) + "k" : v}`} />
                   <Tooltip
                     formatter={(v: number) => [fmtCAD(v, 2), "Net sales"]}
-                    labelFormatter={(h: number) => `${h}:00`}
+                    labelFormatter={(idx: number) => `${hourlyOrdered[idx]?.hour ?? idx}:00`}
                     contentStyle={{ fontSize: 12, borderRadius: 8 }}
                   />
                   <Area type="monotone" dataKey="net_revenue" stroke="#185FA5" strokeWidth={2} fill="url(#salesHourFill)" />
