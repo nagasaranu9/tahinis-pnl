@@ -753,7 +753,7 @@ export default function DashboardPage() {
       {/* ── Row 2: Toast POS ── */}
       <div>
         <RowLabel>Toast POS</RowLabel>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <Tile className="lg:col-span-1">
             <TileHeader label="Revenue by Channel" icon={ShoppingCart} />
             {channelLoading ? (
@@ -804,13 +804,6 @@ export default function DashboardPage() {
               <p className="text-sm text-muted-foreground">—</p>
             )}
           </Tile>
-        </div>
-      </div>
-
-      {/* ── Guests & cash ── */}
-      <div>
-        <RowLabel>Guests &amp; cash</RowLabel>
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
           <Tile>
             <TileHeader label="Guest Count" icon={Users} />
             <p className="text-3xl font-bold tabular-nums tracking-tight">
@@ -822,20 +815,6 @@ export default function DashboardPage() {
                 {guests?.avg_party_size != null ? `${guests.avg_party_size} avg party` : "vs prior"}
               </span>
             </div>
-          </Tile>
-          <Tile>
-            <TileHeader label="Avg Party Size" icon={Users} />
-            <p className="text-3xl font-bold tabular-nums tracking-tight">
-              {guests?.avg_party_size != null ? guests.avg_party_size.toFixed(1) : "—"}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {guests?.order_count ? `${plural(guests.order_count, "order")}` : " "}
-            </p>
-          </Tile>
-          <Tile>
-            <TileHeader label="Cash Position" icon={Wallet} />
-            <p className="text-3xl font-bold text-muted-foreground">—</p>
-            <ComingSoon note="Live cash position lands once bank feeds are connected." />
           </Tile>
         </div>
       </div>
