@@ -40,8 +40,9 @@ export function useReviewsSummary(locationId?: string, dateRange?: { from?: stri
       const { data } = await apiClient.get<{ data: ReviewsSummary }>(`${BASE}/summary${query}`);
       return data.data;
     },
-    staleTime: 60 * 60_000,
-    refetchInterval: 60 * 60_000,
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -65,8 +66,9 @@ export function useReviewsList(
       );
       return data;
     },
-    staleTime: 60 * 60_000,
-    refetchInterval: 60 * 60_000,
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+    refetchOnWindowFocus: true,
   });
 }
 

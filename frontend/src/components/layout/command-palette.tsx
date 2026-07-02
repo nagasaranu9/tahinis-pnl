@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
   LayoutDashboard, FileText, DollarSign, GitMerge, TrendingUp, Bot,
-  Settings, Building2, Megaphone, Zap, Activity, Star, Search, Moon, Sun,
+  Settings, Building2, Megaphone, Activity, Star, Search, Moon, Sun,
+  BarChart3, Sparkles,
 } from "lucide-react";
 
 interface Command {
@@ -38,9 +39,10 @@ export function CommandPalette() {
       { label: "Documents", group: "Operations", icon: FileText, href: "/documents" },
       { label: "Integrations", group: "Operations", icon: Building2, href: "/integrations", keywords: "connect toast gmail" },
       { label: "Job Monitor", group: "Operations", icon: Activity, href: "/jobs" },
-      { label: "Marketing", group: "Marketing", icon: Megaphone, href: "/marketing" },
-      { label: "Google Ads", group: "Marketing", icon: Zap, href: "/google-ads", keywords: "spend roas" },
-      { label: "Reviews", group: "Marketing", icon: Star, href: "/reviews", keywords: "google rating" },
+      { label: "Growth Overview", group: "Growth", icon: BarChart3, href: "/marketing", keywords: "marketing" },
+      { label: "Campaigns", group: "Growth", icon: Megaphone, href: "/campaigns", keywords: "google ads meta tiktok spend roas" },
+      { label: "Reviews", group: "Growth", icon: Star, href: "/reviews", keywords: "google rating" },
+      { label: "AI Marketing", group: "Growth", icon: Sparkles, href: "/ai-marketing", keywords: "competitor intel threat opportunity" },
       { label: "AI Advisor", group: "AI", icon: Bot, href: "/insights", keywords: "insights recommendations" },
       { label: "Settings", group: "Operations", icon: Settings, href: "/settings" },
       {

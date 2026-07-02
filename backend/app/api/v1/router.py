@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
     ai_insights,
+    ai_marketing,
     auth,
     dashboard,
     documents,
@@ -32,6 +33,7 @@ api_router.include_router(expenses.router, prefix="/expenses", tags=["expenses"]
 api_router.include_router(reconciliation.router, prefix="/reconciliation", tags=["reconciliation"])
 api_router.include_router(pnl.router, prefix="/pnl", tags=["pnl"])
 api_router.include_router(ai_insights.router, prefix="/ai/insights", tags=["ai-insights"])
+api_router.include_router(ai_marketing.router, prefix="/ai-marketing", tags=["ai-marketing"])
 api_router.include_router(external_platforms.router, prefix="/external", tags=["external-platforms"])
 api_router.include_router(toast_integrations.router, prefix="/integrations/toast", tags=["toast"])
 api_router.include_router(pushops_integrations.router, prefix="/integrations/pushops", tags=["pushops"])
