@@ -259,18 +259,16 @@ const PRESETS: { key: PresetKey; label: string }[] = [
 
 function Tile({
   children,
-  accent,
   href,
   className = "",
 }: {
   children: React.ReactNode;
-  accent?: string;
   href?: string;
   className?: string;
 }) {
   const inner = (
     <div
-      className={`border border-border ${accent ? `border-t-2 ${accent}` : ""} rounded-lg p-4 bg-card hover:border-primary/30 transition-colors h-full ${className}`}
+      className={`rounded-2xl p-5 bg-card border border-border/60 shadow-sm ${href ? "hover:shadow-md hover:-translate-y-0.5" : ""} transition-all duration-200 h-full ${className}`}
     >
       {children}
     </div>
@@ -312,7 +310,7 @@ function ComingSoon({ note }: { note?: string }) {
 
 function RowLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[11px] font-semibold text-muted-foreground/70 uppercase tracking-wider mb-2">
+    <p className="text-xs font-semibold text-muted-foreground/70 uppercase tracking-[0.08em] mb-3">
       {children}
     </p>
   );
@@ -545,9 +543,9 @@ export default function DashboardPage() {
       : 0;
 
   return (
-    <div className="space-y-5 max-w-7xl mx-auto px-3 sm:px-4 overflow-x-hidden">
+    <div className="space-y-8 max-w-7xl mx-auto px-3 sm:px-4 overflow-x-hidden pb-4">
       {/* ── Header ── */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+      <div className="sticky top-0 z-30 -mx-3 sm:-mx-4 px-3 sm:px-4 py-3 bg-background/80 backdrop-blur-md flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 rounded-lg bg-red-500/10 flex items-center justify-center">
             <Flame className="h-5 w-5 text-red-500" />
@@ -643,30 +641,43 @@ export default function DashboardPage() {
       <div>
         <RowLabel>Hero metrics</RowLabel>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Tile accent="border-t-primary" href="/pnl">
+          <Tile href="/pnl">
             <TileHeader label="Net Sales" icon={TrendingUp} />
-            <p className="text-2xl font-bold tabular-nums text-primary">{pnlLoading ? "…" : fmtCAD(li?.net_revenue, 2)}</p>
+            <p className="text-3xl font-bold tabular-nums tracking-tight text-primary">{pnlLoading ? "…" : fmtCAD(li?.net_revenue, 2)}</p>
             <div className="mt-1 flex items-center gap-1.5"><DeltaText delta={netDelta} /><span className="text-xs text-muted-foreground">vs prior</span></div>
             <p className="text-xs text-muted-foreground">{plural(orderCount, "order")}{dineInPct != null ? ` · Dine-in ${dineInPct.toFixed(0)}%` : ""}</p>
             {salesSpark.length > 1 && <Sparkline data={salesSpark} color="#185FA5" />}
           </Tile>
-          <Tile accent="border-t-purple-500" href="/pnl">
+          <Tile href="/pnl">
             <TileHeader label="MTD Sales" icon={DollarSign} />
-            <p className="text-2xl font-bold tabular-nums">{fmtCAD(mtdNet)}</p>
-            <p className="text-xs text-muted-foreground mt-1">Projected {fmtCAD(projection)}</p>
-            <p className="text-xs text-muted-foreground">{pace != null ? `Pace ${pace}% of last month` : "Pace —"}</p>
+            <p className="text-3xl font-bold tabular-nums tracking-tight">{fmtCAD(mtdNet)}</p>
+            <div className="mt-1 flex items-center gap-1.5">
+              {pace != null && (
+                <span className={`text-xs font-semibold ${pace >= 100 ? "text-green-500" : pace >= 85 ? "text-yellow-500" : "text-red-500"}`}>
+                  {pace}% pace
+                </span>
+              )}
+              <span className="text-xs text-muted-foreground">{projection != null ? `${fmtCAD(projection)} est.` : "—"}</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {pace != null ? (pace >= 100 ? "Ahead of last month" : "Behind last month") : " "}
+            </p>
           </Tile>
-          <Tile accent="border-t-green-500" href="/pnl">
+          <Tile href="/pnl">
             <TileHeader label="Prime Cost" icon={ShoppingCart} />
-            <p className={`text-2xl font-bold tabular-nums ${pctColor(li?.prime_cost_pct, { warn: 60, bad: 62 })}`}>{fmtPct(li?.prime_cost_pct)}</p>
-            <p className="text-xs text-muted-foreground mt-1">Target &lt; 60%</p>
+            <p className={`text-3xl font-bold tabular-nums tracking-tight ${pctColor(li?.prime_cost_pct, { warn: 60, bad: 62 })}`}>{fmtPct(li?.prime_cost_pct)}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {li?.prime_cost_pct != null
+                ? parseFloat(li.prime_cost_pct) < 60 ? "Under 60% target" : "Over 60% target"
+                : "Target < 60%"}
+            </p>
           </Tile>
-          <Tile accent="border-t-red-500" href="/pnl">
+          <Tile href="/pnl">
             <TileHeader label="Net Profit" icon={TrendingUp} />
-            <p className={`text-2xl font-bold tabular-nums ${profitNoCosts ? "text-muted-foreground" : profitColor(netProfit)}`}>{profitNoCosts ? fmtCAD(netProfit, 2) : fmtCAD(netProfit, 2)}</p>
+            <p className={`text-3xl font-bold tabular-nums tracking-tight ${profitNoCosts ? "text-muted-foreground" : profitColor(netProfit)}`}>{profitNoCosts ? fmtCAD(netProfit, 2) : fmtCAD(netProfit, 2)}</p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {profitNoCosts
-                ? "Costs not yet allocated for this range"
+                ? "Awaiting cost data"
                 : profitBetterBy != null
                 ? `${profitBetterBy >= 0 ? "▲ Better" : "▼ Worse"} ${fmtCAD(Math.abs(profitBetterBy))} vs ${lastMonth.label}`
                 : `${li?.net_profit_pct ? fmtPct(li.net_profit_pct) + " margin" : ""}`}
@@ -753,7 +764,7 @@ export default function DashboardPage() {
           </Tile>
           <Tile>
             <TileHeader label="Avg Check Size" icon={DollarSign} />
-            <p className="text-2xl font-bold tabular-nums">{fmtCAD(avgCheck, 2)}</p>
+            <p className="text-3xl font-bold tabular-nums tracking-tight">{fmtCAD(avgCheck, 2)}</p>
             <div className="mt-1 flex items-center gap-1.5"><DeltaText delta={avgCheckDelta} />{prevAvgCheck != null && <span className="text-xs text-muted-foreground">vs {fmtCAD(prevAvgCheck, 2)}</span>}</div>
           </Tile>
           <Tile>
@@ -847,7 +858,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           <Tile href="/expenses">
             <TileHeader label="Food Cost" icon={ShoppingCart} />
-            <p className={`text-2xl font-bold tabular-nums ${pctColor(foodPct, { warn: 38, bad: 40 })}`}>{fmtPct(foodPct)}</p>
+            <p className={`text-3xl font-bold tabular-nums tracking-tight ${pctColor(foodPct, { warn: 38, bad: 40 })}`}>{fmtPct(foodPct)}</p>
             <p className="text-xs text-muted-foreground mt-1">
               Target {FOOD_TARGET}% ·{" "}
               {foodOverPp != null && foodOverPp > 0
@@ -899,7 +910,7 @@ export default function DashboardPage() {
           </Tile>
           <Tile>
             <TileHeader label="Labor Cost" icon={Users} />
-            <p className="text-2xl font-bold tabular-nums text-muted-foreground">—</p>
+            <p className="text-3xl font-bold tabular-nums tracking-tight text-muted-foreground">—</p>
             <ComingSoon note="Hours, headcount & avg wage land once PushOperations is live." />
           </Tile>
         </div>
@@ -913,7 +924,7 @@ export default function DashboardPage() {
             <TileHeader label="Google Reviews" icon={Star} />
             {reviewsDetail?.average_rating != null ? (
               <>
-                <p className="text-2xl font-bold tabular-nums text-yellow-500">{reviewsDetail.average_rating.toFixed(1)} ★ <span className="text-xs text-muted-foreground">· {reviewsDetail.total_reviews.toLocaleString("en-CA")}</span></p>
+                <p className="text-3xl font-bold tabular-nums tracking-tight text-yellow-500">{reviewsDetail.average_rating.toFixed(1)} ★ <span className="text-xs text-muted-foreground">· {reviewsDetail.total_reviews.toLocaleString("en-CA")}</span></p>
                 <p className="text-xs text-muted-foreground mt-1">
                   +{reviewsDetail.new_this_month} new · {reviewsDetail.response_rate_pct ?? 0}% responded · {reviewsDetail.unanswered} unanswered
                 </p>
@@ -960,7 +971,7 @@ export default function DashboardPage() {
             <TileHeader label="Google Ads" icon={Megaphone} />
             {googleAds && googleAds.spend > 0 ? (
               <>
-                <p className="text-2xl font-bold tabular-nums">{gaRoas != null ? `${gaRoas.toFixed(1)}x` : "—"} <span className="text-xs text-muted-foreground">ROAS</span></p>
+                <p className="text-3xl font-bold tabular-nums tracking-tight">{gaRoas != null ? `${gaRoas.toFixed(1)}x` : "—"} <span className="text-xs text-muted-foreground">ROAS</span></p>
                 <table className="w-full text-xs mt-2">
                   <tbody>
                     <tr><td className="text-muted-foreground">Spend</td><td className="text-right">{fmtCAD(googleAds.spend)}</td><td className="text-muted-foreground pl-3">CTR</td><td className="text-right">{googleAds.ctr}%</td></tr>
@@ -983,67 +994,83 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── AI: Net Profit suggestions ── */}
+      {/* ── AI Command Center ── */}
       <div>
-        <RowLabel>AI advisor</RowLabel>
-        <div className="border border-border border-t-2 border-t-amber-500 rounded-lg p-4 bg-card">
+        <RowLabel>AI command center</RowLabel>
+        <div className="rounded-2xl p-5 bg-card border border-violet-500/20 shadow-sm ring-1 ring-violet-500/5">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-amber-500" />
-              <p className="text-sm font-semibold">Ways to improve Net Profit</p>
-              <span className="text-xs text-muted-foreground">· {dateRange.label}</span>
+              <div className="h-7 w-7 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                <Sparkles className="h-4 w-4 text-violet-500" />
+              </div>
+              <p className="text-sm font-semibold">Top ways to grow profit</p>
             </div>
-            <button
-              onClick={() => setRefreshSuggestions(true)}
-              disabled={suggestionsLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 hover:bg-amber-500/15 disabled:opacity-50 transition-colors cursor-pointer"
-            >
-              {suggestionsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              Regenerate
-            </button>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/insights"
+                className="text-xs font-medium text-violet-500 hover:text-violet-600 transition-colors"
+              >
+                View all →
+              </Link>
+              <button
+                onClick={() => setRefreshSuggestions(true)}
+                disabled={suggestionsLoading}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-violet-500/10 border border-violet-500/25 text-violet-600 hover:bg-violet-500/15 disabled:opacity-50 transition-colors cursor-pointer"
+              >
+                {suggestionsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                Refresh
+              </button>
+            </div>
           </div>
 
           {suggestionsLoading ? (
-            <p className="text-xs text-muted-foreground mt-3">Analyzing your P&amp;L…</p>
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-24 rounded-xl bg-muted/40 animate-pulse" />
+              ))}
+            </div>
           ) : !profitSuggestions?.available ? (
-            <p className="text-xs text-muted-foreground mt-3">
-              Couldn&apos;t generate suggestions{profitSuggestions?.reason ? ` (${profitSuggestions.reason})` : ""}. Needs P&amp;L data in this period.
+            <p className="text-xs text-muted-foreground mt-4">
+              No recommendations yet{profitSuggestions?.reason ? ` (${profitSuggestions.reason})` : ""}. Needs P&amp;L data in this period.
             </p>
           ) : (
-            <div className="mt-3 space-y-3">
-              {profitSuggestions.headline && (
-                <p className="text-sm text-foreground">{profitSuggestions.headline}</p>
-              )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                {(profitSuggestions.suggestions ?? []).map((s, i) => (
-                  <div key={i} className="rounded-md border border-border p-3 bg-background/40">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium">{s.title}</p>
-                      <span
-                        className={`shrink-0 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
-                          s.priority === "high"
-                            ? "bg-red-500/15 text-red-500"
-                            : s.priority === "medium"
-                            ? "bg-yellow-500/15 text-yellow-600"
-                            : "bg-muted text-muted-foreground"
-                        }`}
+            <>
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                {(profitSuggestions.suggestions ?? []).slice(0, 3).map((s, i) => (
+                  <div key={i} className="rounded-xl border border-border/60 p-3.5 bg-background/40 flex flex-col">
+                    <span
+                      className={`self-start text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                        s.priority === "high"
+                          ? "bg-red-500/15 text-red-500"
+                          : s.priority === "medium"
+                          ? "bg-orange-500/15 text-orange-600"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {s.priority}
+                    </span>
+                    <p className="text-sm font-semibold mt-2 leading-snug line-clamp-2">{s.title}</p>
+                    <p className="text-xs text-muted-foreground mt-1 leading-snug line-clamp-2">{s.detail}</p>
+                    <div className="flex items-center justify-between gap-2 mt-auto pt-3">
+                      {s.impact_monthly > 0 ? (
+                        <span className="text-sm font-bold text-green-600 tabular-nums">
+                          +{fmtCAD(s.impact_monthly)}<span className="text-[10px] font-medium text-muted-foreground">/mo</span>
+                        </span>
+                      ) : <span />}
+                      <Link
+                        href="/insights"
+                        className="shrink-0 text-xs font-semibold px-2.5 py-1 rounded-md bg-violet-500/10 text-violet-600 hover:bg-violet-500/15 transition-colors"
                       >
-                        {s.priority}
-                      </span>
+                        Review
+                      </Link>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1 leading-snug">{s.detail}</p>
-                    {s.impact_monthly > 0 && (
-                      <p className="text-xs font-semibold text-green-600 mt-1.5">
-                        ~{fmtCAD(s.impact_monthly)}/mo potential
-                      </p>
-                    )}
                   </div>
                 ))}
               </div>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-[10px] text-muted-foreground mt-3">
                 AI estimate · validate before acting. Not financial advice.
               </p>
-            </div>
+            </>
           )}
         </div>
       </div>
@@ -1056,7 +1083,7 @@ export default function DashboardPage() {
             <TileHeader label="Invoice Status" icon={FileCheck2} />
             {invoiceStatus ? (
               <>
-                <p className={`text-2xl font-bold tabular-nums ${invoiceStatus.coverage_pct != null ? pctColor(100 - invoiceStatus.coverage_pct, { warn: 10, bad: 25 }) : "text-muted-foreground"}`}>
+                <p className={`text-3xl font-bold tabular-nums tracking-tight ${invoiceStatus.coverage_pct != null ? pctColor(100 - invoiceStatus.coverage_pct, { warn: 10, bad: 25 }) : "text-muted-foreground"}`}>
                   {invoiceStatus.coverage_pct != null ? `${invoiceStatus.coverage_pct}%` : "—"} <span className="text-xs text-muted-foreground">coverage</span>
                 </p>
                 <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
@@ -1074,7 +1101,7 @@ export default function DashboardPage() {
             <TileHeader label="7-Day Cash Forecast" icon={Wallet} />
             {forecast ? (
               <>
-                <p className={`text-2xl font-bold tabular-nums ${forecast.projected_net_flow >= 0 ? "text-green-500" : "text-red-500"}`}>
+                <p className={`text-3xl font-bold tabular-nums tracking-tight ${forecast.projected_net_flow >= 0 ? "text-green-500" : "text-red-500"}`}>
                   {forecast.projected_net_flow >= 0 ? "+" : ""}{fmtCAD(forecast.projected_net_flow)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">Projected net flow · {fmtCAD(forecast.avg_daily_sales)}/day sales · {fmtCAD(forecast.avg_daily_expense)}/day costs</p>
