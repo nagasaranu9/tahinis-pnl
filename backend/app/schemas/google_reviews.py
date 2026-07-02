@@ -40,4 +40,5 @@ class ReviewsSummaryResponse(BaseModel):
     three_star: int
     two_star: int
     one_star: int
+    full_history: bool = False
     recent_reviews: list[GoogleReviewResponse]

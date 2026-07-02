@@ -12,6 +12,7 @@ import {
   useReviewsSync,
   useReviewsDisconnect,
   useGbpDiagnostic,
+  useSetReviewLocation,
 } from "@/hooks/use-reviews";
 import type { GoogleReview } from "@/types/google-reviews";
 
@@ -56,7 +57,69 @@ function ReviewCard({ review }: { review: GoogleReview }) {
   );
 }
 
-function GbpAccessCard() {
+function StarBar({ label, count, total }: { label: string; count: number; total: number }) {
+  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="w-8 text-right text-muted-foreground">{label}</span>
+      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+        <div className="h-full bg-yellow-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="w-8 text-muted-foreground tabular-nums">{count.toLocaleString()}</span>
+    </div>
+  );
+}
+
+function ManualPin({ locationId }: { locationId: string }) {
+  const { mutate: save, isPending, isSuccess } = useSetReviewLocation();
+  const [account, setAccount] = useState("");
+  const [location, setLocation] = useState("");
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-t border-border pt-3 mt-2">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        {open ? "− Hide" : "+ Enter account/location IDs manually"}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          <p className="text-[11px] text-muted-foreground">
+            Quota-blocked? Paste the IDs from the business.google.com URL (formats{" "}
+            <code>accounts/123</code> and <code>accounts/123/locations/456</code>).
+          </p>
+          <input
+            value={account}
+            onChange={(e) => setAccount(e.target.value)}
+            placeholder="accounts/123456789"
+            className="w-full text-sm border border-input rounded-md px-3 py-1.5 bg-background"
+          />
+          <input
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="accounts/123456789/locations/987654321"
+            className="w-full text-sm border border-input rounded-md px-3 py-1.5 bg-background"
+          />
+          <button
+            onClick={() =>
+              save({ location_id: locationId, account_name: account.trim(), location_name: location.trim() })
+            }
+            disabled={isPending || !account.trim() || !location.trim()}
+            className="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+          >
+            {isPending ? "Saving…" : "Pin & enable GBP sync"}
+          </button>
+          {isSuccess && (
+            <span className="ml-2 text-xs text-green-600">Pinned — click Sync Now.</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GbpAccessCard({ locationId }: { locationId: string }) {
   const { mutate: run, isPending, data } = useGbpDiagnostic();
   const stepLabels: Record<string, string> = {
     token_scopes: "OAuth scope (business.manage)",
@@ -129,6 +192,7 @@ function GbpAccessCard() {
           )}
         </div>
       )}
+      <ManualPin locationId={locationId} />
     </div>
   );
 }
@@ -226,10 +290,20 @@ function ReviewsContent() {
                   {summary.total_review_count.toLocaleString()} reviews
                 </p>
               </div>
-              <div className="flex-1 text-sm text-muted-foreground">
-                Overall Google rating across all reviews. Per-star breakdown and full
-                review history need Google Business Profile access (pending).
-              </div>
+              {summary.full_history ? (
+                <div className="flex-1 space-y-1.5">
+                  <StarBar label="5★" count={summary.five_star} total={summary.total_review_count} />
+                  <StarBar label="4★" count={summary.four_star} total={summary.total_review_count} />
+                  <StarBar label="3★" count={summary.three_star} total={summary.total_review_count} />
+                  <StarBar label="2★" count={summary.two_star} total={summary.total_review_count} />
+                  <StarBar label="1★" count={summary.one_star} total={summary.total_review_count} />
+                </div>
+              ) : (
+                <div className="flex-1 text-sm text-muted-foreground">
+                  Overall Google rating across all reviews. Per-star breakdown and full
+                  review history need Google Business Profile access (pending).
+                </div>
+              )}
             </div>
 
             <div className="border border-border rounded-lg bg-card p-6 space-y-3">
@@ -254,7 +328,7 @@ function ReviewsContent() {
             </div>
           </div>
 
-          <GbpAccessCard />
+          <GbpAccessCard locationId={activeConfig.location_id} />
 
           <div>
             <div className="flex items-baseline justify-between mb-3">

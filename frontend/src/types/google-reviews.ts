@@ -26,5 +26,6 @@ export interface ReviewsSummary {
   three_star: number;
   two_star: number;
   one_star: number;
+  full_history?: boolean;
   recent_reviews: GoogleReview[];
 }

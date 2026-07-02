@@ -268,24 +268,43 @@ async def reviews_sync(
     api_key = settings.GOOGLE_PLACES_API_KEY
     refreshed = 0
     results: list[dict] = []
+    gbp_full = 0
     for cfg in targets:
-        # Best-effort GBP full-history sync via the worker (may be down / quota).
-        try:
-            sync_reviews.apply_async(
-                kwargs={"tenant_id": str(user.tenant_id), "location_id": str(cfg.location_id)},
-                queue="sync",
-            )
-        except Exception as exc:  # noqa: BLE001 — worker/broker optional
-            logger.warning("reviews_sync_dispatch_failed", error=str(exc))
-        # Inline Places refresh — the reliable path (no worker needed).
+        # 1) Inline Places refresh FIRST — reliable aggregate (rating + count) and
+        # it self-heals cfg.location_id onto the Place-ID-matched location, so the
+        # GBP import below writes rows under the correct location.
         if api_key:
             res = await _places_refresh_core(db, repo, user.tenant_id, cfg, api_key)
             results.append(res)
             if res.get("status") == "ok":
                 refreshed += 1
+
+        # 2) If GBP account+location are pinned, pull FULL history via the v4
+        # reviews API inline (own session, own commit). Runs even if the Celery
+        # worker is down; GoogleAPIRateLimitError just stops this attempt.
+        if cfg.account_name and cfg.location_name:
+            from app.services.google.reviews_client import GoogleAPIRateLimitError
+            from app.workers.tasks.reviews_sync import _sync_async
+            try:
+                gbp_res = await _sync_async(str(user.tenant_id), str(cfg.location_id))
+                if gbp_res.get("status") == "ok":
+                    gbp_full += 1
+            except GoogleAPIRateLimitError:
+                logger.warning("reviews_sync_gbp_rate_limited", location_id=str(cfg.location_id))
+            except Exception as exc:  # noqa: BLE001 — GBP best-effort
+                logger.warning("reviews_sync_gbp_inline_failed", error=str(exc))
+        else:
+            # Not pinned — best-effort worker dispatch for full history.
+            try:
+                sync_reviews.apply_async(
+                    kwargs={"tenant_id": str(user.tenant_id), "location_id": str(cfg.location_id)},
+                    queue="sync",
+                )
+            except Exception as exc:  # noqa: BLE001 — worker/broker optional
+                logger.warning("reviews_sync_dispatch_failed", error=str(exc))
     await db.commit()
     return {
-        "data": {"queued": len(targets), "refreshed": refreshed, "results": results},
+        "data": {"queued": len(targets), "refreshed": refreshed, "gbp_full": gbp_full, "results": results},
         "errors": None,
     }
 

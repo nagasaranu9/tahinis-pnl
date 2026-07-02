@@ -323,10 +323,14 @@ class ReviewsRepository:
                 "one_star": star_counts[1],
             }
         # No date filter: prefer the true aggregate (Places API gives real rating + full count)
+        star_sum = sum(star_counts.values())
         snap = await self.get_latest_snapshot(tenant_id, location_id)
         if snap is not None and snap.review_count_total:
             avg = float(snap.rating_average) if snap.rating_average is not None else avg
             total = snap.review_count_total
+        # We have the full per-star histogram only when stored (rated) review rows
+        # cover most of the total — i.e. GBP full import, not the Places 5-sample.
+        full_history = total > 0 and star_sum >= total * 0.8
         return {
             "average_rating": avg,
             "total_review_count": total,
@@ -335,6 +339,7 @@ class ReviewsRepository:
             "three_star": star_counts[3],
             "two_star": star_counts[2],
             "one_star": star_counts[1],
+            "full_history": full_history,
         }
 
     # ------------------------------------------------------------------
