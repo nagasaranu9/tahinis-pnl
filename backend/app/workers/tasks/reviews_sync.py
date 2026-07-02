@@ -241,16 +241,33 @@ async def _places_refresh_one_async(tenant_id_str: str, location_id_str: str) ->
         if not config or not config.is_active:
             return {"status": "skipped", "reason": "no_config"}
 
-        # Prefer the config's own place_id; fall back to the Location's
-        # google_place_id (the same id AI Marketing uses successfully). Accept
-        # any non-empty id — get_place_reviews normalizes bare vs "places/..".
-        place_id = config.place_id
+        # Resolve a USABLE Google Place ID. config.place_id is often the "pending"
+        # placeholder from the OAuth callback (truthy but not a real id), and the
+        # config's own location may have no google_place_id. So: prefer a real
+        # config.place_id, else the config location's google_place_id, else ANY
+        # tenant location's google_place_id (the same id AI Marketing uses). The
+        # post-fetch self-heal then repoints the config to the matching location.
+        from app.db.models.location import Location
+
+        def _usable(pid: str | None) -> bool:
+            return bool(pid) and pid.split("/")[-1].startswith("ChIJ")
+
+        place_id = config.place_id if _usable(config.place_id) else None
         if not place_id:
-            from app.db.models.location import Location
             loc = (await db.execute(
                 select(Location).where(Location.id == location_id)
             )).scalar_one_or_none()
-            place_id = loc.google_place_id if loc else None
+            if loc and _usable(loc.google_place_id):
+                place_id = loc.google_place_id
+        if not place_id:
+            any_loc = (await db.execute(
+                select(Location).where(
+                    Location.tenant_id == tenant_id,
+                    Location.google_place_id.isnot(None),
+                )
+            )).scalars().first()
+            if any_loc and _usable(any_loc.google_place_id):
+                place_id = any_loc.google_place_id
         if not place_id:
             return {"status": "skipped", "reason": "no_place_id"}
 

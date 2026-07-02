@@ -360,6 +360,20 @@ async def reviews_places_sync(
     if not resolved and config.place_id and config.place_id.startswith(("ChIJ", "places/")):
         resolved = config.place_id
     if not resolved:
+        # Last resort: reuse a Google Place ID already stored on a tenant
+        # Location (the id AI Marketing uses). Lets Sync/Import work without the
+        # owner re-typing the business name.
+        from sqlalchemy import select
+        from app.db.models.location import Location
+        any_loc = (await db.execute(
+            select(Location).where(
+                Location.tenant_id == user.tenant_id,
+                Location.google_place_id.isnot(None),
+            )
+        )).scalars().first()
+        if any_loc and (any_loc.google_place_id or "").split("/")[-1].startswith("ChIJ"):
+            resolved = any_loc.google_place_id
+    if not resolved:
         return {"data": {"error": "need_place_id_or_query"}, "errors": None}
 
     try:
