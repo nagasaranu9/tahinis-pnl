@@ -84,11 +84,16 @@ async def reviews_callback(code: str, state: str, db: AsyncSessionDep):
         db.add(cred)
         await db.flush()
 
-        # Use first location in DB for this tenant
+        # Prefer a location that already has a Google Place ID (the real,
+        # configured listing) over an arbitrary first row. The config later
+        # self-heals to the exact Place-ID-matched location on first Places sync.
         from sqlalchemy import select
         from app.db.models.location import Location
         loc_row = (await db.execute(
-            select(Location).where(Location.tenant_id == tenant_id).limit(1)
+            select(Location)
+            .where(Location.tenant_id == tenant_id)
+            .order_by(Location.google_place_id.is_(None), Location.created_at)
+            .limit(1)
         )).scalar_one_or_none()
 
         if loc_row:
@@ -364,6 +369,15 @@ async def reviews_places_sync(
         hint = " — enable 'Places API (New)' and check the API key/billing." if exc.status in (403, 400) else ""
         return {"data": {"error": f"Places API HTTP {exc.status}{hint}"}, "errors": None}
 
+    # Self-heal: if this listing's Place ID resolves to a real tenant Location,
+    # move the config + reviews there so per-location queries line up.
+    target_location_id = await repo.find_location_id_by_place_id(
+        user.tenant_id, details["place_id"]
+    )
+    if target_location_id and target_location_id != config.location_id:
+        await repo.repoint_config(config, target_location_id)
+    write_location_id = config.location_id
+
     imported = 0
     for r in details["reviews"]:
         if not r.get("name"):
@@ -372,7 +386,7 @@ async def reviews_places_sync(
         published = _parse_iso(r.get("publish_time"))
         await repo.upsert_review(
             tenant_id=user.tenant_id,
-            location_id=config.location_id,
+            location_id=write_location_id,
             review_id=r["name"],
             author_name=r.get("author"),
             rating=rating,
@@ -393,7 +407,7 @@ async def reviews_places_sync(
             sampled_stars[int(rv)] += 1
     await repo.save_snapshot(
         tenant_id=user.tenant_id,
-        location_id=config.location_id,
+        location_id=write_location_id,
         snapshot_date=datetime.now(UTC),
         average_rating=details.get("rating"),
         total_review_count=details.get("user_rating_count") or 0,

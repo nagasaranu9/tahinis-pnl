@@ -260,6 +260,15 @@ async def _places_refresh_one_async(tenant_id_str: str, location_id_str: str) ->
             logger.error("places_refresh_failed", status=exc.status, body=exc.body[:200])
             return {"status": "error", "http": exc.status}
 
+        # Self-heal: repoint config + reviews to the Location matching this
+        # listing's Place ID, so per-location queries line up with the app.
+        target_location_id = await repo.find_location_id_by_place_id(
+            tenant_id, details["place_id"]
+        )
+        if target_location_id and target_location_id != config.location_id:
+            await repo.repoint_config(config, target_location_id)
+        write_location_id = config.location_id
+
         imported = 0
         sampled_stars: dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
         for r in details["reviews"]:
@@ -269,7 +278,7 @@ async def _places_refresh_one_async(tenant_id_str: str, location_id_str: str) ->
             published = _parse_dt(r.get("publish_time"))
             await repo.upsert_review(
                 tenant_id=tenant_id,
-                location_id=location_id,
+                location_id=write_location_id,
                 review_id=r["name"],
                 author_name=r.get("author"),
                 rating=rating,
@@ -285,7 +294,7 @@ async def _places_refresh_one_async(tenant_id_str: str, location_id_str: str) ->
 
         await repo.save_snapshot(
             tenant_id=tenant_id,
-            location_id=location_id,
+            location_id=write_location_id,
             snapshot_date=datetime.now(timezone.utc),
             average_rating=details.get("rating"),
             total_review_count=details.get("user_rating_count") or 0,

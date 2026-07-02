@@ -3,12 +3,13 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import structlog
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.google_reviews import GoogleReview, GoogleReviewConfig
 from app.db.models.external_platform import GoogleReviewSnapshot
+from app.db.models.location import Location
 
 logger = structlog.get_logger(__name__)
 
@@ -116,6 +117,79 @@ class ReviewsRepository:
         if config:
             config.last_synced_at = datetime.now(timezone.utc)
             await self._db.flush()
+
+    async def find_location_id_by_place_id(
+        self, tenant_id: uuid.UUID, place_id: str
+    ) -> uuid.UUID | None:
+        """Find the tenant Location whose google_place_id matches `place_id`.
+
+        Google Place IDs may be stored bare ('ChIJ...') or as a resource path
+        ('places/ChIJ...'); compare on the bare id so either form matches."""
+        pid = place_id.split("/")[-1]
+        row = (
+            await self._db.execute(
+                select(Location.id).where(
+                    Location.tenant_id == tenant_id,
+                    or_(
+                        Location.google_place_id == pid,
+                        Location.google_place_id == f"places/{pid}",
+                    ),
+                ).limit(1)
+            )
+        ).scalar_one_or_none()
+        return row
+
+    async def repoint_config(
+        self,
+        config: GoogleReviewConfig,
+        new_location_id: uuid.UUID,
+    ) -> None:
+        """Move a review config + its reviews/snapshots to `new_location_id`.
+
+        Reviews were historically attached to whatever Location happened to be
+        first for the tenant (see the OAuth callback). Once the real Place ID
+        resolves to a concrete Location, migrate the rows so per-location review
+        queries line up with the rest of the app."""
+        tenant_id = config.tenant_id
+        old_location_id = config.location_id
+        if old_location_id == new_location_id:
+            return
+
+        # google_reviews unique constraint is (tenant_id, review_id) — no
+        # location component — so moving rows can't collide.
+        await self._db.execute(
+            update(GoogleReview)
+            .where(
+                GoogleReview.tenant_id == tenant_id,
+                GoogleReview.location_id == old_location_id,
+            )
+            .values(location_id=new_location_id)
+        )
+        # Snapshots are unique on (tenant, location, date); drop the old-location
+        # rows (they're cheap to regenerate on the next sync) to avoid collisions.
+        await self._db.execute(
+            delete(GoogleReviewSnapshot).where(
+                GoogleReviewSnapshot.tenant_id == tenant_id,
+                GoogleReviewSnapshot.location_id == old_location_id,
+            )
+        )
+        # A stray config already at the target location would break the unique
+        # (tenant, location) constraint — remove it; this config is authoritative.
+        await self._db.execute(
+            delete(GoogleReviewConfig).where(
+                GoogleReviewConfig.tenant_id == tenant_id,
+                GoogleReviewConfig.location_id == new_location_id,
+                GoogleReviewConfig.id != config.id,
+            )
+        )
+        config.location_id = new_location_id
+        await self._db.flush()
+        logger.info(
+            "review_config_repointed",
+            tenant_id=str(tenant_id),
+            old_location_id=str(old_location_id),
+            new_location_id=str(new_location_id),
+        )
 
     # ------------------------------------------------------------------
     # Reviews
