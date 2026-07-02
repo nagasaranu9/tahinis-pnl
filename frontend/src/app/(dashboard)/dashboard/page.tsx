@@ -561,7 +561,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8 max-w-7xl mx-auto px-3 sm:px-4 overflow-x-hidden pb-4">
       {/* ── Header ── */}
-      <div className="sticky top-0 z-30 -mx-3 sm:-mx-4 px-3 sm:px-4 py-3 bg-background/80 backdrop-blur-md flex items-center justify-between gap-4 flex-wrap">
+      <div className="sticky top-0 z-40 -mx-3 sm:-mx-4 px-3 sm:px-4 py-3 bg-background/80 backdrop-blur-md flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 rounded-lg bg-red-500/10 flex items-center justify-center">
             <Flame className="h-5 w-5 text-red-500" />
@@ -1195,7 +1195,7 @@ export default function DashboardPage() {
 
       {showDateMenu && (
         <div
-          className="fixed inset-0 z-40"
+          className="fixed inset-0 z-30"
           onClick={() => {
             setShowDateMenu(false);
             setShowCustom(false);
