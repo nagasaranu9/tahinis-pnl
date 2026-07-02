@@ -179,12 +179,12 @@ async def reviews_sync(
         )
         # Also kick the Places refresh: GBP sync is daily-quota-limited and needs
         # allowlisting, so on-demand "Sync Now" leans on Places (New) to keep the
-        # rating + recent reviews fresh whenever a place_id is resolved.
-        if cfg.place_id and cfg.place_id.startswith(("ChIJ", "places/")):
-            refresh_reviews_places.apply_async(
-                kwargs={"tenant_id": str(user.tenant_id), "location_id": str(cfg.location_id)},
-                queue="sync",
-            )
+        # rating + recent reviews fresh. The task resolves the place_id itself
+        # (config.place_id or the Location's google_place_id).
+        refresh_reviews_places.apply_async(
+            kwargs={"tenant_id": str(user.tenant_id), "location_id": str(cfg.location_id)},
+            queue="sync",
+        )
 
     return {"data": {"queued": len(targets)}, "errors": None}
 

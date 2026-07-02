@@ -200,13 +200,13 @@ async def _places_refresh_all_async() -> None:
         )).scalars().all()
 
     for cfg in rows:
-        # Only refresh configs with a resolved Place ID; others need the
-        # one-time Places "Import reviews now" (search) on the Reviews tab first.
-        if cfg.place_id and cfg.place_id.startswith(("ChIJ", "places/")):
-            refresh_reviews_places.apply_async(
-                kwargs={"tenant_id": str(cfg.tenant_id), "location_id": str(cfg.location_id)},
-                queue="sync",
-            )
+        # Dispatch for every active config — the task resolves the place_id
+        # (config.place_id or the Location's google_place_id) and skips cleanly
+        # if neither exists.
+        refresh_reviews_places.apply_async(
+            kwargs={"tenant_id": str(cfg.tenant_id), "location_id": str(cfg.location_id)},
+            queue="sync",
+        )
     logger.info("reviews_places_refresh_dispatched", count=len(rows))
 
 
@@ -240,11 +240,22 @@ async def _places_refresh_one_async(tenant_id_str: str, location_id_str: str) ->
         config = await repo.get_config(tenant_id, location_id)
         if not config or not config.is_active:
             return {"status": "skipped", "reason": "no_config"}
-        if not (config.place_id and config.place_id.startswith(("ChIJ", "places/"))):
+
+        # Prefer the config's own place_id; fall back to the Location's
+        # google_place_id (the same id AI Marketing uses successfully). Accept
+        # any non-empty id — get_place_reviews normalizes bare vs "places/..".
+        place_id = config.place_id
+        if not place_id:
+            from app.db.models.location import Location
+            loc = (await db.execute(
+                select(Location).where(Location.id == location_id)
+            )).scalar_one_or_none()
+            place_id = loc.google_place_id if loc else None
+        if not place_id:
             return {"status": "skipped", "reason": "no_place_id"}
 
         try:
-            details = await get_place_reviews(config.place_id, api_key)
+            details = await get_place_reviews(place_id, api_key)
         except PlacesAPIError as exc:
             logger.error("places_refresh_failed", status=exc.status, body=exc.body[:200])
             return {"status": "error", "http": exc.status}

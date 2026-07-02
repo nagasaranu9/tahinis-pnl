@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 import { useLocations } from '@/hooks/use-locations';
-import { useReviewsSummary, useReviewsList } from '@/hooks/use-reviews';
+import { useReviewsSummary, useReviewsList, useReviewsStatus } from '@/hooks/use-reviews';
 import { usePlatformMetrics } from '@/hooks/use-pipeboard';
 import { Tile, TileHeader } from '@/components/ui/tile';
 import { MarketingMetricsTile } from '@/components/marketing-metrics-tile';
@@ -105,14 +105,16 @@ export default function MarketingPage() {
     return getPreset(activePreset);
   }, [activePreset, customStart, customEnd]);
 
-  const { data: reviews, isLoading } = useReviewsSummary(locationId, {
-    from: dateRange.start,
-    to: dateRange.end,
-  });
-  const { data: reviewsData } = useReviewsList(locationId, 1, 5, {
-    from: dateRange.start,
-    to: dateRange.end,
-  });
+  // Reviews are stored against the active Google review config's location, which
+  // may differ from the app-selected location (single GBP listing per tenant).
+  // Key review widgets off the config location so the count matches the Reviews
+  // tab — and show lifetime totals (rating/count are not a date-ranged metric).
+  const { data: reviewConfigs } = useReviewsStatus();
+  const activeReviewCfg = reviewConfigs?.find((c) => c.is_active);
+  const reviewLocationId = activeReviewCfg?.location_id ?? locationId;
+
+  const { data: reviews, isLoading } = useReviewsSummary(reviewLocationId);
+  const { data: reviewsData } = useReviewsList(reviewLocationId, 1, 5);
   const recentReviews = reviewsData?.data || reviews?.recent_reviews;
 
   const { data: platformMetrics, isLoading: metricsLoading } = usePlatformMetrics({
