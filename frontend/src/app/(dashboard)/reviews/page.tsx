@@ -11,9 +11,6 @@ import {
   useReviewsList,
   useReviewsSync,
   useReviewsDisconnect,
-  useSetReviewLocation,
-  useDiscoverReviewLocation,
-  usePlacesSync,
 } from "@/hooks/use-reviews";
 import type { GoogleReview } from "@/types/google-reviews";
 
@@ -27,19 +24,6 @@ function StarRating({ rating }: { rating: number | null }) {
           className={`h-3.5 w-3.5 ${i <= rating ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground/30"}`}
         />
       ))}
-    </div>
-  );
-}
-
-function StarBar({ label, count, total }: { label: string; count: number; total: number }) {
-  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
-  return (
-    <div className="flex items-center gap-2 text-xs">
-      <span className="w-8 text-right text-muted-foreground">{label}</span>
-      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-        <div className="h-full bg-yellow-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="w-6 text-muted-foreground">{count}</span>
     </div>
   );
 }
@@ -71,163 +55,6 @@ function ReviewCard({ review }: { review: GoogleReview }) {
   );
 }
 
-function LocationPin({
-  locationId,
-  accountName,
-  locationName,
-}: {
-  locationId: string;
-  accountName: string | null;
-  locationName: string | null;
-}) {
-  const { mutate: save, isPending, isSuccess } = useSetReviewLocation();
-  const { mutate: discover, isPending: discovering, data: discovered, error: discoverError } =
-    useDiscoverReviewLocation();
-  const [account, setAccount] = useState(accountName ?? "");
-  const [location, setLocation] = useState(locationName ?? "");
-  const pinned = !!accountName && !!locationName;
-
-  return (
-    <div className="border border-border rounded-lg bg-card p-6 space-y-3">
-      <h3 className="text-sm font-semibold">Business Profile location</h3>
-      {!pinned && (
-        <div className="flex items-start gap-2 text-xs text-yellow-500">
-          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-          <span>
-            Sync stays empty until your Google account + location IDs are set.
-            Easiest: click <strong>Auto-detect</strong> below. Manual fallback —
-            copy them from the business.google.com URL (format{" "}
-            <code>accounts/123</code> and <code>accounts/123/locations/456</code>).
-          </span>
-        </div>
-      )}
-      <div className="space-y-1">
-        <button
-          onClick={() => discover(locationId)}
-          disabled={discovering}
-          className="text-sm px-3 py-1.5 rounded-md border border-primary text-primary hover:bg-primary/10 disabled:opacity-50"
-        >
-          {discovering ? "Detecting…" : "Auto-detect from Google"}
-        </button>
-        {discovered?.account_name && (
-          <p className="text-xs text-green-500">
-            Detected {discovered.account_name} / {discovered.location_name}. Click Sync Now.
-          </p>
-        )}
-        {discovered?.error && (
-          <p className="text-xs text-yellow-500">
-            Couldn’t auto-detect ({discovered.error}). Enter IDs manually below.
-          </p>
-        )}
-        {discoverError && (
-          <p className="text-xs text-destructive">
-            {discoverError instanceof Error ? discoverError.message : "Auto-detect failed"}
-          </p>
-        )}
-      </div>
-      <div className="space-y-2">
-        <div>
-          <label className="text-xs font-medium text-muted-foreground">Account name</label>
-          <input
-            value={account}
-            onChange={(e) => setAccount(e.target.value)}
-            placeholder="accounts/123456789"
-            className="mt-1 w-full text-sm border border-input rounded-md px-3 py-1.5 bg-background"
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-muted-foreground">Location name</label>
-          <input
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            placeholder="accounts/123456789/locations/987654321"
-            className="mt-1 w-full text-sm border border-input rounded-md px-3 py-1.5 bg-background"
-          />
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() =>
-            save({ location_id: locationId, account_name: account.trim(), location_name: location.trim() })
-          }
-          disabled={isPending || !account.trim() || !location.trim()}
-          className="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
-        >
-          {isPending ? "Saving…" : pinned ? "Update" : "Save & enable sync"}
-        </button>
-        {isSuccess && (
-          <span className="flex items-center gap-1 text-xs text-green-500">
-            <CheckCircle className="h-3.5 w-3.5" /> Saved — now click Sync Now.
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PlacesFallback({ locationId }: { locationId: string }) {
-  const { mutate: sync, isPending, data, error } = usePlacesSync();
-  const [query, setQuery] = useState("");
-  const [placeId, setPlaceId] = useState("");
-
-  return (
-    <div className="border border-border rounded-lg bg-card p-6 space-y-3">
-      <h3 className="text-sm font-semibold">Quick import (Places API)</h3>
-      <p className="text-xs text-muted-foreground">
-        Business Profile API approval is slow. This pulls your rating + up to 5
-        recent reviews now via the Places API. Search your business or paste a
-        Place ID. Needs <code>GOOGLE_PLACES_API_KEY</code> set on the server.
-      </p>
-      <div className="space-y-2">
-        <div>
-          <label className="text-xs font-medium text-muted-foreground">Search business</label>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Tahini's Shawarma, Church St, Toronto"
-            className="mt-1 w-full text-sm border border-input rounded-md px-3 py-1.5 bg-background"
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-muted-foreground">…or Place ID</label>
-          <input
-            value={placeId}
-            onChange={(e) => setPlaceId(e.target.value)}
-            placeholder="ChIJ..."
-            className="mt-1 w-full text-sm border border-input rounded-md px-3 py-1.5 bg-background"
-          />
-        </div>
-      </div>
-      <button
-        onClick={() =>
-          sync({
-            locationId,
-            query: query.trim() || undefined,
-            placeId: placeId.trim() || undefined,
-          })
-        }
-        disabled={isPending || (!query.trim() && !placeId.trim())}
-        className="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
-      >
-        {isPending ? "Importing…" : "Import reviews now"}
-      </button>
-      {data?.imported !== undefined && !data.error && (
-        <p className="text-xs text-green-500 flex items-center gap-1">
-          <CheckCircle className="h-3.5 w-3.5" />
-          Imported {data.imported} reviews · {data.rating ?? "—"}★ ·{" "}
-          {data.total_review_count ?? 0} total.
-        </p>
-      )}
-      {data?.error && <p className="text-xs text-yellow-500">{data.error}</p>}
-      {error && (
-        <p className="text-xs text-destructive">
-          {error instanceof Error ? error.message : "Import failed"}
-        </p>
-      )}
-    </div>
-  );
-}
-
 function ReviewsContent() {
   const searchParams = useSearchParams();
   const connected = searchParams.get("connected") === "google";
@@ -241,7 +68,6 @@ function ReviewsContent() {
   const activeConfig = configs?.find((c) => c.is_active);
   const { data: summary } = useReviewsSummary(activeConfig?.location_id);
   const { data: reviewsData } = useReviewsList(activeConfig?.location_id);
-  const totalStars = summary?.total_review_count ?? 0;
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -318,26 +144,19 @@ function ReviewsContent() {
                 <div className="flex justify-center mt-1">
                   <StarRating rating={summary.average_rating ? Math.round(summary.average_rating) : null} />
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">{summary.total_review_count} reviews</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {summary.total_review_count.toLocaleString()} reviews
+                </p>
               </div>
-              <div className="flex-1 space-y-1.5">
-                <StarBar label="5★" count={summary.five_star} total={totalStars} />
-                <StarBar label="4★" count={summary.four_star} total={totalStars} />
-                <StarBar label="3★" count={summary.three_star} total={totalStars} />
-                <StarBar label="2★" count={summary.two_star} total={totalStars} />
-                <StarBar label="1★" count={summary.one_star} total={totalStars} />
+              <div className="flex-1 text-sm text-muted-foreground">
+                Overall Google rating across all reviews. Per-star breakdown and full
+                review history need Google Business Profile access (pending).
               </div>
             </div>
 
             <div className="border border-border rounded-lg bg-card p-6 space-y-3">
               <h3 className="text-sm font-semibold">Connection</h3>
               <div className="space-y-1.5 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Account</span>
-                  <span className="font-medium truncate max-w-[180px]">
-                    {activeConfig.account_name ?? "—"}
-                  </span>
-                </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Last synced</span>
                   <span className="font-medium">
@@ -355,20 +174,15 @@ function ReviewsContent() {
                 </div>
               </div>
             </div>
-
-            <LocationPin
-              locationId={activeConfig.location_id}
-              accountName={activeConfig.account_name}
-              locationName={activeConfig.location_name}
-            />
-
-            <PlacesFallback locationId={activeConfig.location_id} />
           </div>
 
           <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-              Recent Reviews
-            </h2>
+            <div className="flex items-baseline justify-between mb-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                Recent Reviews
+              </h2>
+              <span className="text-xs text-muted-foreground">5 most recent via Places API</span>
+            </div>
             {reviewsData?.data && reviewsData.data.length > 0 ? (
               <div className="space-y-3">
                 {reviewsData.data.map((r) => (
