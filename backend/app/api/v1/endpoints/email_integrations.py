@@ -15,6 +15,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
+import httpx
 import structlog
 from fastapi import APIRouter, Query
 from fastapi.responses import RedirectResponse
@@ -265,8 +266,14 @@ async def outlook_callback(code: str, state: str, db: AsyncSessionDep):
         await db.commit()
         logger.info("outlook_connected", tenant_id=str(tenant_id), email=email_address)
     except Exception as e:
-        logger.error("outlook_callback_failed", error=str(e))
-        return RedirectResponse(_frontend_url("/integrations?error=outlook_failed"))
+        from urllib.parse import quote
+        detail = str(e)
+        if isinstance(e, httpx.HTTPStatusError):
+            detail = f"HTTP {e.response.status_code}: {e.response.text[:300]}"
+        logger.error("outlook_callback_failed", error=detail)
+        return RedirectResponse(
+            _frontend_url(f"/integrations?error=outlook_failed&detail={quote(detail[:300])}")
+        )
 
     return RedirectResponse(_frontend_url("/integrations?connected=outlook"))
 

@@ -19,6 +19,7 @@ logger = structlog.get_logger(__name__)
 
 OUTLOOK_SCOPES = [
     "https://graph.microsoft.com/Mail.Read",
+    "https://graph.microsoft.com/User.Read",  # required for /me (email address lookup)
     "openid",
     "email",
     "offline_access",

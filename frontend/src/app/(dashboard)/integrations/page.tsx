@@ -556,7 +556,7 @@ export default function IntegrationsPage() {
   const params = useSearchParams();
   const connectedParam = params.get("connected");
   const error = params.get("error");
-  const errorReason = params.get("reason");
+  const errorReason = params.get("reason") ?? params.get("detail");
 
   const { data: gmailAccounts = [], isLoading: gmailLoading } = useGmailStatus();
   const { data: outlookAccounts = [], isLoading: outlookLoading } = useOutlookStatus();
