@@ -220,7 +220,15 @@ async def gmail_sync_jobs(
 
 @router.get("/outlook/auth-url", response_model=APIResponse[dict])
 async def outlook_auth_url(user: OwnerDep) -> dict:
+    from app.core.config import settings
     from app.services.email.outlook_client import build_outlook_auth_url
+
+    if not settings.MICROSOFT_OAUTH_CLIENT_ID or not settings.MICROSOFT_OAUTH_CLIENT_SECRET:
+        raise ValidationError(
+            "Outlook is not configured on the server. Set MICROSOFT_OAUTH_CLIENT_ID / "
+            "MICROSOFT_OAUTH_CLIENT_SECRET / MICROSOFT_TENANT_ID from the Azure app "
+            "registration, and add the redirect URI in Azure."
+        )
     state = f"{user.tenant_id}:{user.user_id}:{secrets.token_urlsafe(16)}"
     url = build_outlook_auth_url(redirect_uri=_api_callback_url("outlook"), state=state)
     return {"data": {"url": url}, "errors": None}
