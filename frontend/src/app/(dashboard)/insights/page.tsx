@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bot, CheckCircle, ThumbsDown, ThumbsUp, Sparkles, X, AlertTriangle, Info, AlertCircle, Loader2 } from "lucide-react";
+import { Bot, ThumbsDown, ThumbsUp, Sparkles, X, AlertTriangle, Info, AlertCircle, Loader2 } from "lucide-react";
 import {
   useAIInsights,
   useGenerateInsight,
@@ -10,6 +10,7 @@ import {
 } from "@/hooks/use-ai-insights";
 import type { AIInsight, InsightSeverity, InsightType } from "@/types/ai-insight";
 import { INSIGHT_TYPES, INSIGHT_TYPE_LABELS } from "@/types/ai-insight";
+import { FlameLoader, FullPageFlameLoader } from "@/components/ui/flame-loader";
 
 const SEVERITY_CONFIG: Record<InsightSeverity, { icon: React.ReactNode; cls: string }> = {
   info: { icon: <Info className="h-4 w-4" />, cls: "text-blue-400 bg-blue-500/10 border-blue-500/20" },
@@ -158,10 +159,10 @@ function GenerateForm() {
         </button>
       </div>
       {isSuccess && (
-        <p className="text-xs text-green-400 flex items-center gap-1">
-          <CheckCircle className="h-3.5 w-3.5" />
-          Queued — insight will appear shortly.
-        </p>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <FlameLoader size="sm" />
+          <span>Generating insight — appears here shortly…</span>
+        </div>
       )}
     </div>
   );
@@ -218,7 +219,7 @@ export default function InsightsPage() {
         )}
       </div>
 
-      {isLoading && <p className="text-sm text-muted-foreground">Loading insights…</p>}
+      {isLoading && <FullPageFlameLoader label="Loading insights…" />}
 
       {!isLoading && insights.length === 0 && (
         <div className="border rounded-lg p-8 text-center space-y-2">

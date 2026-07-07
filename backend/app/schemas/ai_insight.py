@@ -1,5 +1,6 @@
 """AI Insight schemas."""
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -28,7 +29,7 @@ class AIInsightResponse(BaseModel):
     is_dismissed: bool
     is_helpful: Optional[bool] = None
     model_id: Optional[str] = None
-    created_at: str
+    created_at: datetime
 
 
 class GenerateInsightsRequest(BaseModel):
