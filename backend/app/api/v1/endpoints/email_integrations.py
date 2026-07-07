@@ -236,8 +236,25 @@ async def outlook_auth_url(user: OwnerDep) -> dict:
 
 
 @router.get("/outlook/callback")
-async def outlook_callback(code: str, state: str, db: AsyncSessionDep):
+async def outlook_callback(
+    db: AsyncSessionDep,
+    code: str | None = Query(None),
+    state: str | None = Query(None),
+    error: str | None = Query(None),
+    error_description: str | None = Query(None),
+):
+    from urllib.parse import quote
+
     from app.services.email.outlook_client import exchange_outlook_code, OutlookClient
+
+    # Azure redirects back with error=... (no code) when consent is declined or
+    # admin consent is required — surface it instead of 422-ing on missing code.
+    if error or not code:
+        detail = error_description or error or "no authorization code returned"
+        logger.warning("outlook_callback_denied", error=error, detail=detail)
+        return RedirectResponse(
+            _frontend_url(f"/integrations?error=outlook_failed&detail={quote(detail[:300])}")
+        )
 
     try:
         parts = state.split(":")
