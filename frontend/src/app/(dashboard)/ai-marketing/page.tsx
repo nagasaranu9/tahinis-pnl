@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useLocations } from '@/hooks/use-locations';
 import { useCompetitorIntel, type CompetitorRow } from '@/hooks/use-ai-marketing';
 import { Tile, TileHeader } from '@/components/ui/tile';
+import { FullPageFlameLoader } from '@/components/ui/flame-loader';
 import {
   Sparkles,
   Shield,
@@ -160,13 +161,7 @@ export default function AIMarketingPage() {
         </div>
       </div>
 
-      {isLoading && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-28 rounded-2xl bg-muted/40 animate-pulse" />
-          ))}
-        </div>
-      )}
+      {isLoading && <FullPageFlameLoader label="Scanning nearby competitors…" />}
 
       {isError && <Empty reason="error" />}
 
