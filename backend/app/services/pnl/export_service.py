@@ -5,14 +5,19 @@ AI rules: never modifies source financial records. Read-only computation.
 import csv
 import io
 from datetime import datetime
+from datetime import timezone as dt_timezone
 from decimal import Decimal
+from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import (
+    HRFlowable,
+    Image,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -27,6 +32,23 @@ _NAVY = colors.HexColor("#1e2d6b")
 _RED = colors.HexColor("#d42b2b")
 _LIGHT_GREY = colors.HexColor("#f5f5f5")
 _MID_GREY = colors.HexColor("#e0e0e0")
+
+_DEFAULT_TIMEZONE = "America/Toronto"
+_LETTERHEAD_PATH = Path(__file__).resolve().parents[2] / "static" / "tahinis-letterhead.jpg"
+_LETTERHEAD_ASPECT = 600 / 1500  # height / width of the source asset
+
+
+def _resolve_timezone(tz_name: Optional[str]) -> ZoneInfo:
+    """Locations default to UTC in the DB until an owner sets one in Settings."""
+    try:
+        return ZoneInfo(tz_name) if tz_name and tz_name != "UTC" else ZoneInfo(_DEFAULT_TIMEZONE)
+    except Exception:
+        return ZoneInfo(_DEFAULT_TIMEZONE)
+
+
+def _generated_at(tz_name: Optional[str]) -> str:
+    local = datetime.now(dt_timezone.utc).astimezone(_resolve_timezone(tz_name))
+    return local.strftime("%Y-%m-%d %H:%M %Z")
 
 
 def _fmt_cad(val: Optional[Decimal], show_pct: Optional[Decimal] = None) -> str:
@@ -44,7 +66,11 @@ def _pct(val: Optional[Decimal]) -> str:
     return f"{val:.1f}%"
 
 
-def generate_csv(report: PnLReportResponse, location_name: str = "All Locations") -> bytes:
+def generate_csv(
+    report: PnLReportResponse,
+    location_name: str = "All Locations",
+    location_timezone: Optional[str] = None,
+) -> bytes:
     """Return UTF-8 encoded CSV bytes for the P&L report."""
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -55,7 +81,7 @@ def generate_csv(report: PnLReportResponse, location_name: str = "All Locations"
     writer.writerow(["Location", location_name])
     writer.writerow(["Period", f"{report.period_start} to {report.period_end}"])
     writer.writerow(["Currency", report.currency_code])
-    writer.writerow(["Generated", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")])
+    writer.writerow(["Generated", _generated_at(location_timezone)])
     writer.writerow([])
 
     writer.writerow(["Line Item", "Amount (CAD)", "% of Net Revenue"])
@@ -86,7 +112,11 @@ def generate_csv(report: PnLReportResponse, location_name: str = "All Locations"
     return buf.getvalue().encode("utf-8-sig")  # BOM for Excel compatibility
 
 
-def generate_pdf(report: PnLReportResponse, location_name: str = "All Locations") -> bytes:
+def generate_pdf(
+    report: PnLReportResponse,
+    location_name: str = "All Locations",
+    location_timezone: Optional[str] = None,
+) -> bytes:
     """Return PDF bytes for the P&L report using reportlab."""
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -94,7 +124,7 @@ def generate_pdf(report: PnLReportResponse, location_name: str = "All Locations"
         pagesize=letter,
         rightMargin=0.75 * inch,
         leftMargin=0.75 * inch,
-        topMargin=0.75 * inch,
+        topMargin=0.5 * inch,
         bottomMargin=0.75 * inch,
     )
 
@@ -125,8 +155,19 @@ def generate_pdf(report: PnLReportResponse, location_name: str = "All Locations"
     li = report.line_items
     story = []
 
+    # Letterhead
+    content_width = letter[0] - doc.leftMargin - doc.rightMargin
+    if _LETTERHEAD_PATH.exists():
+        story.append(
+            Image(
+                str(_LETTERHEAD_PATH),
+                width=content_width,
+                height=content_width * _LETTERHEAD_ASPECT,
+            )
+        )
+        story.append(HRFlowable(width=content_width, thickness=3, color=_RED, spaceBefore=0, spaceAfter=14))
+
     # Header
-    story.append(Paragraph("Tahini's Restaurant", title_style))
     story.append(Paragraph("Profit & Loss Report", title_style))
     story.append(Spacer(1, 4))
     story.append(Paragraph(f"Location: {location_name}", subtitle_style))
@@ -135,7 +176,7 @@ def generate_pdf(report: PnLReportResponse, location_name: str = "All Locations"
     )
     story.append(
         Paragraph(
-            f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+            f"Generated: {_generated_at(location_timezone)}",
             subtitle_style,
         )
     )

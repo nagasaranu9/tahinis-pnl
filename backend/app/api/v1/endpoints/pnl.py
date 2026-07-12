@@ -9,6 +9,7 @@ from fastapi.responses import Response
 from sqlalchemy import and_, func, select
 
 from app.core.deps import CurrentUserDep
+from app.db.models.location import Location
 from app.db.models.toast import ToastOrder
 from app.db.repositories.pnl_repo import PnLRepository
 from app.db.session import AsyncSessionDep
@@ -157,17 +158,27 @@ async def export_pnl(
         location_id=location_id,
     )
 
+    location_name = "All Locations"
+    location_timezone: str | None = None
+    if location_id:
+        location = await db.get(Location, location_id)
+        if location is None or location.tenant_id != user.tenant_id:
+            raise HTTPException(status_code=404, detail="Location not found")
+        user.require_location_access(location.id)
+        location_name = location.name
+        location_timezone = location.timezone
+
     filename = f"tahinis_pnl_{period_start}_{period_end}"
 
     if format == "csv":
-        content = generate_csv(report)
+        content = generate_csv(report, location_name=location_name, location_timezone=location_timezone)
         return Response(
             content=content,
             media_type="text/csv",
             headers={"Content-Disposition": f'attachment; filename="{filename}.csv"'},
         )
 
-    content = generate_pdf(report)
+    content = generate_pdf(report, location_name=location_name, location_timezone=location_timezone)
     return Response(
         content=content,
         media_type="application/pdf",
