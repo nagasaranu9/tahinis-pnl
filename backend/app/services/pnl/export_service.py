@@ -34,8 +34,9 @@ _LIGHT_GREY = colors.HexColor("#f5f5f5")
 _MID_GREY = colors.HexColor("#e0e0e0")
 
 _DEFAULT_TIMEZONE = "America/Toronto"
-# Navy chip with solid white wordmark — the outline-only PNG logo is too faint on a white page.
-_LOGO_PATH = Path(__file__).resolve().parents[2] / "static" / "tahinis-logo-chip.jpg"
+# White/red mark on a transparent background — drawn onto a reportlab-filled _NAVY
+# banner rather than baked into a navy JPG, so the two navy shades never mismatch.
+_LOGO_PATH = Path(__file__).resolve().parents[2] / "static" / "tahinis-mark.png"
 _LOGO_ASPECT = 435 / 1052  # height / width of the source asset
 
 
@@ -133,15 +134,17 @@ def generate_pdf(
     title_style = ParagraphStyle(
         "TahiniTitle",
         parent=styles["Heading1"],
-        textColor=_NAVY,
-        fontSize=18,
+        textColor=colors.white,
+        fontSize=19,
+        alignment=2,  # right
         spaceAfter=4,
     )
     subtitle_style = ParagraphStyle(
         "TahiniSubtitle",
         parent=styles["Normal"],
-        textColor=colors.HexColor("#666666"),
+        textColor=colors.HexColor("#c7cbe8"),
         fontSize=10,
+        alignment=2,  # right
         spaceAfter=2,
     )
     section_style = ParagraphStyle(
@@ -156,9 +159,9 @@ def generate_pdf(
     li = report.line_items
     story = []
 
-    # Letterhead — logo left, title + meta right, matches the app's own header pattern
+    # Letterhead — full-width navy banner: logo left, title + meta right in white, red accent below
     content_width = letter[0] - doc.leftMargin - doc.rightMargin
-    logo_width = 2.3 * inch
+    logo_width = 2.1 * inch
     meta_lines = [
         Paragraph("Profit & Loss Report", title_style),
         Paragraph(f"Location: {location_name}", subtitle_style),
@@ -169,24 +172,25 @@ def generate_pdf(
         logo = Image(str(_LOGO_PATH), width=logo_width, height=logo_width * _LOGO_ASPECT)
         header = Table(
             [[logo, meta_lines]],
-            colWidths=[logo_width + 0.25 * inch, content_width - logo_width - 0.25 * inch],
+            colWidths=[logo_width + 0.5 * inch, content_width - logo_width - 0.5 * inch],
         )
         header.setStyle(
             TableStyle(
                 [
+                    ("BACKGROUND", (0, 0), (-1, -1), _NAVY),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                    ("TOPPADDING", (0, 0), (-1, -1), 0),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                    ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                    ("LEFTPADDING", (0, 0), (0, 0), 20),
+                    ("RIGHTPADDING", (1, 0), (1, 0), 20),
+                    ("TOPPADDING", (0, 0), (-1, -1), 18),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 18),
                 ]
             )
         )
         story.append(header)
     else:
         story.extend(meta_lines)
-    story.append(Spacer(1, 6))
-    story.append(HRFlowable(width=content_width, thickness=2, color=_RED, spaceBefore=0, spaceAfter=16))
+    story.append(HRFlowable(width=content_width, thickness=3, color=_RED, spaceBefore=0, spaceAfter=16))
 
     # P&L table
     story.append(Paragraph("Income Statement", section_style))
