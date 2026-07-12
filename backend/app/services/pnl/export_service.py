@@ -34,8 +34,9 @@ _LIGHT_GREY = colors.HexColor("#f5f5f5")
 _MID_GREY = colors.HexColor("#e0e0e0")
 
 _DEFAULT_TIMEZONE = "America/Toronto"
-_LOGO_PATH = Path(__file__).resolve().parents[2] / "static" / "tahinis-logo.png"
-_LOGO_ASPECT = 728 / 1083  # height / width of the source asset
+# Navy chip with solid white wordmark — the outline-only PNG logo is too faint on a white page.
+_LOGO_PATH = Path(__file__).resolve().parents[2] / "static" / "tahinis-logo-chip.jpg"
+_LOGO_ASPECT = 435 / 1052  # height / width of the source asset
 
 
 def _resolve_timezone(tz_name: Optional[str]) -> ZoneInfo:
