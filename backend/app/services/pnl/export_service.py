@@ -34,8 +34,8 @@ _LIGHT_GREY = colors.HexColor("#f5f5f5")
 _MID_GREY = colors.HexColor("#e0e0e0")
 
 _DEFAULT_TIMEZONE = "America/Toronto"
-_LETTERHEAD_PATH = Path(__file__).resolve().parents[2] / "static" / "tahinis-letterhead.jpg"
-_LETTERHEAD_ASPECT = 600 / 1500  # height / width of the source asset
+_LOGO_PATH = Path(__file__).resolve().parents[2] / "static" / "tahinis-logo.png"
+_LOGO_ASPECT = 728 / 1083  # height / width of the source asset
 
 
 def _resolve_timezone(tz_name: Optional[str]) -> ZoneInfo:
@@ -155,32 +155,37 @@ def generate_pdf(
     li = report.line_items
     story = []
 
-    # Letterhead
+    # Letterhead — logo left, title + meta right, matches the app's own header pattern
     content_width = letter[0] - doc.leftMargin - doc.rightMargin
-    if _LETTERHEAD_PATH.exists():
-        story.append(
-            Image(
-                str(_LETTERHEAD_PATH),
-                width=content_width,
-                height=content_width * _LETTERHEAD_ASPECT,
+    logo_width = 2.3 * inch
+    meta_lines = [
+        Paragraph("Profit & Loss Report", title_style),
+        Paragraph(f"Location: {location_name}", subtitle_style),
+        Paragraph(f"Period: {report.period_start} to {report.period_end}", subtitle_style),
+        Paragraph(f"Generated: {_generated_at(location_timezone)}", subtitle_style),
+    ]
+    if _LOGO_PATH.exists():
+        logo = Image(str(_LOGO_PATH), width=logo_width, height=logo_width * _LOGO_ASPECT)
+        header = Table(
+            [[logo, meta_lines]],
+            colWidths=[logo_width + 0.25 * inch, content_width - logo_width - 0.25 * inch],
+        )
+        header.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
             )
         )
-        story.append(HRFlowable(width=content_width, thickness=3, color=_RED, spaceBefore=0, spaceAfter=14))
-
-    # Header
-    story.append(Paragraph("Profit & Loss Report", title_style))
-    story.append(Spacer(1, 4))
-    story.append(Paragraph(f"Location: {location_name}", subtitle_style))
-    story.append(
-        Paragraph(f"Period: {report.period_start} to {report.period_end}", subtitle_style)
-    )
-    story.append(
-        Paragraph(
-            f"Generated: {_generated_at(location_timezone)}",
-            subtitle_style,
-        )
-    )
-    story.append(Spacer(1, 16))
+        story.append(header)
+    else:
+        story.extend(meta_lines)
+    story.append(Spacer(1, 6))
+    story.append(HRFlowable(width=content_width, thickness=2, color=_RED, spaceBefore=0, spaceAfter=16))
 
     # P&L table
     story.append(Paragraph("Income Statement", section_style))
