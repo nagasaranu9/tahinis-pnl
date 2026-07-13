@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,8 +31,8 @@ class IntegrationCredential(Base, TenantMixin, TimestampMixin):
     )
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     # Tokens stored AES-256-GCM encrypted. Never log these fields.
-    access_token_encrypted: Mapped[str | None] = mapped_column(String(2048))
-    refresh_token_encrypted: Mapped[str | None] = mapped_column(String(2048))
+    access_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    refresh_token_encrypted: Mapped[str | None] = mapped_column(Text)
     token_expiry: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     extra_config: Mapped[dict | None] = mapped_column(JSONB)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
