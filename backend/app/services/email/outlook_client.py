@@ -27,6 +27,11 @@ OUTLOOK_SCOPES = [
 
 GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
 
+# Graph's messages/delta endpoint only supports a `receivedDateTime ge <value>`
+# $filter — `hasAttachments eq true` returns 400 ErrorInvalidUrlQuery. We filter
+# attachments client-side instead and use this date as the initial-import floor.
+OUTLOOK_IMPORT_SINCE = "2026-01-01T00:00:00Z"
+
 SUPPORTED_ATTACHMENT_MIMES = {
     "application/pdf",
     "image/png",
@@ -143,7 +148,7 @@ class OutlookClient:
             url = (
                 "/me/mailFolders/inbox/messages/delta"
                 "?$select=id,subject,from,receivedDateTime,hasAttachments"
-                "&$filter=hasAttachments eq true"
+                f"&$filter=receivedDateTime ge {OUTLOOK_IMPORT_SINCE}"
             )
 
         while True:
