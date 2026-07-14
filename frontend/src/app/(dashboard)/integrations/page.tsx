@@ -255,7 +255,7 @@ function ConnectedRow({
     : "Never";
 
   return (
-    <div className="rounded-lg border border-green-500/30 bg-green-500/[0.04] overflow-hidden">
+    <div className="rounded-lg border border-green-500/30 bg-green-500/[0.04]">
       <div className="flex items-center justify-between gap-3 p-3">
         <button
           onClick={() => setExpanded((v) => !v)}
