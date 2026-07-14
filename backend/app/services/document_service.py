@@ -12,6 +12,24 @@ logger = structlog.get_logger(__name__)
 
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
 
+# Non-financial documents that arrive as email attachments (HR/ops noise, not
+# invoices/receipts/bills). Skipped at ingest so they never hit OCR or the P&L.
+_IGNORED_FILENAME_KEYWORDS = (
+    "resume",
+    "cv ",
+    "cv_",
+    "curriculum vitae",
+    "memo",
+    "checklist",
+    "screenshot",
+)
+
+
+def is_ignored_filename(filename: str) -> bool:
+    """True for clearly non-financial attachments (resumes, CVs, memos, etc.)."""
+    name = filename.lower()
+    return any(kw in name for kw in _IGNORED_FILENAME_KEYWORDS)
+
 # Magic bytes for allowed types
 _MAGIC_BYTES: dict[bytes, str] = {
     b"%PDF": "application/pdf",
@@ -72,6 +90,12 @@ async def ingest_document(
     5. Enqueue OCR task
     Returns (document, is_new_duplicate)
     """
+    # Auto-synced (email/drive) attachments get the non-financial filter; a manual
+    # upload is a deliberate user choice and is never silently dropped.
+    if not source.startswith("manual") and is_ignored_filename(original_filename):
+        logger.info("document_ignored_non_financial", filename=original_filename, source=source)
+        return None, False
+
     confirmed_mime = validate_file(file_bytes, mime_type, original_filename)
     checksum = hashlib.sha256(file_bytes).hexdigest()
 
