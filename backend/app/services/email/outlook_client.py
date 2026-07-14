@@ -190,7 +190,7 @@ class OutlookClient:
             # contentBytes only exists on the fileAttachment subtype, so it cannot
             # appear in a $select on the base attachment collection (400 BadRequest).
             # Metadata only here; download_attachment fetches the bytes per item.
-            params={"$select": "id,name,contentType,size"},
+            params={"$select": "id,name,contentType,size,isInline"},
         )
         return data.get("value", []), new_token
 

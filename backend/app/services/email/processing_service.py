@@ -324,6 +324,10 @@ class EmailSyncService:
                     ct = att.get("contentType", "")
                     if ct not in SUPPORTED_ATTACHMENT_MIMES:
                         continue
+                    # Skip inline/embedded images (email signature logos, social
+                    # icons) — they are not invoices and only add OCR noise.
+                    if att.get("isInline"):
+                        continue
                     attachments_found += 1
                     try:
                         content = await client.download_attachment(msg_id, att["id"])
