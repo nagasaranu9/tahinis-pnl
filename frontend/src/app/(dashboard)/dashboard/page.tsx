@@ -871,8 +871,8 @@ export default function DashboardPage() {
                     {productMix.items.map((it, i) => (
                       <tr key={it.name}>
                         <td className="py-0.5 truncate max-w-[180px]" title={it.name}>{i + 1}. {it.name}</td>
-                        <td className="py-0.5 text-right text-muted-foreground">{plural(Math.round(it.quantity), "order")}</td>
-                        <td className="py-0.5 text-right text-muted-foreground w-10">{Math.round(it.share * 100)}%</td>
+                        <td className="py-0.5 text-right text-muted-foreground pr-4 border-r border-border">{plural(Math.round(it.quantity), "order")}</td>
+                        <td className="py-0.5 text-right text-muted-foreground pl-4 w-10">{Math.round(it.share * 100)}%</td>
                       </tr>
                     ))}
                   </tbody>
@@ -910,8 +910,8 @@ export default function DashboardPage() {
                     {alexItems.items.slice(0, 5).map((it, i) => (
                       <tr key={it.description}>
                         <td className="py-0.5 truncate max-w-[150px]" title={it.description}>{i + 1}. {it.description}</td>
-                        <td className="py-0.5 text-right font-mono">{fmtCAD(it.total)}</td>
-                        <td className="py-0.5 text-right text-muted-foreground w-8">{it.pct}%</td>
+                        <td className="py-0.5 text-right font-mono pr-4 border-r border-border">{fmtCAD(it.total)}</td>
+                        <td className="py-0.5 text-right text-muted-foreground pl-4 w-8">{it.pct}%</td>
                       </tr>
                     ))}
                   </tbody>
