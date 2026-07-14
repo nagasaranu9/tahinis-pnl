@@ -187,7 +187,10 @@ class OutlookClient:
         """Get attachments for a message. Returns (attachments, new_access_token)."""
         data, new_token = await self._get(
             f"/me/messages/{message_id}/attachments",
-            params={"$select": "id,name,contentType,size,contentBytes"},
+            # contentBytes only exists on the fileAttachment subtype, so it cannot
+            # appear in a $select on the base attachment collection (400 BadRequest).
+            # Metadata only here; download_attachment fetches the bytes per item.
+            params={"$select": "id,name,contentType,size"},
         )
         return data.get("value", []), new_token
 
