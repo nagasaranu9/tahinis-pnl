@@ -9,6 +9,11 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Tahinis — Restaurant Financial Intelligence",
   description: "P&L, expense management, and financial insights for restaurants",
+  icons: {
+    icon: "/tahinis-icon.png",
+    shortcut: "/tahinis-icon.png",
+    apple: "/tahinis-icon.png",
+  },
 };
 
 export const viewport: Viewport = {
