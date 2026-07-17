@@ -15,7 +15,7 @@ import {
 
 // ─── Date presets (same shape as the P&L page) ─────────────────────────────
 
-type PresetKey = "last7" | "last30" | "thisMonth" | "lastMonth" | "quarter" | "ytd";
+type PresetKey = "today" | "yesterday" | "last7" | "last30" | "thisMonth" | "lastMonth" | "quarter" | "ytd" | "custom";
 
 function toISO(d: Date): string {
   const y = d.getFullYear();
@@ -28,6 +28,14 @@ function getPreset(key: PresetKey): { start: string; end: string; label: string 
   const now = new Date();
   const today = toISO(now);
   switch (key) {
+    case "today": {
+      return { start: today, end: today, label: "Today" };
+    }
+    case "yesterday": {
+      const s = new Date(now);
+      s.setDate(s.getDate() - 1);
+      return { start: toISO(s), end: toISO(s), label: "Yesterday" };
+    }
     case "last7": {
       const s = new Date(now);
       s.setDate(s.getDate() - 6);
@@ -56,16 +64,23 @@ function getPreset(key: PresetKey): { start: string; end: string; label: string 
       const s = new Date(now.getFullYear(), 0, 1);
       return { start: toISO(s), end: today, label: `YTD ${now.getFullYear()}` };
     }
+    case "custom": {
+      // Caller overrides start/end for custom — this is just a safe fallback.
+      return { start: today, end: today, label: "Custom" };
+    }
   }
 }
 
 const PRESETS: { key: PresetKey; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "yesterday", label: "Yesterday" },
   { key: "last7", label: "7D" },
   { key: "last30", label: "30D" },
   { key: "thisMonth", label: "This Month" },
   { key: "lastMonth", label: "Last Month" },
   { key: "quarter", label: "Quarter" },
   { key: "ytd", label: "YTD" },
+  { key: "custom", label: "Custom" },
 ];
 
 function fmtCAD(val: number | null | undefined): string {
@@ -109,8 +124,15 @@ function KpiCard({
 
 export default function StaffingPage() {
   const [activePreset, setActivePreset] = useState<PresetKey>("thisMonth");
+  const [customStart, setCustomStart] = useState(toISO(new Date()));
+  const [customEnd, setCustomEnd] = useState(toISO(new Date()));
   const locationId = useLocationStore((s) => s.selectedLocationId);
-  const period = useMemo(() => getPreset(activePreset), [activePreset]);
+  const period = useMemo(() => {
+    if (activePreset === "custom") {
+      return { start: customStart, end: customEnd, label: `${customStart} → ${customEnd}` };
+    }
+    return getPreset(activePreset);
+  }, [activePreset, customStart, customEnd]);
 
   const rangeParams = { date_from: period.start, date_to: period.end, location_id: locationId ?? undefined };
 
@@ -151,7 +173,7 @@ export default function StaffingPage() {
             Live labor cost from PushOperations · synced {fmtRelative(syncStatus?.last_synced_at)}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="flex rounded-lg border border-border overflow-hidden">
             {PRESETS.map((p) => (
               <button
@@ -165,6 +187,26 @@ export default function StaffingPage() {
               </button>
             ))}
           </div>
+          {activePreset === "custom" && (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={customStart}
+                max={customEnd}
+                onChange={(e) => setCustomStart(e.target.value)}
+                className="px-2 py-1 text-xs rounded-lg border border-border bg-background"
+              />
+              <span className="text-xs text-muted-foreground">→</span>
+              <input
+                type="date"
+                value={customEnd}
+                min={customStart}
+                max={toISO(new Date())}
+                onChange={(e) => setCustomEnd(e.target.value)}
+                className="px-2 py-1 text-xs rounded-lg border border-border bg-background"
+              />
+            </div>
+          )}
           <button
             onClick={() => syncNow.mutate()}
             disabled={syncNow.isPending}
