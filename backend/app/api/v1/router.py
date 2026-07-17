@@ -18,6 +18,7 @@ from app.api.v1.endpoints import (
     pushops_integrations,
     reconciliation,
     reviews,
+    staffing,
     tenants,
     toast_integrations,
 )
@@ -43,3 +44,4 @@ api_router.include_router(email_integrations.router, prefix="/integrations", tag
 api_router.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
 api_router.include_router(reviews.router, prefix="/reviews", tags=["reviews"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
+api_router.include_router(staffing.router, prefix="/staffing", tags=["staffing"])

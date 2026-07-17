@@ -1103,3 +1103,71 @@ async def reviews_sentiment(
     except Exception as exc:
         logger.warning("reviews_sentiment_failed", error=str(exc))
         return {"data": {"available": False, "reason": "analysis_failed"}, "errors": None}
+
+
+@router.get("/labor-summary", response_model=APIResponse[dict])
+async def labor_summary(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    location_id: uuid.UUID | None = Query(None),
+) -> dict:
+    """Live labor snapshot for the dashboard's Labor Cost tile.
+
+    "Today" uses Toast's business-date boundary (4am→3:59am), matching every
+    other date-scoped figure on the dashboard and the P&L. Labor % uses today's
+    net Toast revenue so far — both numbers move together as the day progresses.
+    """
+    from app.services.labor.push_sync_service import get_active_config, labor_totals
+
+    config = await get_active_config(db, user.tenant_id)
+    if config is None:
+        return {"data": {"connected": False}, "errors": None}
+
+    now_utc = datetime.now(timezone.utc)
+    today = now_utc.date()
+
+    cost, hours = await labor_totals(db, user.tenant_id, today, today, location_id=location_id)
+
+    from app.db.models.push_labor import PushLabourEmployeeDaily
+    hc_conds = [
+        PushLabourEmployeeDaily.tenant_id == user.tenant_id,
+        PushLabourEmployeeDaily.business_date == today,
+    ]
+    if location_id:
+        hc_conds.append(PushLabourEmployeeDaily.location_id == location_id)
+    headcount = (
+        await db.execute(
+            select(func.count(func.distinct(PushLabourEmployeeDaily.employee_id))).where(and_(*hc_conds))
+        )
+    ).scalar_one()
+
+    today_str = today.strftime("%Y%m%d")
+    net_rev_row = (
+        await db.execute(
+            select(func.sum(ToastOrder.net_amount)).where(
+                and_(
+                    ToastOrder.tenant_id == user.tenant_id,
+                    ToastOrder.business_date == today_str,
+                    ToastOrder.is_void.is_(False),
+                    *([ToastOrder.location_id == location_id] if location_id else []),
+                )
+            )
+        )
+    ).scalar_one()
+    net_revenue_today = Decimal(str(net_rev_row)) if net_rev_row is not None else None
+
+    avg_wage = (cost / hours) if hours and hours > 0 else None
+    labor_pct = (cost / net_revenue_today * 100) if net_revenue_today else None
+
+    return {
+        "data": {
+            "connected": True,
+            "labor_cost_today": float(cost),
+            "labor_hours_today": float(hours),
+            "headcount_today": int(headcount or 0),
+            "avg_wage": float(avg_wage) if avg_wage is not None else None,
+            "labor_pct_of_sales_today": float(round(labor_pct, 1)) if labor_pct is not None else None,
+            "last_synced_at": config.last_synced_at.isoformat() if config.last_synced_at else None,
+        },
+        "errors": None,
+    }

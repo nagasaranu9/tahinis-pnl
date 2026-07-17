@@ -44,6 +44,7 @@ import {
   useProductMix,
   useSalesByHour,
 } from "@/hooks/use-dashboard";
+import { useLaborSummary } from "@/hooks/use-staffing";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { useLocations } from "@/hooks/use-locations";
 import { useLocationStore } from "@/lib/location-store";
@@ -429,6 +430,7 @@ export default function DashboardPage() {
   }, [dateRange.end, locationParam]);
   const { data: googleAds } = useAdsDetail({ ...adsArgs, platform: "google_ads" });
   const { data: reviewsDetail } = useReviewsDetail(locationParam);
+  const { data: laborSummary } = useLaborSummary(locationParam);
   const { data: sentiment } = useReviewsSentiment(locationParam);
   const { data: flags } = useReconciliationFlags({ unresolved_only: true });
 
@@ -940,10 +942,31 @@ export default function DashboardPage() {
               </>
             )}
           </Tile>
-          <Tile>
+          <Tile href="/staffing">
             <TileHeader label="Labor Cost" icon={Users} />
-            <p className="text-3xl font-bold tabular-nums tracking-tight text-muted-foreground">—</p>
-            <ComingSoon note="Hours, headcount & avg wage land once PushOperations is live." />
+            {laborSummary?.connected ? (
+              <>
+                <p className="text-3xl font-bold tabular-nums tracking-tight">
+                  {fmtCAD(laborSummary.labor_cost_today ?? 0)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {(laborSummary.labor_hours_today ?? 0).toFixed(1)}h · {laborSummary.headcount_today ?? 0} staff today
+                  {laborSummary.labor_pct_of_sales_today != null && (
+                    <> · {laborSummary.labor_pct_of_sales_today}% of sales</>
+                  )}
+                </p>
+                {laborSummary.avg_wage != null && (
+                  <p className="text-[10px] text-muted-foreground mt-1.5">
+                    Avg ${laborSummary.avg_wage.toFixed(2)}/hr · live from PushOperations
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-muted-foreground">—</p>
+                <p className="text-xs text-muted-foreground mt-1"><Link href="/integrations" className="text-primary hover:underline">Connect PushOperations →</Link></p>
+              </>
+            )}
           </Tile>
         </div>
       </div>

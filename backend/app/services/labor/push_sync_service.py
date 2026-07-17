@@ -18,11 +18,12 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.push_labor import (
+    LABOUR_TYPE_OVERTIME,
     PushLabourEmployeeDaily,
     PushSyncConfig,
     PushSyncJob,
@@ -186,3 +187,127 @@ async def labor_totals(
         q = q.where(PushLabourEmployeeDaily.location_id == location_id)
     cost, hours = (await db.execute(q)).one()
     return Decimal(str(cost)), Decimal(str(hours))
+
+
+async def labor_by_position(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    start: date,
+    end: date,
+    location_id: uuid.UUID | None = None,
+) -> list[dict]:
+    """Cost + hours grouped by position for [start, end] inclusive.
+
+    Position stands in for department: the token scope for this tenant does
+    not include /departments or /analytics/summary/labour-actuals (both return
+    "Insufficient permissions"), and costCenterName comes back empty on every
+    row — so position is the only grouping dimension actually available.
+    """
+    q = (
+        select(
+            PushLabourEmployeeDaily.position_name,
+            func.sum(PushLabourEmployeeDaily.cost),
+            func.sum(PushLabourEmployeeDaily.hours),
+        )
+        .where(
+            PushLabourEmployeeDaily.tenant_id == tenant_id,
+            PushLabourEmployeeDaily.business_date >= start,
+            PushLabourEmployeeDaily.business_date <= end,
+        )
+        .group_by(PushLabourEmployeeDaily.position_name)
+        .order_by(func.sum(PushLabourEmployeeDaily.cost).desc())
+    )
+    if location_id is not None:
+        q = q.where(PushLabourEmployeeDaily.location_id == location_id)
+    rows = (await db.execute(q)).all()
+    return [
+        {
+            "position": name or "Unassigned",
+            "cost": Decimal(str(cost or 0)),
+            "hours": Decimal(str(hours or 0)),
+        }
+        for name, cost, hours in rows
+    ]
+
+
+async def labor_daily_series(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    start: date,
+    end: date,
+    location_id: uuid.UUID | None = None,
+) -> list[dict]:
+    """Cost + hours per business_date for [start, end] inclusive — trend chart source."""
+    q = (
+        select(
+            PushLabourEmployeeDaily.business_date,
+            func.sum(PushLabourEmployeeDaily.cost),
+            func.sum(PushLabourEmployeeDaily.hours),
+        )
+        .where(
+            PushLabourEmployeeDaily.tenant_id == tenant_id,
+            PushLabourEmployeeDaily.business_date >= start,
+            PushLabourEmployeeDaily.business_date <= end,
+        )
+        .group_by(PushLabourEmployeeDaily.business_date)
+        .order_by(PushLabourEmployeeDaily.business_date)
+    )
+    if location_id is not None:
+        q = q.where(PushLabourEmployeeDaily.location_id == location_id)
+    rows = (await db.execute(q)).all()
+    return [
+        {"date": d.isoformat(), "cost": Decimal(str(cost or 0)), "hours": Decimal(str(hours or 0))}
+        for d, cost, hours in rows
+    ]
+
+
+async def top_employees_by_cost(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    start: date,
+    end: date,
+    location_id: uuid.UUID | None = None,
+    limit: int = 10,
+) -> list[dict]:
+    """Top employees by total cost for [start, end], with overtime hours broken out."""
+    q = (
+        select(
+            PushLabourEmployeeDaily.employee_id,
+            PushLabourEmployeeDaily.employee_name,
+            PushLabourEmployeeDaily.position_name,
+            func.sum(PushLabourEmployeeDaily.cost),
+            func.sum(PushLabourEmployeeDaily.hours),
+            func.sum(
+                case(
+                    (PushLabourEmployeeDaily.labour_type.in_(list(LABOUR_TYPE_OVERTIME)), PushLabourEmployeeDaily.hours),
+                    else_=0,
+                )
+            ),
+        )
+        .where(
+            PushLabourEmployeeDaily.tenant_id == tenant_id,
+            PushLabourEmployeeDaily.business_date >= start,
+            PushLabourEmployeeDaily.business_date <= end,
+        )
+        .group_by(
+            PushLabourEmployeeDaily.employee_id,
+            PushLabourEmployeeDaily.employee_name,
+            PushLabourEmployeeDaily.position_name,
+        )
+        .order_by(func.sum(PushLabourEmployeeDaily.cost).desc())
+        .limit(limit)
+    )
+    if location_id is not None:
+        q = q.where(PushLabourEmployeeDaily.location_id == location_id)
+    rows = (await db.execute(q)).all()
+    return [
+        {
+            "employee_id": emp_id,
+            "employee_name": name,
+            "position": position or "Unassigned",
+            "cost": Decimal(str(cost or 0)),
+            "hours": Decimal(str(hours or 0)),
+            "overtime_hours": Decimal(str(ot_hours or 0)),
+        }
+        for emp_id, name, position, cost, hours, ot_hours in rows
+    ]

@@ -6,7 +6,7 @@ import { useTheme } from "next-themes";
 import {
   LayoutDashboard, FileText, DollarSign, GitMerge, TrendingUp, Bot,
   Settings, Building2, Megaphone, Activity, Star, Search, Moon, Sun,
-  Sparkles,
+  Sparkles, Users,
 } from "lucide-react";
 
 interface Command {
@@ -34,6 +34,7 @@ export function CommandPalette() {
     () => [
       { label: "Dashboard", group: "Go to", icon: LayoutDashboard, href: "/dashboard" },
       { label: "P&L Reports", group: "Finance", icon: TrendingUp, href: "/pnl", keywords: "profit loss" },
+      { label: "Staffing", group: "Finance", icon: Users, href: "/staffing", keywords: "labor payroll push hours overtime" },
       { label: "Expenses", group: "Finance", icon: DollarSign, href: "/expenses" },
       { label: "Reconciliation", group: "Finance", icon: GitMerge, href: "/reconciliation", keywords: "match invoices" },
       { label: "Documents", group: "Operations", icon: FileText, href: "/documents" },
