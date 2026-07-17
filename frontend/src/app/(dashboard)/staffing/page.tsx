@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Users, RefreshCw, Clock, TrendingUp, AlertTriangle } from "lucide-react";
+import { Users, RefreshCw, Clock, TrendingUp, AlertTriangle, CircleDot } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { useLocationStore } from "@/lib/location-store";
 import {
@@ -11,6 +11,7 @@ import {
   useStaffingTopEmployees,
   useStaffingSyncStatus,
   useStaffingSyncNow,
+  useStaffingTodayTeam,
 } from "@/hooks/use-staffing";
 
 // ─── Date presets (same shape as the P&L page) ─────────────────────────────
@@ -119,6 +120,7 @@ export default function StaffingPage() {
   const { data: positions } = useStaffingByPosition(rangeParams);
   const { data: topEmployees } = useStaffingTopEmployees({ ...rangeParams, limit: 10 });
   const { data: syncStatus } = useStaffingSyncStatus();
+  const { data: todayTeam } = useStaffingTodayTeam();
   const syncNow = useStaffingSyncNow();
 
   const chartData = useMemo(
@@ -197,6 +199,53 @@ export default function StaffingPage() {
           sub={syncStatus?.historical_import_from ? `since ${syncStatus.historical_import_from}` : undefined}
           icon={AlertTriangle}
         />
+      </div>
+
+      {/* Today's team */}
+      <div className="rounded-2xl p-5 bg-card border border-border/60 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            Today&apos;s Team
+          </p>
+          {todayTeam?.connected && (
+            <p className="text-xs text-muted-foreground">
+              {todayTeam.team.filter((m) => m.is_clocked_in).length} clocked in now
+            </p>
+          )}
+        </div>
+        {!todayTeam?.connected ? (
+          <p className="text-xs text-muted-foreground">PushOperations not connected.</p>
+        ) : todayTeam.team.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No punches yet today.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {todayTeam.team.map((m) => (
+              <div
+                key={`${m.employee_id}-${m.clock_in ?? "none"}`}
+                className="flex items-center justify-between text-sm py-1 border-b border-border/40 last:border-0"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  {m.is_clocked_in && (
+                    <CircleDot className="h-3 w-3 text-emerald-500 shrink-0" />
+                  )}
+                  <span className="truncate">{m.employee_name ?? "Unknown"}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">{m.position}</span>
+                </div>
+                <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+                  {m.clock_in ? new Date(m.clock_in).toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit" }) : "—"}
+                  {" – "}
+                  {m.is_clocked_in ? (
+                    <span className="text-emerald-500 font-medium">on shift</span>
+                  ) : m.clock_out ? (
+                    new Date(m.clock_out).toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit" })
+                  ) : (
+                    "—"
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Trend chart */}

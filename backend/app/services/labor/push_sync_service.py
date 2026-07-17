@@ -311,3 +311,40 @@ async def top_employees_by_cost(
         }
         for emp_id, name, position, cost, hours, ot_hours in rows
     ]
+
+
+async def today_team(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+    business_date: date,
+) -> list[dict] | None:
+    """
+    Who's on shift today, live from Push — not persisted.
+
+    Punches are a handful of rows/day (unlike the historical labour dataset),
+    and this needs to be current-second-accurate for "who's clocked in right
+    now", so it calls the API directly on every request instead of going
+    through the upsert table. Returns None when there is no active config.
+    """
+    from app.services.labor.push_client import PushClient
+
+    config = await get_active_config(db, tenant_id)
+    if config is None:
+        return None
+
+    async with PushClient(
+        company_id=config.push_company_id, company_uuid=config.push_company_uuid
+    ) as client:
+        rows = await client.get_clocks(business_date, business_date)
+
+    return [
+        {
+            "employee_id": r.employee_id,
+            "employee_name": r.employee_name,
+            "position": r.position_name or "Unassigned",
+            "clock_in": r.clock_in.isoformat() if r.clock_in else None,
+            "clock_out": r.clock_out.isoformat() if r.clock_out else None,
+            "is_clocked_in": r.is_current,
+        }
+        for r in sorted(rows, key=lambda r: (not r.is_current, r.clock_in or datetime.min))
+    ]

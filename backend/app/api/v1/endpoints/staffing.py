@@ -167,6 +167,21 @@ async def staffing_top_employees(
     }
 
 
+@router.get("/today-team", response_model=APIResponse[dict])
+async def staffing_today_team(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+) -> dict:
+    """Who's on shift today, live from Push (clock-in/out times, currently-in status)."""
+    from app.services.labor.push_sync_service import today_team
+
+    today = datetime.now(timezone.utc).date()
+    team = await today_team(db, user.tenant_id, today)
+    if team is None:
+        return {"data": {"connected": False, "team": []}, "errors": None}
+    return {"data": {"connected": True, "business_date": today.isoformat(), "team": team}, "errors": None}
+
+
 @router.get("/sync-status", response_model=APIResponse[dict])
 async def staffing_sync_status(
     user: CurrentUserDep,

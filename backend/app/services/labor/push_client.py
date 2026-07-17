@@ -26,7 +26,7 @@ import asyncio
 import time
 from collections import deque
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterator
 
@@ -71,6 +71,32 @@ class LabourRow:
     labour_type: str
     cost: Decimal
     hours: Decimal
+
+
+@dataclass(frozen=True)
+class ClockRow:
+    """One punch from GET /clocks — who's on shift right now, or was today."""
+
+    business_date: date
+    employee_id: int
+    employee_name: str | None
+    position_name: str | None
+    clock_in: datetime | None
+    clock_out: datetime | None
+    is_current: bool  # still clocked in, no clock-out yet
+
+
+_ZERO_DATETIME = "0000-00-00 00:00:00"
+
+
+def _parse_push_datetime(value: Any) -> datetime | None:
+    """Push timestamps are naive local-time strings ("2026-07-17 09:30:00").
+
+    An open clock-out (still clocked in) comes back as the literal string
+    "0000-00-00 00:00:00", not null — treat it the same as missing."""
+    if not value or value == _ZERO_DATETIME:
+        return None
+    return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
 
 
 def _to_money(value: Any) -> Decimal:
@@ -248,6 +274,44 @@ class PushClient:
                     labour_type=item.get("labourType") or "unknown",
                     cost=_to_money(item.get("costs")),
                     hours=_to_hours(item.get("hours")),
+                )
+            )
+        return rows
+
+    async def get_clocks(self, start: date, end: date) -> list[ClockRow]:
+        """
+        Fetch raw punches for a range no wider than MAX_LABOUR_RANGE_DAYS.
+
+        Used for the live "who's working today" view — not stored, called
+        fresh on each request since this is a handful of rows per day, not a
+        backfill-scale dataset like /labour/employee.
+        """
+        if (end - start).days > MAX_LABOUR_RANGE_DAYS:
+            raise ValueError(
+                f"Push clocks range {start}..{end} exceeds the {MAX_LABOUR_RANGE_DAYS}-day API limit"
+            )
+        body = await self._get(
+            "/clocks",
+            {
+                "company": self._company_id,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "include": "employee,position",
+            },
+        )
+        rows: list[ClockRow] = []
+        for item in body.get("data", []):
+            employee = item.get("employee") or {}
+            position = item.get("position") or {}
+            rows.append(
+                ClockRow(
+                    business_date=date.fromisoformat(item["businessDate"]),
+                    employee_id=int(item["employeeId"]),
+                    employee_name=employee.get("name"),
+                    position_name=position.get("name"),
+                    clock_in=_parse_push_datetime(item.get("clockIn")),
+                    clock_out=_parse_push_datetime(item.get("clockOut")),
+                    is_current=_parse_push_datetime(item.get("clockOut")) is None,
                 )
             )
         return rows

@@ -4,13 +4,14 @@ Covers the two things most likely to corrupt the Labor line: date chunking
 (a gap silently drops a day of labor) and money conversion (float money is
 banned, and the API sends unrounded floats).
 """
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
 from app.services.labor.push_client import (
     MAX_LABOUR_RANGE_DAYS,
+    _parse_push_datetime,
     _to_hours,
     _to_money,
     iter_date_chunks,
@@ -80,3 +81,19 @@ class TestMoneyConversion:
     def test_hours_quantized(self):
         assert _to_hours(4.25) == Decimal("4.25")
         assert _to_hours(5) == Decimal("5.00")
+
+
+class TestParsePushDatetime:
+    def test_normal_timestamp(self):
+        assert _parse_push_datetime("2026-07-17 09:27:16") == datetime(2026, 7, 17, 9, 27, 16)
+
+    def test_zero_datetime_sentinel_is_none(self):
+        # Real value observed from GET /clocks for an employee still clocked
+        # in — the API sends this literal string, not null.
+        assert _parse_push_datetime("0000-00-00 00:00:00") is None
+
+    def test_none_input_is_none(self):
+        assert _parse_push_datetime(None) is None
+
+    def test_empty_string_is_none(self):
+        assert _parse_push_datetime("") is None

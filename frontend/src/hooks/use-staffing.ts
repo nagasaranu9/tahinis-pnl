@@ -136,6 +136,29 @@ export function useStaffingTopEmployees(p: RangeParams & { limit?: number }) {
   });
 }
 
+export interface TeamMember {
+  employee_id: number;
+  employee_name: string | null;
+  position: string;
+  clock_in: string | null;
+  clock_out: string | null;
+  is_clocked_in: boolean;
+}
+
+export function useStaffingTodayTeam() {
+  return useQuery({
+    queryKey: ["staffing-today-team"],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{
+        data: { connected: boolean; business_date?: string; team: TeamMember[] };
+      }>(`${BASE}/today-team`);
+      return data.data;
+    },
+    staleTime: 30_000,
+    refetchInterval: 2 * 60_000, // clock-ins change through the day; keep this fresher than the rest
+  });
+}
+
 export interface StaffingSyncStatus {
   connected: boolean;
   company_name?: string | null;
