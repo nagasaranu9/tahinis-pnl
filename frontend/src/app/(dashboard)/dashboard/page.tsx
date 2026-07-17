@@ -23,6 +23,7 @@ import {
   Scissors,
   Truck,
   Sparkles,
+  CircleDot,
 } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { usePnLReport, useDailyBreakdown } from "@/hooks/use-pnl";
@@ -44,7 +45,7 @@ import {
   useProductMix,
   useSalesByHour,
 } from "@/hooks/use-dashboard";
-import { useLaborSummary } from "@/hooks/use-staffing";
+import { useLaborSummary, useStaffingTodayTeam } from "@/hooks/use-staffing";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { useLocations } from "@/hooks/use-locations";
 import { useLocationStore } from "@/lib/location-store";
@@ -431,6 +432,7 @@ export default function DashboardPage() {
   const { data: googleAds } = useAdsDetail({ ...adsArgs, platform: "google_ads" });
   const { data: reviewsDetail } = useReviewsDetail(locationParam);
   const { data: laborSummary } = useLaborSummary(locationParam);
+  const { data: todayTeam } = useStaffingTodayTeam();
   const { data: sentiment } = useReviewsSentiment(locationParam);
   const { data: flags } = useReconciliationFlags({ unresolved_only: true });
 
@@ -889,19 +891,18 @@ export default function DashboardPage() {
       {/* ── Row 3: Food & Labor ── */}
       <div>
         <RowLabel>Food &amp; labor</RowLabel>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <Tile href="/expenses">
             <TileHeader label="Food Cost" icon={ShoppingCart} />
-            <p className={`text-3xl font-bold tabular-nums tracking-tight ${pctColor(foodPct, { warn: 38, bad: 40 })}`}>{fmtPct(foodPct)}</p>
+            <p className={`text-2xl font-bold tabular-nums tracking-tight ${pctColor(foodPct, { warn: 38, bad: 40 })}`}>{fmtPct(foodPct)}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Target {FOOD_TARGET}% ·{" "}
+              Target {FOOD_TARGET}%
               {foodOverPp != null && foodOverPp > 0
-                ? `over by ${foodOverPp.toFixed(1)}pp`
+                ? ` · over ${foodOverPp.toFixed(1)}pp`
                 : foodOverPp != null
-                ? `${Math.abs(foodOverPp).toFixed(1)}pp under`
-                : "—"}
+                ? ` · ${Math.abs(foodOverPp).toFixed(1)}pp under`
+                : ""}
             </p>
-            {foodOverCost != null && <p className="text-xs text-red-400">Costing ~{fmtCAD(foodOverCost)}/mo</p>}
           </Tile>
           <Tile>
             {alexItems?.items?.length ? (
@@ -966,6 +967,34 @@ export default function DashboardPage() {
                 <p className="text-2xl font-bold text-muted-foreground">—</p>
                 <p className="text-xs text-muted-foreground mt-1"><Link href="/integrations" className="text-primary hover:underline">Connect PushOperations →</Link></p>
               </>
+            )}
+          </Tile>
+          <Tile href="/staffing">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Today&apos;s Team</p>
+              <Users className="h-3.5 w-3.5 text-primary" />
+            </div>
+            {!todayTeam?.connected ? (
+              <p className="text-xs text-muted-foreground">Connect PushOperations to see who&apos;s on shift.</p>
+            ) : todayTeam.team.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No punches yet today.</p>
+            ) : (
+              <div className="space-y-1">
+                {todayTeam.team.slice(0, 4).map((m) => (
+                  <div key={`${m.employee_id}-${m.clock_in ?? "none"}`} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {m.is_clocked_in && <CircleDot className="h-2.5 w-2.5 text-emerald-500 shrink-0" />}
+                      <span className="truncate">{m.employee_name ?? "Unknown"}</span>
+                    </div>
+                    <span className={`shrink-0 tabular-nums ${m.is_clocked_in ? "text-emerald-500 font-medium" : "text-muted-foreground"}`}>
+                      {m.is_clocked_in ? "on shift" : "done"}
+                    </span>
+                  </div>
+                ))}
+                {todayTeam.team.length > 4 && (
+                  <p className="text-[10px] text-muted-foreground pt-0.5">+{todayTeam.team.length - 4} more →</p>
+                )}
+              </div>
             )}
           </Tile>
         </div>
