@@ -6,7 +6,7 @@ see app.services.labor.push_sync_service). Tenant-scoped throughout; every
 query filters on user.tenant_id and an optional location_id.
 """
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import structlog
@@ -173,13 +173,63 @@ async def staffing_today_team(
     db: AsyncSessionDep,
 ) -> dict:
     """Who's on shift today, live from Push (clock-in/out times, currently-in status)."""
-    from app.services.labor.push_sync_service import today_team
+    from app.services.labor.push_sync_service import push_local_today, today_team
 
-    today = datetime.now(timezone.utc).date()
+    today = push_local_today()
     team = await today_team(db, user.tenant_id, today)
     if team is None:
         return {"data": {"connected": False, "team": []}, "errors": None}
     return {"data": {"connected": True, "business_date": today.isoformat(), "team": team}, "errors": None}
+
+
+@router.get("/scheduled-vs-actual", response_model=APIResponse[dict])
+async def staffing_scheduled_vs_actual(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    date_from: str = Query(...),
+    date_to: str = Query(...),
+    location_id: uuid.UUID | None = Query(None),
+) -> dict:
+    """Scheduled hours (live from Push /shifts) vs actual hours per day. No
+    dollar figure — see push_sync_service.scheduled_vs_actual_daily for why."""
+    from app.services.labor.push_sync_service import scheduled_vs_actual_daily
+
+    start, end = _parse_range(date_from, date_to)
+    rows = await scheduled_vs_actual_daily(db, user.tenant_id, start, end, location_id=location_id)
+    if rows is None:
+        return {"data": {"connected": False, "days": []}, "errors": None}
+    return {
+        "data": {
+            "connected": True,
+            "days": [
+                {
+                    "date": r["date"],
+                    "scheduled_hours": float(r["scheduled_hours"]),
+                    "actual_hours": float(r["actual_hours"]),
+                    "variance_hours": float(r["variance_hours"]),
+                    "variance_pct": r["variance_pct"],
+                }
+                for r in rows
+            ],
+        },
+        "errors": None,
+    }
+
+
+@router.get("/missed-clockouts", response_model=APIResponse[dict])
+async def staffing_missed_clockouts(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    lookback_days: int = Query(3, ge=1, le=14),
+) -> dict:
+    """Punches that look like a forgotten clock-out (open past a full day, or
+    open >14h same-day). See push_sync_service.missed_clockouts for tiers."""
+    from app.services.labor.push_sync_service import missed_clockouts
+
+    flags = await missed_clockouts(db, user.tenant_id, lookback_days=lookback_days)
+    if flags is None:
+        return {"data": {"connected": False, "flags": []}, "errors": None}
+    return {"data": {"connected": True, "flags": flags}, "errors": None}
 
 
 @router.get("/sync-status", response_model=APIResponse[dict])
@@ -215,6 +265,7 @@ async def staffing_sync_now(
     from app.services.labor.push_sync_service import (
         INCREMENTAL_LOOKBACK_DAYS,
         get_active_config,
+        push_local_today,
         sync_range,
     )
 
@@ -222,7 +273,7 @@ async def staffing_sync_now(
     if config is None:
         raise HTTPException(status_code=400, detail="No active PushOperations integration for this tenant")
 
-    today = datetime.now(timezone.utc).date()
+    today = push_local_today()
     start = today - timedelta(days=INCREMENTAL_LOOKBACK_DAYS)
     job = await sync_range(db, user.tenant_id, config, start, today, job_type="manual")
     await db.commit()

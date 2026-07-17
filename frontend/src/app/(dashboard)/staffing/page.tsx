@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Users, RefreshCw, Clock, TrendingUp, AlertTriangle } from "lucide-react";
-import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import { Users, RefreshCw, Clock, TrendingUp, AlertTriangle, TimerOff } from "lucide-react";
+import { AreaChart, Area, BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from "recharts";
 import { useLocationStore } from "@/lib/location-store";
 import {
   useStaffingSummary,
@@ -11,6 +11,8 @@ import {
   useStaffingTopEmployees,
   useStaffingSyncStatus,
   useStaffingSyncNow,
+  useScheduledVsActual,
+  useMissedClockouts,
 } from "@/hooks/use-staffing";
 
 // ─── Date presets (same shape as the P&L page) ─────────────────────────────
@@ -141,11 +143,23 @@ export default function StaffingPage() {
   const { data: positions } = useStaffingByPosition(rangeParams);
   const { data: topEmployees } = useStaffingTopEmployees({ ...rangeParams, limit: 10 });
   const { data: syncStatus } = useStaffingSyncStatus();
+  const { data: scheduledVsActual } = useScheduledVsActual(rangeParams);
+  const { data: missedClockouts } = useMissedClockouts();
   const syncNow = useStaffingSyncNow();
 
   const chartData = useMemo(
     () => (trend ?? []).map((p) => ({ date: p.date.slice(5), cost: p.cost })),
     [trend]
+  );
+
+  const svaChartData = useMemo(
+    () =>
+      (scheduledVsActual?.days ?? []).map((d) => ({
+        date: d.date.slice(5),
+        scheduled: d.scheduled_hours,
+        actual: d.actual_hours,
+      })),
+    [scheduledVsActual]
   );
 
   if (!summaryLoading && summary && !summary.connected) {
@@ -218,6 +232,30 @@ export default function StaffingPage() {
         </div>
       </div>
 
+      {/* Missed clock-out alert */}
+      {missedClockouts?.connected && missedClockouts.flags.length > 0 && (
+        <div className="rounded-2xl p-4 bg-red-500/10 border border-red-500/30 flex items-start gap-3">
+          <TimerOff className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-red-500">
+              {missedClockouts.flags.length} likely forgotten clock-out{missedClockouts.flags.length > 1 ? "s" : ""}
+            </p>
+            <div className="mt-1.5 space-y-1">
+              {missedClockouts.flags.map((f) => (
+                <p key={`${f.employee_id}-${f.clock_in}`} className="text-xs text-muted-foreground">
+                  <span className="text-foreground font-medium">{f.employee_name ?? "Unknown"}</span> ({f.position}) —
+                  clocked in {f.business_date} at {new Date(f.clock_in).toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit" })},
+                  still open {f.tier === "prior_day" ? "since a prior day" : "over 14h"}
+                </p>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1.5">
+              Correct these in PushOperations — an open punch keeps accruing cost until closed.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard label="Labor Cost" value={fmtCAD(summary?.labor_cost)} sub={period.label} icon={Users} />
@@ -261,6 +299,29 @@ export default function StaffingPage() {
               <Tooltip formatter={(v: number) => fmtCAD(v)} />
               <Area type="monotone" dataKey="cost" stroke="var(--primary)" fill="url(#laborGradient)" strokeWidth={2} />
             </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Scheduled vs actual hours */}
+      <div className="rounded-2xl p-5 bg-card border border-border/60 shadow-sm">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
+          Scheduled vs Actual Hours
+        </p>
+        <p className="text-[10px] text-muted-foreground mb-3">
+          Hours only — Push doesn&apos;t expose per-employee wage rate to this token, so a scheduled-cost figure would be a guess.
+        </p>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={svaChartData}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.2} />
+              <XAxis dataKey="date" fontSize={11} tickLine={false} axisLine={false} />
+              <YAxis fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}h`} />
+              <Tooltip formatter={(v: number) => `${v.toFixed(1)}h`} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="scheduled" name="Scheduled" fill="var(--muted-foreground)" opacity={0.35} radius={[3, 3, 0, 0]} />
+              <Bar dataKey="actual" name="Actual" fill="var(--primary)" radius={[3, 3, 0, 0]} />
+            </BarChart>
           </ResponsiveContainer>
         </div>
       </div>

@@ -14,7 +14,7 @@ and must not share a retry budget with the fast paths.
 """
 import asyncio
 import uuid
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 
 import structlog
 
@@ -84,6 +84,7 @@ async def _sync_async(tenant_id: uuid.UUID, job_type: str) -> dict:
     from app.services.labor.push_sync_service import (
         INCREMENTAL_LOOKBACK_DAYS,
         get_active_config,
+        push_local_today,
         sync_range,
     )
 
@@ -92,7 +93,9 @@ async def _sync_async(tenant_id: uuid.UUID, job_type: str) -> dict:
         if config is None:
             return {"skipped": "no active push config"}
 
-        today = datetime.now(UTC).date()
+        # push_local_today(), not UTC — business_date is restaurant-local, and
+        # UTC would already be tomorrow for several hours each evening (America/Toronto).
+        today = push_local_today()
         if job_type == "realtime":
             start = today
         else:
@@ -113,6 +116,7 @@ async def _historical_async(tenant_id: uuid.UUID, start: str | None) -> dict:
     from app.services.labor.push_sync_service import (
         PUSH_IMPORT_SINCE,
         get_active_config,
+        push_local_today,
         sync_range,
     )
 
@@ -122,7 +126,9 @@ async def _historical_async(tenant_id: uuid.UUID, start: str | None) -> dict:
             return {"skipped": "no active push config"}
 
         start_date = date.fromisoformat(start) if start else PUSH_IMPORT_SINCE
-        today = datetime.now(UTC).date()
+        # push_local_today(), not UTC — business_date is restaurant-local, and
+        # UTC would already be tomorrow for several hours each evening (America/Toronto).
+        today = push_local_today()
         job = await sync_range(db, tenant_id, config, start_date, today, job_type="historical")
         config.historical_import_complete = True
         config.historical_import_from = start_date

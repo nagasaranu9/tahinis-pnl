@@ -97,3 +97,11 @@ class TestParsePushDatetime:
 
     def test_empty_string_is_none(self):
         assert _parse_push_datetime("") is None
+
+    def test_negative_year_underflow_sentinel_is_none(self):
+        # Second sentinel form observed live for an open clock-out — a
+        # timezone-shifted underflow of the zero-date, not a real timestamp.
+        assert _parse_push_datetime("-0001-11-29 19:00:00") is None
+
+    def test_unrecognized_garbage_is_none_not_a_crash(self):
+        assert _parse_push_datetime("not-a-date") is None

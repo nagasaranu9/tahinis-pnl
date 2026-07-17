@@ -86,17 +86,38 @@ class ClockRow:
     is_current: bool  # still clocked in, no clock-out yet
 
 
+@dataclass(frozen=True)
+class ShiftRow:
+    """One scheduled shift from GET /shifts. No wage data here — only hours."""
+
+    business_date: date
+    employee_id: int
+    position_id: int
+    scheduled_start: datetime | None
+    scheduled_end: datetime | None
+    scheduled_hours: Decimal
+
+
 _ZERO_DATETIME = "0000-00-00 00:00:00"
 
 
 def _parse_push_datetime(value: Any) -> datetime | None:
     """Push timestamps are naive local-time strings ("2026-07-17 09:30:00").
 
-    An open clock-out (still clocked in) comes back as the literal string
-    "0000-00-00 00:00:00", not null — treat it the same as missing."""
+    An open clock-out (still clocked in) comes back as a zero/underflow
+    sentinel rather than null — observed as both the literal
+    "0000-00-00 00:00:00" and, after some timezone conversion on their side,
+    "-0001-11-29 19:00:00". Rather than enumerate every sentinel form, treat
+    any value that fails to parse as missing rather than crashing the caller —
+    an open clock-out is a normal, common state, not an error.
+    """
     if not value or value == _ZERO_DATETIME:
         return None
-    return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    try:
+        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        logger.warning("push_datetime_unparseable", value=value)
+        return None
 
 
 def _to_money(value: Any) -> Decimal:
@@ -237,6 +258,23 @@ class PushClient:
             raise PushAPIError(f"Push validation error on {path}: {body['errors']}")
         return body
 
+    async def _get_all_pages(self, path: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """
+        Follow pagination to completion — default/max page size is 100, and a
+        month-wide /shifts or /clocks range comfortably exceeds that. Without
+        this, callers would silently see only the first 100 rows.
+        """
+        items: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            body = await self._get(path, {**params, "page": page, "limit": 100})
+            items.extend(body.get("data", []))
+            next_page = (body.get("meta") or {}).get("page", {}).get("next")
+            if not next_page:
+                break
+            page = next_page
+        return items
+
     async def get_companies(self) -> list[dict[str, Any]]:
         body = await self._get(
             "/companies", {"include": "organization,location", "page": 1, "limit": 50}
@@ -280,17 +318,14 @@ class PushClient:
 
     async def get_clocks(self, start: date, end: date) -> list[ClockRow]:
         """
-        Fetch raw punches for a range no wider than MAX_LABOUR_RANGE_DAYS.
+        Fetch raw punches for [start, end].
 
-        Used for the live "who's working today" view — not stored, called
-        fresh on each request since this is a handful of rows per day, not a
-        backfill-scale dataset like /labour/employee.
+        Unlike /labour/employee, /clocks has no 2-day range restriction
+        (verified live). Used for the "who's working today" view and the
+        missed-clockout check — not stored, called fresh on each request since
+        this is a handful of rows per day, not a backfill-scale dataset.
         """
-        if (end - start).days > MAX_LABOUR_RANGE_DAYS:
-            raise ValueError(
-                f"Push clocks range {start}..{end} exceeds the {MAX_LABOUR_RANGE_DAYS}-day API limit"
-            )
-        body = await self._get(
+        items = await self._get_all_pages(
             "/clocks",
             {
                 "company": self._company_id,
@@ -300,7 +335,7 @@ class PushClient:
             },
         )
         rows: list[ClockRow] = []
-        for item in body.get("data", []):
+        for item in items:
             employee = item.get("employee") or {}
             position = item.get("position") or {}
             rows.append(
@@ -312,6 +347,39 @@ class PushClient:
                     clock_in=_parse_push_datetime(item.get("clockIn")),
                     clock_out=_parse_push_datetime(item.get("clockOut")),
                     is_current=_parse_push_datetime(item.get("clockOut")) is None,
+                )
+            )
+        return rows
+
+    async def get_shifts(self, start: date, end: date) -> list[ShiftRow]:
+        """Fetch scheduled shifts for [start, end]. No 2-day limit (verified live)."""
+        items = await self._get_all_pages(
+            "/shifts",
+            {
+                "company": self._company_id,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+            },
+        )
+        rows: list[ShiftRow] = []
+        for item in items:
+            shift_date = item.get("date") or {}
+            start_dt = _parse_push_datetime(shift_date.get("start"))
+            end_dt = _parse_push_datetime(shift_date.get("end"))
+            hours = Decimal("0.00")
+            if start_dt and end_dt and end_dt > start_dt:
+                break_hours = Decimal(str(item.get("breakMinutes") or 0)) / Decimal(60)
+                hours = (
+                    Decimal((end_dt - start_dt).total_seconds()) / Decimal(3600) - break_hours
+                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            rows.append(
+                ShiftRow(
+                    business_date=date.fromisoformat(item["businessDate"]),
+                    employee_id=int(item["employeeId"]),
+                    position_id=int(item.get("positionId") or 0),
+                    scheduled_start=start_dt,
+                    scheduled_end=end_dt,
+                    scheduled_hours=hours,
                 )
             )
         return rows

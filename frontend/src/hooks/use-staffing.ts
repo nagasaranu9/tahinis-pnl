@@ -159,6 +159,51 @@ export function useStaffingTodayTeam() {
   });
 }
 
+export interface ScheduledVsActualDay {
+  date: string;
+  scheduled_hours: number;
+  actual_hours: number;
+  variance_hours: number;
+  variance_pct: number | null;
+}
+
+export function useScheduledVsActual(p: RangeParams) {
+  return useQuery({
+    queryKey: ["staffing-scheduled-vs-actual", p],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{
+        data: { connected: boolean; days: ScheduledVsActualDay[] };
+      }>(`${BASE}/scheduled-vs-actual?${rangeQS(p)}`);
+      return data.data;
+    },
+    enabled: Boolean(p.date_from && p.date_to),
+    staleTime: 60_000,
+  });
+}
+
+export interface MissedClockout {
+  employee_id: number;
+  employee_name: string | null;
+  position: string;
+  business_date: string;
+  clock_in: string;
+  tier: "prior_day" | "long_open";
+}
+
+export function useMissedClockouts(lookbackDays = 3) {
+  return useQuery({
+    queryKey: ["staffing-missed-clockouts", lookbackDays],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{
+        data: { connected: boolean; flags: MissedClockout[] };
+      }>(`${BASE}/missed-clockouts?lookback_days=${lookbackDays}`);
+      return data.data;
+    },
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+}
+
 export interface StaffingSyncStatus {
   connected: boolean;
   company_name?: string | null;

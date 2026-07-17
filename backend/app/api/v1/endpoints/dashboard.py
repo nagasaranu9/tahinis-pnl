@@ -1117,14 +1117,15 @@ async def labor_summary(
     other date-scoped figure on the dashboard and the P&L. Labor % uses today's
     net Toast revenue so far — both numbers move together as the day progresses.
     """
-    from app.services.labor.push_sync_service import get_active_config, labor_totals
+    from app.services.labor.push_sync_service import get_active_config, labor_totals, push_local_today
 
     config = await get_active_config(db, user.tenant_id)
     if config is None:
         return {"data": {"connected": False}, "errors": None}
 
-    now_utc = datetime.now(timezone.utc)
-    today = now_utc.date()
+    # Local calendar date, not UTC — Push's business_date and Toast's business_date
+    # are both restaurant-local; UTC would be wrong for hours each evening.
+    today = push_local_today()
 
     cost, hours = await labor_totals(db, user.tenant_id, today, today, location_id=location_id)
 
