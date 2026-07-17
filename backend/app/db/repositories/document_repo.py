@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -9,6 +10,34 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
 from app.db.models.document import Document, ExtractedLineItem, OCRResult
+
+# Words too generic to prove or disprove vendor identity on their own —
+# stripped before token-overlap comparison in find_content_duplicate.
+_VENDOR_NOISE = frozenset(
+    {"corp", "corp.", "inc", "inc.", "ltd", "ltd.", "llc", "co", "co.", "the", "a", "of"}
+)
+
+# Matches "INV-021842", "Invoice_INV019362", "Invoice_231034_from_..." — the
+# invoice number a vendor assigns is unique per invoice, so two files with the
+# same vendor+date+amount but different embedded invoice numbers are two real
+# invoices, not a re-upload of the same one (a vendor issuing several
+# same-total invoices to the same customer on the same day is common — daily
+# delivery batches, credit memos — not a coincidence to be collapsed).
+_INVOICE_NUMBER_RE = re.compile(r"(?:INV|Invoice)[_\-]?0*(\d{4,})", re.IGNORECASE)
+
+
+def _vendor_tokens(name: str | None) -> frozenset[str]:
+    if not name:
+        return frozenset()
+    raw = name.lower().replace(".", " ").replace(",", " ").split()
+    return frozenset(t for t in raw if t and t not in _VENDOR_NOISE and len(t) > 1)
+
+
+def _extract_invoice_number(filename: str | None) -> str | None:
+    if not filename:
+        return None
+    m = _INVOICE_NUMBER_RE.search(filename)
+    return m.group(1).lstrip("0") or None if m else None
 
 
 class DocumentRepository:
@@ -135,6 +164,81 @@ class DocumentRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def find_content_duplicate(
+        self,
+        tenant_id: uuid.UUID,
+        *,
+        exclude_document_id: uuid.UUID,
+        original_filename: str,
+        vendor_name: str | None,
+        document_date: datetime | None,
+        total_amount: Decimal | None,
+    ) -> Document | None:
+        """
+        Find an already-extracted document that is the same invoice/receipt in
+        substance, regardless of file bytes.
+
+        Checksum-based dedup misses the same invoice arriving twice through
+        different channels (e.g. synced via both Gmail and Outlook) — each
+        copy re-encodes slightly differently, so the SHA256 never matches even
+        though the content is identical. Matched on vendor + exact date +
+        exact amount, refined by the invoice number embedded in the filename
+        when one is extractable.
+
+        The invoice number is the deciding signal, not vendor+date+amount:
+        verified live against production data that a single vendor routinely
+        issues several invoices to the same customer with the identical total
+        on the identical date (daily delivery batches) — 20 of an initial 58
+        vendor+date+amount matches turned out to be genuinely different
+        invoices once checked against their filename-embedded invoice number.
+        So when BOTH sides have an extractable number, they must match, full
+        stop — vendor+date+amount cannot override a number mismatch. Only
+        when a number can't be extracted from one or both filenames does this
+        fall back to vendor+date+amount alone (batch statements like
+        "1941 AFS Invoices.pdf" have no single invoice number to extract).
+
+        Vendor names are compared as significant lowercase tokens rather than
+        exact strings ("Alex Food Service" vs "Alex Food Service Corp.") so a
+        legal-suffix difference alone doesn't defeat the match.
+        """
+        if not vendor_name or document_date is None or total_amount is None:
+            return None
+
+        candidates = (
+            await self._db.execute(
+                select(Document).where(
+                    Document.tenant_id == tenant_id,
+                    Document.id != exclude_document_id,
+                    Document.is_duplicate == False,  # noqa: E712
+                    Document.document_date == document_date,
+                    Document.total_amount == total_amount,
+                    Document.vendor_name.isnot(None),
+                )
+            )
+        ).scalars().all()
+
+        target_tokens = _vendor_tokens(vendor_name)
+        if not target_tokens:
+            return None
+
+        target_inv_num = _extract_invoice_number(original_filename)
+        for candidate in candidates:
+            if not (_vendor_tokens(candidate.vendor_name) & target_tokens):
+                continue
+            candidate_inv_num = _extract_invoice_number(candidate.original_filename)
+            if target_inv_num and candidate_inv_num and target_inv_num != candidate_inv_num:
+                continue  # different invoice numbers — not the same document, however close the rest looks
+            return candidate
+        return None
+
+    async def mark_duplicate(self, document_id: uuid.UUID, *, duplicate_of: uuid.UUID) -> None:
+        await self._db.execute(
+            update(Document)
+            .where(Document.id == document_id)
+            .values(is_duplicate=True, duplicate_of=duplicate_of, status="error",
+                    error_message="Duplicate of existing document")
+        )
 
     async def save_ocr_result(
         self,

@@ -653,6 +653,38 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
                 document_type=classified_type,
             )
 
+            # Content-based duplicate check — the same invoice arriving twice
+            # through different channels (synced via Gmail AND Outlook, or
+            # re-forwarded) re-encodes to different bytes each time, so the
+            # checksum-based check at upload time never catches it. Now that
+            # OCR has extracted vendor/date/amount, a second signal is
+            # available. Skipped for bank statements: their "vendor" field
+            # isn't a comparable identity the same way an invoice's is.
+            if classified_type not in ("bank_statement", "bank_reconciliation", "payroll_report", "other"):
+                content_dup = await repo.find_content_duplicate(
+                    tenant_id,
+                    exclude_document_id=doc_id,
+                    original_filename=doc.original_filename,
+                    vendor_name=result.vendor_name,
+                    document_date=doc_date,
+                    total_amount=result.total_amount,
+                )
+                if content_dup is not None:
+                    await repo.mark_duplicate(doc_id, duplicate_of=content_dup.id)
+                    await db.commit()
+                    logger.info(
+                        "ocr_content_duplicate_detected",
+                        document_id=document_id_str,
+                        duplicate_of=str(content_dup.id),
+                        vendor_name=result.vendor_name,
+                        amount=str(result.total_amount),
+                    )
+                    return {
+                        "status": "ok",
+                        "is_duplicate": True,
+                        "duplicate_of": str(content_dup.id),
+                    }
+
             # Bank statements: extract individual debit transactions as expenses
             # and Gmail-verify each one. PushOps payroll fallback already ran above.
             if classified_type == "bank_statement":
