@@ -172,6 +172,49 @@ class ReconciliationEngine:
                     )
                     flags_raised += 1
 
+        # ---- Flag: unverified_royalty_invoice (invoice not seen on bank statement) ---
+        # Royalties uses invoice-not-bank as the source of truth in the P&L (see
+        # PnLCalculator._dedup_invoice_vs_bank_by_amount — the franchisor's bank
+        # line reads "TAHINIS BUS/ENT" against an invoice vendor of "Tahinis
+        # Franchising Corp", too different to auto-match on vendor tokens). That
+        # makes the bank statement the independent proof the royalty actually
+        # cleared, same role it plays for Payroll — flag any Royalties invoice
+        # with no matching bank debit so it doesn't sit unverified indefinitely.
+        if bank_debits is not None:
+            royalty_exps = [e for e in expenses if e.category == "Royalties" and e.amount is not None]
+            royalty_doc_ids = [e.document_id for e in royalty_exps if e.document_id]
+            bank_doc_ids: set = set()
+            if royalty_doc_ids:
+                bank_doc_ids = set(
+                    (
+                        await self._db.execute(
+                            select(Document.id).where(
+                                Document.id.in_(royalty_doc_ids),
+                                Document.document_type == "bank_statement",
+                            )
+                        )
+                    ).scalars().all()
+                )
+            for exp in royalty_exps:
+                if exp.document_id in bank_doc_ids:
+                    continue  # this row IS the bank line, not an invoice to verify
+                if not (period_start <= exp.expense_date <= period_end):
+                    continue
+                target = abs(exp.amount)
+                tol = max(PAYROLL_MATCH_ABS, target * PAYROLL_MATCH_PCT)
+                if not any(abs(debit - target) <= tol for debit in bank_debits):
+                    await self._repo.create_flag(
+                        tenant_id=tenant_id, run_id=run_id,
+                        flag_type="unverified_royalty_invoice", severity="medium",
+                        message=(
+                            f"Royalty invoice {exp.id} ({exp.vendor_name}, {exp.amount}) "
+                            f"has no matching withdrawal on any bank statement for this "
+                            f"period. Confirm the royalty payment cleared."
+                        ),
+                        expense_id=exp.id,
+                    )
+                    flags_raised += 1
+
         # ---- Flag: push_labor_bank_variance (Push total vs bank Payroll total) ---
         # Push is the P&L's Labor source (see PnLCalculator), so the Payroll
         # expenses parsed off the bank statement / CSV are no longer summed into

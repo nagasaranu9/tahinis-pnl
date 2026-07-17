@@ -45,6 +45,23 @@ _COGS_CATEGORIES = {"Food Cost", "Beverage Cost", "Packaging"}
 # from two angles (accrued cost vs cash paid).
 _LABOR_CATEGORIES = {"Payroll"}
 
+# Categories where an uploaded invoice is the source of truth, not the bank
+# debit that later clears it. _dedup_bank_vs_invoice's default ("bank wins")
+# works for vendors whose bank description resembles their invoice name
+# (e.g. "Alex Food"), but the franchisor's bank line reads
+# "Pre-Authorized Payment, TAHINIS BUS/ENT" against an invoice vendor of
+# "Tahinis Franchising Corp" — only one shared token ("tahinis"), below the
+# 2-token match threshold, so the generic pass never catches it and both
+# sides land in Royalties, doubling it. Matched on amount instead of vendor
+# tokens; see _dedup_invoice_vs_bank_by_amount.
+_INVOICE_WINS_CATEGORIES = {"Royalties"}
+
+# Tolerance for matching an invoice amount to a bank debit as "the same
+# charge" — same magnitude as the payroll-vs-bank check in the reconciliation
+# engine (OCR rounding, minor fee differences).
+_ROYALTY_MATCH_ABS = Decimal("1.00")
+_ROYALTY_MATCH_PCT = Decimal("0.005")
+
 
 def _pct(numerator: Decimal | None, denominator: Decimal | None) -> Decimal | None:
     if numerator is None or denominator is None or denominator == 0:
@@ -316,6 +333,7 @@ class PnLCalculator:
         for exp, doc_type in rows.all():
             exp._doc_type = doc_type  # type: ignore[attr-defined]
             expenses.append(exp)
+        expenses = self._dedup_invoice_vs_bank_by_amount(expenses)
         return self._dedup_bank_vs_invoice(expenses)
 
     # Words that carry no vendor identity — bank-description boilerplate,
@@ -346,6 +364,51 @@ class PnLCalculator:
         if not name:
             return None
         return " ".join(name.lower().split())
+
+    def _dedup_invoice_vs_bank_by_amount(self, expenses: list[Expense]) -> list[Expense]:
+        """Invoice wins for _INVOICE_WINS_CATEGORIES: when a bank-statement
+        expense's amount matches an uploaded invoice's amount within tolerance,
+        drop the bank line and keep the invoice (the invoice has line-item
+        detail the bank description doesn't). A bank line with no matching
+        invoice is a real charge with no document yet — it stays, so the
+        category isn't silently understated.
+
+        Runs before _dedup_bank_vs_invoice, whose default direction (bank
+        wins) is wrong for this category — see _INVOICE_WINS_CATEGORIES.
+        """
+        invoice_amounts_by_cat: dict[str, list[Decimal]] = {}
+        for e in expenses:
+            if (
+                e.category in _INVOICE_WINS_CATEGORIES
+                and getattr(e, "_doc_type", None) != "bank_statement"
+                and e.amount is not None
+            ):
+                invoice_amounts_by_cat.setdefault(e.category, []).append(abs(e.amount))
+
+        kept: list[Expense] = []
+        for e in expenses:
+            if (
+                e.category in _INVOICE_WINS_CATEGORIES
+                and getattr(e, "_doc_type", None) == "bank_statement"
+                and e.amount is not None
+            ):
+                target = abs(e.amount)
+                tol = max(_ROYALTY_MATCH_ABS, target * _ROYALTY_MATCH_PCT)
+                pool = invoice_amounts_by_cat.get(e.category, [])
+                match_idx = next(
+                    (i for i, inv_amt in enumerate(pool) if abs(inv_amt - target) <= tol), None
+                )
+                if match_idx is not None:
+                    pool.pop(match_idx)  # consume so one invoice can't absorb two bank lines
+                    logger.info(
+                        "pnl_dedup_dropped_bank_line",
+                        category=e.category,
+                        amount=str(e.amount),
+                        reason="matched_by_uploaded_invoice",
+                    )
+                    continue
+            kept.append(e)
+        return kept
 
     def _dedup_bank_vs_invoice(self, expenses: list[Expense]) -> list[Expense]:
         """Bank statement wins. When a vendor has a bank-statement expense in the
