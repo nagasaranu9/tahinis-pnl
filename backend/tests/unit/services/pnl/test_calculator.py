@@ -47,9 +47,10 @@ def _expense(*, category: str | None, amount: Decimal) -> Expense:
     return e
 
 
-async def _compute(calc: PnLCalculator, orders: list, expenses: list):
+async def _compute(calc: PnLCalculator, orders: list, expenses: list, push_labor: Decimal | None = None):
     calc._load_orders = AsyncMock(return_value=orders)
     calc._load_expenses = AsyncMock(return_value=expenses)
+    calc._load_push_labor = AsyncMock(return_value=push_labor)
     return await calc.compute(
         tenant_id=TENANT_ID,
         period_start=PERIOD_START,

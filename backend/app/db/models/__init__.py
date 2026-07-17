@@ -4,6 +4,11 @@ from app.db.models.expense import Expense
 from app.db.models.external_platform import GoogleAdsCampaign, GoogleAdsDailyMetric, GoogleReviewSnapshot
 from app.db.models.google_ads_optimization import GoogleAdsOptimizationRecommendation, GoogleAdsOptimizationAction
 from app.db.models.pnl import PnLSnapshot
+from app.db.models.push_labor import (
+    PushLabourEmployeeDaily,
+    PushSyncConfig,
+    PushSyncJob,
+)
 from app.db.models.reconciliation import ReconciliationFlag, ReconciliationRun
 from app.db.models.email_sync import (
     DriveSyncConfig,
@@ -41,6 +46,9 @@ __all__ = [
     "GoogleAdsOptimizationRecommendation",
     "GoogleAdsOptimizationAction",
     "PnLSnapshot",
+    "PushLabourEmployeeDaily",
+    "PushSyncConfig",
+    "PushSyncJob",
     "ReconciliationFlag",
     "ReconciliationRun",
     "DriveSyncConfig",

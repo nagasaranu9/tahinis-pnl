@@ -172,6 +172,40 @@ class ReconciliationEngine:
                     )
                     flags_raised += 1
 
+        # ---- Flag: push_labor_bank_variance (Push total vs bank Payroll total) ---
+        # Push is the P&L's Labor source (see PnLCalculator), so the Payroll
+        # expenses parsed off the bank statement / CSV are no longer summed into
+        # the P&L directly — but they remain the independent proof the money
+        # actually left the account. This compares the two totals for the period
+        # and flags a mismatch, catching a missed pay run, a bounced payroll debit,
+        # or bad OCR on the statement, without re-introducing double counting.
+        push_total = await self._load_push_labor_total(
+            tenant_id, period_start, period_end, location_id
+        )
+        if push_total is not None and bank_debits is not None:
+            # Query by expense_date (the real pay date), not the already-loaded
+            # `expenses` list which is scoped by created_at (upload time) — a
+            # month's payroll is typically OCR'd weeks after the pay period
+            # closes, so filtering on upload time would miss it entirely.
+            payroll_expense_total = await self._load_payroll_expense_total_by_pay_date(
+                tenant_id, period_start, period_end, location_id
+            )
+            if payroll_expense_total > 0:
+                tol = max(PAYROLL_MATCH_ABS, push_total * PAYROLL_MATCH_PCT)
+                variance = push_total - payroll_expense_total
+                if abs(variance) > tol:
+                    await self._repo.create_flag(
+                        tenant_id=tenant_id, run_id=run_id,
+                        flag_type="push_labor_bank_variance", severity="high",
+                        message=(
+                            f"PushOperations labour cost for this period is {push_total}, "
+                            f"but bank-statement Payroll debits total {payroll_expense_total} "
+                            f"(variance {variance:+.2f}). Confirm the payroll deduction amount "
+                            f"is correct."
+                        ),
+                    )
+                    flags_raised += 1
+
         # ---- Flag: unmatched_sale (Toast day with no expense document) -------
         # Group Toast orders by business date; flag dates with sales but no expense
         toast_dates: dict[str, Decimal] = defaultdict(Decimal)
@@ -282,6 +316,45 @@ class ReconciliationEngine:
             )
         )
         return [abs(a) for a in rows.scalars().all() if a is not None]
+
+    async def _load_push_labor_total(
+        self,
+        tenant_id: uuid.UUID,
+        period_start: datetime,
+        period_end: datetime,
+        location_id: uuid.UUID | None,
+    ) -> Decimal | None:
+        """Total PushOperations labour cost for the period, or None when the
+        tenant has no active Push integration (nothing to cross-check)."""
+        from app.services.labor.push_sync_service import get_active_config, labor_totals
+
+        config = await get_active_config(self._db, tenant_id)
+        if config is None:
+            return None
+        cost, _hours = await labor_totals(
+            self._db, tenant_id, period_start.date(), period_end.date(), location_id=location_id
+        )
+        return cost
+
+    async def _load_payroll_expense_total_by_pay_date(
+        self,
+        tenant_id: uuid.UUID,
+        period_start: datetime,
+        period_end: datetime,
+        location_id: uuid.UUID | None,
+    ) -> Decimal:
+        """Sum of Payroll expenses whose expense_date (pay date) falls in the
+        period, regardless of when the document was uploaded/OCR'd."""
+        conditions = [
+            Expense.tenant_id == tenant_id,
+            Expense.category == "Payroll",
+            Expense.expense_date >= period_start,
+            Expense.expense_date <= period_end,
+        ]
+        if location_id:
+            conditions.append(Expense.location_id == location_id)
+        rows = await self._db.execute(select(Expense.amount).where(and_(*conditions)))
+        return sum((abs(a) for a in rows.scalars().all() if a is not None), Decimal("0"))
 
     async def _load_expenses(
         self,

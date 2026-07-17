@@ -54,6 +54,18 @@ celery_app.conf.beat_schedule = {
         "task": "google_ads.optimize_all_tenants",
         "schedule": crontab(hour=8, minute=30),
     },
+    "push-realtime-15min": {
+        # "Labor cost so far today" — refreshes today's Push labour every 15 min.
+        "task": "push.realtime_sync_all_tenants",
+        "schedule": crontab(minute="*/15"),
+    },
+    "push-incremental-daily": {
+        # Re-pulls a 7-day trailing window: PushOperations punches are edited
+        # retroactively (missed clock-outs fixed days later), so this absorbs
+        # corrections the realtime sync already passed by.
+        "task": "push.incremental_sync_all_tenants",
+        "schedule": crontab(hour=5, minute=0),
+    },
     "reconciliation-daily": {
         # weekly_reconciliation_all_tenants builds its own (run_id, tenant_id,
         # period) per tenant — run_reconciliation itself requires those as

@@ -108,6 +108,9 @@ async def _run_execute(
     engine._load_vendor_amount_history = AsyncMock(
         return_value=vendor_amounts if vendor_amounts is not None else defaultdict(list)
     )
+    engine._load_bank_debit_amounts = AsyncMock(return_value=None)
+    engine._load_push_labor_total = AsyncMock(return_value=None)
+    engine._load_payroll_expense_total_by_pay_date = AsyncMock(return_value=Decimal("0"))
     return await engine._execute(RUN_ID, TENANT_ID, PERIOD_START, PERIOD_END, None)
 
 
@@ -395,6 +398,95 @@ async def test_total_sales_none_when_no_orders():
     result = await _run_execute(engine, [], [], [])
     # sum of empty = Decimal("0") which becomes None via `or None`
     assert result["total_sales_amount"] is None
+
+
+# ---------------------------------------------------------------------------
+# Flag: push_labor_bank_variance
+# ---------------------------------------------------------------------------
+
+
+async def _run_execute_with_push(
+    engine: ReconciliationEngine,
+    push_total: Decimal | None,
+    bank_debits: list[Decimal] | None,
+    payroll_expense_total: Decimal,
+) -> dict:
+    engine._load_documents = AsyncMock(return_value=[])
+    engine._load_expenses = AsyncMock(return_value=[])
+    engine._load_toast_orders = AsyncMock(return_value=[])
+    engine._load_vendor_amount_history = AsyncMock(return_value=defaultdict(list))
+    engine._load_bank_debit_amounts = AsyncMock(return_value=bank_debits)
+    engine._load_push_labor_total = AsyncMock(return_value=push_total)
+    engine._load_payroll_expense_total_by_pay_date = AsyncMock(return_value=payroll_expense_total)
+    return await engine._execute(RUN_ID, TENANT_ID, PERIOD_START, PERIOD_END, None)
+
+
+@pytest.mark.asyncio
+async def test_push_labor_bank_variance_flag_raised_when_amounts_diverge():
+    engine, repo = _make_engine()
+    await _run_execute_with_push(
+        engine,
+        push_total=Decimal("41019.61"),
+        bank_debits=[Decimal("7019.44")],  # any non-None list — presence is the gate
+        payroll_expense_total=Decimal("33112.30"),
+    )
+    flag_types = [c.kwargs["flag_type"] for c in repo.create_flag.call_args_list]
+    assert "push_labor_bank_variance" in flag_types
+
+
+@pytest.mark.asyncio
+async def test_push_labor_bank_variance_not_flagged_within_tolerance():
+    engine, repo = _make_engine()
+    await _run_execute_with_push(
+        engine,
+        push_total=Decimal("10000.00"),
+        bank_debits=[Decimal("10000.00")],
+        payroll_expense_total=Decimal("10000.50"),  # within max($1, 0.5%) tolerance
+    )
+    flag_types = [c.kwargs["flag_type"] for c in repo.create_flag.call_args_list]
+    assert "push_labor_bank_variance" not in flag_types
+
+
+@pytest.mark.asyncio
+async def test_push_labor_bank_variance_skipped_when_push_inactive():
+    """push_total is None (no active Push integration) — nothing to cross-check."""
+    engine, repo = _make_engine()
+    await _run_execute_with_push(
+        engine,
+        push_total=None,
+        bank_debits=[Decimal("100.00")],
+        payroll_expense_total=Decimal("5000.00"),
+    )
+    flag_types = [c.kwargs["flag_type"] for c in repo.create_flag.call_args_list]
+    assert "push_labor_bank_variance" not in flag_types
+
+
+@pytest.mark.asyncio
+async def test_push_labor_bank_variance_skipped_when_no_bank_statement():
+    """bank_debits is None (no bank statement uploaded for period) — nothing to verify against."""
+    engine, repo = _make_engine()
+    await _run_execute_with_push(
+        engine,
+        push_total=Decimal("41019.61"),
+        bank_debits=None,
+        payroll_expense_total=Decimal("0"),
+    )
+    flag_types = [c.kwargs["flag_type"] for c in repo.create_flag.call_args_list]
+    assert "push_labor_bank_variance" not in flag_types
+
+
+@pytest.mark.asyncio
+async def test_push_labor_bank_variance_skipped_when_no_payroll_expenses_in_period():
+    """payroll_expense_total is 0 — nothing uploaded yet for this pay period, not a mismatch."""
+    engine, repo = _make_engine()
+    await _run_execute_with_push(
+        engine,
+        push_total=Decimal("41019.61"),
+        bank_debits=[Decimal("100.00")],
+        payroll_expense_total=Decimal("0"),
+    )
+    flag_types = [c.kwargs["flag_type"] for c in repo.create_flag.call_args_list]
+    assert "push_labor_bank_variance" not in flag_types
 
 
 # ---------------------------------------------------------------------------

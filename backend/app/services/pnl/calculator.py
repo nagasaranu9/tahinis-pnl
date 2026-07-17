@@ -9,7 +9,8 @@ P&L structure:
   Net Revenue     = Gross Revenue - Total Discounts
   COGS            = Food Cost + Beverage Cost + Packaging expenses
   Gross Profit    = Net Revenue - COGS
-  Labor Cost      = Payroll expenses
+  Labor Cost      = PushOperations actual labour when the integration is active,
+                    otherwise Payroll expenses (bank statement / payroll CSV)
   Prime Cost      = COGS + Labor Cost
   Opex            = all other expenses (not COGS / Payroll)
   EBITDA          = Net Revenue - COGS - Labor Cost - Opex
@@ -34,7 +35,14 @@ logger = structlog.get_logger(__name__)
 
 # Expense categories that map to COGS
 _COGS_CATEGORIES = {"Food Cost", "Beverage Cost", "Packaging"}
-# Expense categories that map to Labor
+# Expense categories that map to Labor.
+#
+# These are cash-out records (pre-authorized payroll debits off the bank
+# statement, payroll CSV imports). They are only used for the Labor line when
+# the PushOperations integration is inactive. When Push IS active, Push actuals
+# are the Labor source and these expenses are excluded from the P&L entirely —
+# counting both would double the Labor line, since they describe the same wages
+# from two angles (accrued cost vs cash paid).
 _LABOR_CATEGORIES = {"Payroll"}
 
 
@@ -61,6 +69,9 @@ class PnLCalculator:
         pipeboard_expenses = await self._load_pipeboard_metrics(tenant_id, period_start, period_end, location_id)
         location = await self._load_location(tenant_id, location_id) if location_id else None
         bank_statement_verified = await self._has_bank_statement(
+            tenant_id, period_start, period_end, location_id
+        )
+        push_labor = await self._load_push_labor(
             tenant_id, period_start, period_end, location_id
         )
 
@@ -112,6 +123,22 @@ class PnLCalculator:
             # Inject synthetic rent expense so it flows into opex + breakdown
             _synthetic_rent = type("_R", (), {"amount": prorated_rent, "category": "Rent"})()
             category_totals["Rent"].append(_synthetic_rent)
+
+        # Labor precedence: PushOperations actuals replace Payroll expenses.
+        #
+        # Push reports accrued labour cost per business date; the Payroll
+        # expenses are the bank's pre-authorized debits, which settle on a pay
+        # date covering an earlier pay period. They describe the same wages, so
+        # counting both would double the Labor line. Substituting (rather than
+        # adding) keeps the Labor line and the expense breakdown telling the
+        # same story. The real Payroll expenses stay in the database as the
+        # month-end cross-check against Push — see the reconciliation engine.
+        labor_source = "expenses"
+        if push_labor is not None:
+            labor_source = "pushoperations"
+            category_totals["Payroll"] = [
+                type("_P", (), {"amount": push_labor, "category": "Payroll", "vendor_name": "PushOperations (actual labour)"})()
+            ]
 
         cogs = _sum_cat(_COGS_CATEGORIES)
         labor_cost = _sum_cat(_LABOR_CATEGORIES)
@@ -172,6 +199,8 @@ class PnLCalculator:
             orders=len(orders),
             expenses=len(all_expenses),
             pipeboard_expenses=len(pipeboard_expenses),
+            labor_source=labor_source,
+            labor_cost=str(labor_cost),
         )
 
         return PnLReportResponse(
@@ -195,6 +224,39 @@ class PnLCalculator:
     # ------------------------------------------------------------------
     # Queries
     # ------------------------------------------------------------------
+
+    async def _load_push_labor(
+        self,
+        tenant_id: uuid.UUID,
+        period_start: datetime,
+        period_end: datetime,
+        location_id: uuid.UUID | None,
+    ) -> Decimal | None:
+        """
+        Actual labour cost from PushOperations for the period.
+
+        Returns None when the tenant has no active Push integration, which tells
+        compute() to fall back to Payroll expenses. A tenant WITH an active
+        integration but no rows in range returns Decimal("0") rather than None:
+        that is a real zero (closed for the period), not a missing integration,
+        and must not silently re-enable the expense fallback.
+        """
+        from app.services.labor.push_sync_service import get_active_config, labor_totals
+
+        config = await get_active_config(self._db, tenant_id)
+        if config is None:
+            return None
+
+        # Push keys rows on business_date (a real date), while the P&L period is
+        # a timestamp range — take the calendar dates.
+        cost, _hours = await labor_totals(
+            self._db,
+            tenant_id,
+            period_start.date(),
+            period_end.date(),
+            location_id=location_id,
+        )
+        return cost
 
     async def _load_orders(
         self,

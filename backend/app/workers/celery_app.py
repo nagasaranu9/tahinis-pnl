@@ -18,6 +18,7 @@ celery_app = Celery(
         "app.workers.tasks.ai_insights",
         "app.workers.tasks.reviews_sync",
         "app.workers.tasks.pipeboard_tasks",
+        "app.workers.tasks.push_sync",
     ],
 )
 
@@ -53,6 +54,12 @@ celery_app.conf.update(
         "app.workers.tasks.external_platforms.*": {"queue": "sync"},
         "app.workers.tasks.reviews_sync.*": {"queue": "sync"},
         "app.workers.tasks.pipeboard_tasks.*": {"queue": "sync"},
+        # Dispatchers stay on "default" so they cannot block behind the
+        # per-tenant sync tasks they enqueue.
+        "push.incremental_sync_all_tenants": {"queue": "default"},
+        "push.realtime_sync_all_tenants": {"queue": "default"},
+        "push.sync_labor": {"queue": "sync"},
+        "push.historical_import": {"queue": "sync"},
     },
     # NOTE: beat_schedule lives solely in app.workers.celery_beat (single source of
     # truth). Launch beat with `-A app.workers.celery_beat beat`. Do not redefine the

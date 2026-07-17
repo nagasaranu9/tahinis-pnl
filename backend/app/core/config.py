@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     TOAST_CLIENT_ID: str = ""
     TOAST_CLIENT_SECRET: str = ""
 
+    # PushOperations — static partner-issued bearer token (no OAuth exchange)
+    PUSH_API_TOKEN: str = ""
+
     # Virus scanning (ClamAV)
     CLAMAV_HOST: str = ""  # empty = skip AV scan (dev/test)
     CLAMAV_PORT: int = 3310
