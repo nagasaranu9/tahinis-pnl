@@ -117,14 +117,18 @@ async def ingest_document(
     )
 
     if existing is not None:
-        from sqlalchemy import update as sa_update
-        from app.db.models.document import Document
-        await repo._db.execute(
-            sa_update(Document)
-            .where(Document.id == doc.id)
-            .values(is_duplicate=True, duplicate_of=existing.id, status="error",
-                    error_message="Duplicate of existing document")
-        )
+        # Set attributes on the live ORM object rather than issuing a raw
+        # UPDATE against the same row — a Core UPDATE against a mapped table
+        # expires the matching identity-map object's attributes, and the
+        # caller's subsequent DocumentResponse.model_validate(doc) then
+        # triggers a lazy-reload outside an async-safe context
+        # (MissingGreenlet), crashing the upload endpoint with a 500 on
+        # every duplicate upload.
+        doc.is_duplicate = True
+        doc.duplicate_of = existing.id
+        doc.status = "error"
+        doc.error_message = "Duplicate of existing document"
+        await repo._db.flush()
         logger.warning("document_duplicate", checksum=checksum, existing_id=str(existing.id))
         return doc, True
 
