@@ -80,6 +80,12 @@ async def upload_document(
         repo=repo,
         location_id=loc_id,
     )
+    # Force every column onto the instance before serialization — a server-
+    # populated column (e.g. created_at/updated_at) that hasn't round-tripped
+    # yet is enough to make DocumentResponse.model_validate's sync attribute
+    # read trip a lazy DB load outside an async-safe context (MissingGreenlet),
+    # 500ing the endpoint on the very first request that hits it.
+    await db.refresh(doc)
     return {"data": _to_response(doc), "errors": None}
 
 
