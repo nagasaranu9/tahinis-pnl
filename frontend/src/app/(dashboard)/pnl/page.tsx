@@ -546,10 +546,14 @@ function DiscountBreakdownCard({
     );
   }
 
+  // Ranked by amount server-side; the long tail is dozens of sub-$10 promos
+  // that add noise without changing a decision.
+  const top = data.discounts.slice(0, 5);
+
   return (
     <div className="border border-border rounded-lg bg-card overflow-hidden">
       <div className="px-4 py-3 border-b border-border">
-        <h2 className="text-sm font-semibold">Discount Breakdown</h2>
+        <h2 className="text-sm font-semibold">Discount Breakdown — Top 5</h2>
         <p className="text-xs text-muted-foreground">
           {fmt(data.total)} across {data.discounts.length} promo
           {data.discounts.length === 1 ? "" : "s"}
@@ -558,7 +562,7 @@ function DiscountBreakdownCard({
       </div>
       <table className="w-full">
         <tbody>
-          {data.discounts.map((d) => (
+          {top.map((d) => (
             <tr key={`${d.name}-${d.scope}`} className="border-b border-border/60 last:border-0">
               <td className="py-2 px-4 text-sm">
                 {d.name}
