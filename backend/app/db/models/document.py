@@ -54,6 +54,14 @@ class Document(Base, TenantMixin, TimestampMixin):
     vendor_name: Mapped[str | None] = mapped_column(String(255))
     total_amount: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
     currency_code: Mapped[str] = mapped_column(String(3), nullable=False, default="CAD")
+    # Bank statements only: account summary figures extracted at OCR time.
+    # Used by the reconciliation engine for month-over-month balance-chain
+    # verification (closing of period N must equal opening of period N+1) and
+    # in-statement arithmetic (opening + deposits - withdrawals == closing).
+    opening_balance: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
+    closing_balance: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
+    total_deposits: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
+    total_withdrawals: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
     is_duplicate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     duplicate_of: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True

@@ -337,6 +337,71 @@ async def _parse_bank_transactions_with_claude(extracted_text: str, currency_cod
         return []
 
 
+async def _extract_statement_balances(extracted_text: str) -> dict:
+    """Extract account summary figures (opening/closing balance, deposit and
+    withdrawal totals) from bank statement OCR text via Claude haiku.
+
+    These power the reconciliation engine's balance-chain check (closing of
+    month N must equal opening of month N+1) and in-statement arithmetic check
+    (opening + deposits - withdrawals == closing). Returns a dict with any of
+    opening_balance / closing_balance / total_deposits / total_withdrawals as
+    Decimal, or {} when nothing extractable."""
+    import json
+    from decimal import Decimal, InvalidOperation
+    import anthropic
+    from app.core.config import settings
+
+    if not extracted_text or len(extracted_text) < 50:
+        return {}
+
+    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    prompt = (
+        "From this bank statement text, extract the account summary figures.\n"
+        "Return ONLY a JSON object with these keys (use null when not shown):\n"
+        '{"opening_balance": 1234.56, "closing_balance": 2345.67, '
+        '"total_deposits": 5000.00, "total_withdrawals": 3888.89}\n'
+        "Rules:\n"
+        "- opening_balance: the balance at the START of the statement period "
+        "(labels like 'Opening balance', 'Previous balance', 'Balance forward')\n"
+        "- closing_balance: the balance at the END of the period "
+        "(labels like 'Closing balance', 'New balance', 'Ending balance')\n"
+        "- total_deposits: total of amounts credited/deposited in the period\n"
+        "- total_withdrawals: total of amounts debited/withdrawn in the period\n"
+        "- Numbers only, no currency symbols. Negative balances allowed.\n\n"
+        f"Statement text:\n{extracted_text[:8000]}\n\n"
+        "JSON object only, no prose:"
+    )
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            parts = raw.split("```")
+            raw = parts[1] if len(parts) > 1 else raw
+            if raw.startswith("json"):
+                raw = raw[4:]
+        parsed = json.loads(raw.strip())
+        if not isinstance(parsed, dict):
+            return {}
+        out: dict = {}
+        for key in ("opening_balance", "closing_balance", "total_deposits", "total_withdrawals"):
+            val = parsed.get(key)
+            if val is None:
+                continue
+            try:
+                out[key] = Decimal(str(val)).quantize(Decimal("0.01"))
+            except InvalidOperation:
+                continue
+        logger.info("bank_statement_balances_parsed", **{k: str(v) for k, v in out.items()})
+        return out
+    except Exception as exc:
+        logger.warning("bank_statement_balance_parse_failed", error=str(exc))
+        return {}
+
+
 async def _extract_bank_statement_expenses(
     db,
     tenant_id: "uuid.UUID",
@@ -701,6 +766,10 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
                     )
                 except Exception as exc:
                     logger.warning("bank_per_page_extract_failed", error=str(exc))
+
+                balances = await _extract_statement_balances(result.extracted_text or "")
+                for field, value in balances.items():
+                    setattr(doc, field, value)
 
                 bank_created = await _extract_bank_statement_expenses(
                     db,
