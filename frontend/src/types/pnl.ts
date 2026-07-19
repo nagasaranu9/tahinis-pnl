@@ -17,6 +17,49 @@ export interface PnLLineItems {
   net_profit_pct: string | null;
 }
 
+export type BenchmarkStatus = "good" | "watch" | "bad" | "unknown";
+
+export interface BenchmarkChip {
+  metric: string;
+  label: string;
+  value_pct: string | null;
+  target_label: string;
+  status: BenchmarkStatus;
+}
+
+export interface DiscountBreakdownRow {
+  name: string;
+  scope: string;
+  total: string;
+  count: number;
+  pct_of_discounts: string | null;
+}
+
+export interface DiscountBreakdown {
+  total: string;
+  currency_code: string;
+  discounts: DiscountBreakdownRow[];
+}
+
+export interface PnLTrendPoint {
+  period_label: string;
+  period_start: string;
+  net_revenue: string | null;
+  cogs: string | null;
+  cogs_pct: string | null;
+  labor_cost: string | null;
+  labor_pct: string | null;
+  prime_cost_pct: string | null;
+  ebitda: string | null;
+  net_profit: string | null;
+  net_profit_pct: string | null;
+}
+
+export interface PnLTrend {
+  months: number;
+  points: PnLTrendPoint[];
+}
+
 export interface ExpenseLineItem {
   vendor_name: string | null;
   amount: string;
@@ -37,6 +80,7 @@ export interface PnLReport {
   currency_code: string;
   line_items: PnLLineItems;
   expense_breakdown: ExpenseCategoryBreakdown[];
+  benchmarks: BenchmarkChip[];
   order_count: number;
   expense_count: number;
   bank_statement_verified: boolean;

@@ -30,9 +30,56 @@ from app.db.models.document import Document
 from app.db.models.expense import Expense
 from app.db.models.location import Location
 from app.db.models.toast import ToastOrder
-from app.schemas.pnl import ExpenseCategoryBreakdown, ExpenseLineItem, PnLLineItems, PnLReportResponse
+from app.schemas.pnl import (
+    BenchmarkChip,
+    ExpenseCategoryBreakdown,
+    ExpenseLineItem,
+    PnLLineItems,
+    PnLReportResponse,
+)
 
 logger = structlog.get_logger(__name__)
+
+# Fast-casual industry targets, as % of net revenue. `good` is the upper bound
+# of healthy; `watch` is the upper bound of tolerable — above that is `bad`.
+# Sources are the standard restaurant operating ratios (food 28-34%, labour
+# under 30%, prime under 60% with strong operators nearer 55%).
+_BENCHMARKS: list[tuple[str, str, Decimal, Decimal, str]] = [
+    ("cogs_pct", "Food & COGS", Decimal("34"), Decimal("38"), "28-34% target"),
+    ("labor_pct", "Labor", Decimal("30"), Decimal("35"), "under 30% target"),
+    ("prime_cost_pct", "Prime Cost", Decimal("60"), Decimal("65"), "under 60% target"),
+    ("net_profit_pct", "Net Profit", Decimal("0"), Decimal("0"), "10%+ target"),
+]
+
+
+def _benchmark_chips(li: PnLLineItems) -> list[BenchmarkChip]:
+    """Grade the key operating ratios against industry targets.
+
+    Cost ratios are 'lower is better'; net profit inverts (higher is better), so
+    it's graded on its own scale rather than shoehorned into the same test.
+    """
+    chips: list[BenchmarkChip] = []
+    for metric, label, good_max, watch_max, target_label in _BENCHMARKS:
+        value = getattr(li, metric, None)
+        if value is None:
+            chips.append(
+                BenchmarkChip(
+                    metric=metric, label=label, value_pct=None,
+                    target_label=target_label, status="unknown",
+                )
+            )
+            continue
+        if metric == "net_profit_pct":
+            status = "good" if value >= 10 else "watch" if value >= 5 else "bad"
+        else:
+            status = "good" if value <= good_max else "watch" if value <= watch_max else "bad"
+        chips.append(
+            BenchmarkChip(
+                metric=metric, label=label, value_pct=value,
+                target_label=target_label, status=status,
+            )
+        )
+    return chips
 
 # Expense categories that map to COGS
 _COGS_CATEGORIES = {"Food Cost", "Beverage Cost", "Packaging"}
@@ -268,6 +315,7 @@ class PnLCalculator:
             currency_code=currency_code,
             line_items=line_items,
             expense_breakdown=breakdown,
+            benchmarks=_benchmark_chips(line_items),
             order_count=sum(1 for o in orders if not o.is_void),
             expense_count=len(all_expenses),
             bank_statement_verified=bank_statement_verified,

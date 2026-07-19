@@ -37,6 +37,20 @@ class PnLLineItems(BaseModel):
     net_profit_pct: Optional[Decimal] = None
 
 
+class BenchmarkChip(BaseModel):
+    """One metric measured against its fast-casual industry target.
+
+    `status` is good / watch / bad so the UI colours consistently without
+    re-deriving thresholds (and drifting from the PDF export).
+    """
+
+    metric: str
+    label: str
+    value_pct: Optional[Decimal] = None
+    target_label: str
+    status: str  # "good" | "watch" | "bad" | "unknown"
+
+
 class ExpenseLineItem(BaseModel):
     vendor_name: Optional[str] = None
     amount: Decimal
@@ -60,6 +74,7 @@ class PnLReportResponse(BaseModel):
 
     line_items: PnLLineItems
     expense_breakdown: list[ExpenseCategoryBreakdown] = []
+    benchmarks: list[BenchmarkChip] = []
 
     order_count: int = 0
     expense_count: int = 0
