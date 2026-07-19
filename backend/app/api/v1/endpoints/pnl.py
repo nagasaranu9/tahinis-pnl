@@ -8,9 +8,9 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import and_, func, select
 
-from app.core.deps import CurrentUserDep
+from app.core.deps import CurrentUserDep, ManagerDep
 from app.db.models.location import Location
-from app.db.models.toast import ToastOrder
+from app.db.models.toast import ToastOrder, ToastOrderDiscount
 from app.db.repositories.pnl_repo import PnLRepository
 from app.db.session import AsyncSessionDep
 from app.schemas.common import APIResponse, PaginatedMeta, PaginatedResponse
@@ -184,6 +184,195 @@ async def export_pnl(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}.pdf"'},
     )
+
+
+@router.get("/discount-breakdown", response_model=APIResponse[dict])
+async def discount_breakdown(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    period_start: str = Query(..., description="YYYY-MM-DD"),
+    period_end: str = Query(..., description="YYYY-MM-DD"),
+    location_id: uuid.UUID | None = Query(None),
+) -> dict:
+    """Discounts for the period grouped by promo name.
+
+    Discounts run ~13% of gross revenue, but the P&L only shows the total —
+    which hides whether that's a delivery-marketplace promo (a channel cost of
+    doing business) or staff comps (a controllable leak). Grouping by Toast's
+    discount name separates them.
+    """
+    try:
+        start_bd = datetime.fromisoformat(period_start).strftime("%Y%m%d")
+        end_bd = datetime.fromisoformat(period_end).strftime("%Y%m%d")
+    except ValueError:
+        raise HTTPException(status_code=422, detail="period_start and period_end must be YYYY-MM-DD")
+
+    conds = [
+        ToastOrderDiscount.tenant_id == user.tenant_id,
+        ToastOrderDiscount.business_date >= start_bd,
+        ToastOrderDiscount.business_date <= end_bd,
+    ]
+    if location_id:
+        conds.append(ToastOrderDiscount.location_id == location_id)
+
+    rows = (await db.execute(
+        select(
+            ToastOrderDiscount.name,
+            ToastOrderDiscount.scope,
+            func.sum(ToastOrderDiscount.amount).label("total"),
+            func.count(ToastOrderDiscount.id).label("count"),
+        )
+        .where(and_(*conds))
+        .group_by(ToastOrderDiscount.name, ToastOrderDiscount.scope)
+        .order_by(func.sum(ToastOrderDiscount.amount).desc())
+    )).all()
+
+    total = sum((r.total for r in rows), Decimal("0"))
+    return {
+        "data": {
+            "total": total,
+            "currency_code": "CAD",
+            "discounts": [
+                {
+                    "name": r.name,
+                    "scope": r.scope,
+                    "total": r.total,
+                    "count": r.count,
+                    "pct_of_discounts": (
+                        (r.total / total * 100).quantize(Decimal("0.1")) if total else None
+                    ),
+                }
+                for r in rows
+            ],
+        },
+        "errors": None,
+    }
+
+
+@router.post("/discount-backfill", response_model=APIResponse[dict])
+async def discount_backfill(
+    user: ManagerDep,
+    db: AsyncSessionDep,
+    limit: int = Query(20000, ge=1, le=100000),
+) -> dict:
+    """Populate named discounts from already-synced orders' stored raw_data.
+
+    Discount names were always present in Toast's payload but discarded before
+    this table existed; the raw order JSON is retained, so history can be
+    recovered without re-hitting the Toast API (and its rate limits).
+    """
+    import json
+
+    from app.db.repositories.toast_repo import ToastRepository
+    from app.services.toast.sync_service import iter_applied_discounts
+
+    repo = ToastRepository(db)
+    rows = (await db.execute(
+        select(ToastOrder.id, ToastOrder.location_id, ToastOrder.business_date, ToastOrder.raw_data)
+        .where(
+            ToastOrder.tenant_id == user.tenant_id,
+            ToastOrder.raw_data.isnot(None),
+            ToastOrder.discount_amount.isnot(None),
+        )
+        .limit(limit)
+    )).all()
+
+    orders_scanned = 0
+    discounts_written = 0
+    for order_id, loc_id, business_date, raw_json in rows:
+        orders_scanned += 1
+        try:
+            raw = json.loads(raw_json)
+        except (ValueError, TypeError):
+            continue
+        for disc in iter_applied_discounts(raw):
+            await repo.upsert_order_discount({
+                "id": uuid.uuid4(),
+                "tenant_id": user.tenant_id,
+                "order_id": order_id,
+                "location_id": loc_id,
+                "toast_guid": disc["guid"],
+                "business_date": business_date,
+                "name": disc["name"],
+                "discount_type": disc["discount_type"],
+                "scope": disc["scope"],
+                "amount": disc["amount"],
+            })
+            discounts_written += 1
+        # Commit per batch of orders to keep the transaction from growing
+        # unbounded across a multi-year backfill.
+        if orders_scanned % 500 == 0:
+            await db.commit()
+    await db.commit()
+
+    logger.info(
+        "toast_discount_backfill_complete",
+        tenant_id=str(user.tenant_id),
+        orders_scanned=orders_scanned,
+        discounts_written=discounts_written,
+    )
+    return {
+        "data": {"orders_scanned": orders_scanned, "discounts_written": discounts_written},
+        "errors": None,
+    }
+
+
+@router.get("/trend", response_model=APIResponse[dict])
+async def pnl_trend(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    months: int = Query(6, ge=2, le=24),
+    location_id: uuid.UUID | None = Query(None),
+) -> dict:
+    """Month-by-month P&L series for sparklines.
+
+    Computed through PnLCalculator per month rather than read from snapshots:
+    snapshots are written by a monthly job and would silently serve figures
+    predating any calculation fix (dedup, interest split), so a trend built on
+    them can disagree with the report shown right above it.
+    """
+    from calendar import monthrange
+
+    calculator = PnLCalculator(db)
+    today = datetime.now(timezone.utc)
+    points: list[dict] = []
+
+    # Walk back `months` calendar months, oldest first.
+    year, month = today.year, today.month
+    periods: list[tuple[int, int]] = []
+    for _ in range(months):
+        periods.append((year, month))
+        month -= 1
+        if month == 0:
+            month = 12
+            year -= 1
+    periods.reverse()
+
+    for yr, mo in periods:
+        start = datetime(yr, mo, 1, tzinfo=timezone.utc)
+        end = datetime(yr, mo, monthrange(yr, mo)[1], 23, 59, 59, tzinfo=timezone.utc)
+        report = await calculator.compute(
+            tenant_id=user.tenant_id,
+            period_start=start,
+            period_end=end,
+            location_id=location_id,
+        )
+        li = report.line_items
+        points.append({
+            "period_label": f"{yr}-{mo:02d}",
+            "period_start": start.date().isoformat(),
+            "net_revenue": li.net_revenue,
+            "cogs": li.cogs,
+            "cogs_pct": li.cogs_pct,
+            "labor_cost": li.labor_cost,
+            "labor_pct": li.labor_pct,
+            "prime_cost_pct": li.prime_cost_pct,
+            "ebitda": li.ebitda,
+            "net_profit": li.net_profit,
+            "net_profit_pct": li.net_profit_pct,
+        })
+
+    return {"data": {"months": months, "points": points}, "errors": None}
 
 
 @router.get("/snapshots", response_model=PaginatedResponse[PnLSnapshotResponse])

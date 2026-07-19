@@ -96,6 +96,9 @@ class ToastOrder(Base, TimestampMixin, TenantMixin):
 
     items: Mapped[list[ToastOrderItem]] = relationship("ToastOrderItem", back_populates="order", cascade="all, delete-orphan")
     payments: Mapped[list[ToastPayment]] = relationship("ToastPayment", back_populates="order", cascade="all, delete-orphan")
+    discounts: Mapped[list["ToastOrderDiscount"]] = relationship(
+        "ToastOrderDiscount", back_populates="order", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "toast_guid", name="uq_toast_order_guid"),
@@ -128,6 +131,45 @@ class ToastOrderItem(Base, TimestampMixin, TenantMixin):
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "toast_guid", name="uq_toast_order_item_guid"),
+    )
+
+
+class ToastOrderDiscount(Base, TimestampMixin, TenantMixin):
+    """One applied discount on an order, named.
+
+    Toast returns `appliedDiscounts` at both check and selection level, each
+    carrying the promo's name ("50% Staff Discount", "UberEats/SkipTheDishes/
+    Doordash Discounts", …). The order-level `discount_amount` sums them and
+    loses the name, so discounting can't be attributed to a promo, a channel,
+    or a staff comp. This table keeps the per-discount detail; the aggregate on
+    ToastOrder stays authoritative for the P&L revenue math.
+    """
+
+    __tablename__ = "toast_order_discounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    order_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("toast_orders.id", ondelete="CASCADE"), nullable=False
+    )
+    location_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("locations.id", ondelete="CASCADE"), nullable=False
+    )
+    # Toast's guid for the applied-discount instance. Unique per tenant so a
+    # re-sync or backfill of the same order updates rather than duplicates.
+    toast_guid: Mapped[str] = mapped_column(String(255), nullable=False)
+    business_date: Mapped[Optional[str]] = mapped_column(String(10), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(500), nullable=False, index=True)
+    discount_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # "check" (whole-order) vs "item" (single selection) — a check-level comp
+    # reads very differently from a per-item promo when hunting margin leaks.
+    scope: Mapped[str] = mapped_column(String(20), nullable=False, default="check")
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    currency_code: Mapped[str] = mapped_column(String(3), default="CAD", nullable=False)
+
+    order: Mapped[ToastOrder] = relationship("ToastOrder", back_populates="discounts")
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "toast_guid", name="uq_toast_order_discount_guid"),
     )
 
 

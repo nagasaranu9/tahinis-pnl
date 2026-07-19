@@ -13,6 +13,7 @@ from app.db.models.toast import (
     ToastMenu,
     ToastMenuItem,
     ToastOrder,
+    ToastOrderDiscount,
     ToastOrderItem,
     ToastPayment,
     ToastSyncConfig,
@@ -262,6 +263,22 @@ class ToastRepository:
                 "is_void": stmt.excluded.is_void,
                 "void_reason": stmt.excluded.void_reason,
                 "menu_item_guid": stmt.excluded.menu_item_guid,
+            },
+        )
+        await self._db.execute(stmt)
+
+    async def upsert_order_discount(self, row: dict) -> None:
+        stmt = pg_insert(ToastOrderDiscount).values(**row)
+        # Update on conflict so a re-sync or a backfill over already-synced
+        # orders corrects the row instead of silently keeping stale values.
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_toast_order_discount_guid",
+            set_={
+                "name": stmt.excluded.name,
+                "amount": stmt.excluded.amount,
+                "discount_type": stmt.excluded.discount_type,
+                "scope": stmt.excluded.scope,
+                "business_date": stmt.excluded.business_date,
             },
         )
         await self._db.execute(stmt)

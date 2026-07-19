@@ -383,6 +383,22 @@ class ToastSyncService:
         }
         order_id = await self._repo.upsert_order(order_row)
 
+        # Named discounts — the order-level discount_amount above is the sum and
+        # loses which promo/comp caused it, so keep the per-discount detail too.
+        for disc in iter_applied_discounts(raw):
+            await self._repo.upsert_order_discount({
+                "id": uuid.uuid4(),
+                "tenant_id": tenant_id,
+                "order_id": order_id,
+                "location_id": location_id,
+                "toast_guid": disc["guid"],
+                "business_date": order_row["business_date"],
+                "name": disc["name"],
+                "discount_type": disc["discount_type"],
+                "scope": disc["scope"],
+                "amount": disc["amount"],
+            })
+
         # Items — only first check's selections
         checks = raw.get("checks") or []
         first_check = checks[0] if isinstance(checks, list) and checks and isinstance(checks[0], dict) else {}
@@ -569,25 +585,59 @@ def _sum_applied_discounts(raw: dict) -> Optional[Decimal]:
     """Sum discountAmount from check-level and selection-level appliedDiscounts."""
     total = Decimal("0")
     found = False
-    for check in raw.get("checks", []) or []:
+    for disc in iter_applied_discounts(raw):
+        total += disc["amount"]
+        found = True
+    return total if found else None
+
+
+def iter_applied_discounts(raw: dict):
+    """Yield every applied discount on an order, with its promo name.
+
+    Walks both check-level and selection-level `appliedDiscounts`. Shared by the
+    live sync and the backfill (which re-reads stored raw_data) so the two can't
+    drift in how they read Toast's payload. Each yielded dict has:
+    guid, name, discount_type, scope ("check"|"item"), amount (Decimal).
+
+    Discounts with no amount are skipped — an applied discount worth nothing
+    tells us nothing and would only add noise to the breakdown.
+    """
+    def _one(disc: dict, scope: str, fallback_guid: str):
+        if not isinstance(disc, dict):
+            return None
+        val = disc.get("discountAmount")
+        if val is None:
+            val = disc.get("amount")
+        if val is None:
+            return None
+        try:
+            amount = Decimal(str(val))
+        except (ValueError, TypeError, ArithmeticError):
+            return None
+        name = disc.get("name") or _dict_get(disc.get("discount"), "name") or "(unnamed discount)"
+        return {
+            "guid": disc.get("guid") or fallback_guid,
+            "name": str(name)[:500],
+            "discount_type": disc.get("discountType"),
+            "scope": scope,
+            "amount": amount,
+        }
+
+    order_guid = raw.get("guid", "")
+    for ci, check in enumerate(raw.get("checks", []) or []):
         if not isinstance(check, dict):
             continue
-        for disc in check.get("appliedDiscounts", []) or []:
-            if isinstance(disc, dict):
-                val = disc.get("discountAmount") or disc.get("amount")
-                if val is not None:
-                    total += Decimal(str(val))
-                    found = True
-        for sel in check.get("selections", []) or []:
+        for di, disc in enumerate(check.get("appliedDiscounts", []) or []):
+            parsed = _one(disc, "check", f"{order_guid}:c{ci}:d{di}")
+            if parsed:
+                yield parsed
+        for si, sel in enumerate(check.get("selections", []) or []):
             if not isinstance(sel, dict):
                 continue
-            for disc in sel.get("appliedDiscounts", []) or []:
-                if isinstance(disc, dict):
-                    val = disc.get("discountAmount") or disc.get("amount")
-                    if val is not None:
-                        total += Decimal(str(val))
-                        found = True
-    return total if found else None
+            for di, disc in enumerate(sel.get("appliedDiscounts", []) or []):
+                parsed = _one(disc, "item", f"{order_guid}:c{ci}:s{si}:d{di}")
+                if parsed:
+                    yield parsed
 
 
 def _sum_payment_refunds(raw: dict) -> Optional[Decimal]:
