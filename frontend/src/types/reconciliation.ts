@@ -7,7 +7,14 @@ export type FlagType =
   | "uncategorized_expense"
   | "suspicious_amount"
   | "unmatched_sale"
-  | "unverified_payroll";
+  | "unverified_payroll"
+  | "unverified_royalty_invoice"
+  | "franchise_spend_bank_variance"
+  | "push_labor_bank_variance"
+  | "duplicate_bank_draw"
+  | "invoice_not_cleared"
+  | "balance_chain_mismatch"
+  | "balance_arithmetic_mismatch";
 
 export interface ReconciliationRun {
   id: string;

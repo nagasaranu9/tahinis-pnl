@@ -307,6 +307,117 @@ class ReconciliationEngine:
                 )
                 flags_raised += 1
 
+        # ---- Flag: duplicate_bank_draw (same debit drawn more than once) -----
+        # The same vendor+amount clearing the bank twice on the same date is a
+        # double-draw (vendor billed twice, or the bank re-presented a pre-auth).
+        # Scoped to bank-statement expenses only: invoices legitimately repeat
+        # amounts (weekly royalties), but the bank should debit each once.
+        bank_lines = await self._load_bank_statement_lines(
+            tenant_id, period_start, period_end, location_id
+        )
+        draw_groups: dict[tuple, list] = defaultdict(list)
+        for line in bank_lines:
+            key = (
+                (line.vendor_name or "").strip().lower(),
+                line.amount,
+                line.expense_date.date() if line.expense_date else None,
+            )
+            draw_groups[key].append(line)
+        for (_vendor, amount, date), lines in draw_groups.items():
+            if len(lines) > 1 and amount is not None:
+                await self._repo.create_flag(
+                    tenant_id=tenant_id, run_id=run_id,
+                    flag_type="duplicate_bank_draw", severity="critical",
+                    message=(
+                        f"Bank debit of {amount} to '{lines[0].vendor_name}' appears "
+                        f"{len(lines)} times on {date}. Confirm this vendor did not "
+                        f"draw the payment more than once."
+                    ),
+                    expense_id=lines[0].id,
+                    document_id=lines[0].document_id,
+                )
+                flags_raised += 1
+
+        # ---- Flag: invoice_not_cleared (invoice with no matching bank debit) --
+        # Invoices are the P&L source of truth; the bank statement is the proof
+        # the payment actually left the account. An invoice with no bank debit of
+        # the same amount in the period is pending/unpaid (or paid by a method we
+        # don't see) — surface it so month-end closes with every invoice either
+        # cleared or consciously carried forward.
+        if bank_debits is not None:
+            _ALREADY_VERIFIED = {"Payroll", "Royalties"}  # covered by checks above
+            bank_doc_id_set = {line.document_id for line in bank_lines}
+            for exp in expenses:
+                if exp.amount is None or exp.category in _ALREADY_VERIFIED:
+                    continue
+                if exp.document_id in bank_doc_id_set:
+                    continue  # this row IS a bank line
+                if not (period_start <= exp.expense_date <= period_end):
+                    continue
+                target = abs(exp.amount)
+                tol = max(PAYROLL_MATCH_ABS, target * PAYROLL_MATCH_PCT)
+                if not any(abs(debit - target) <= tol for debit in bank_debits):
+                    await self._repo.create_flag(
+                        tenant_id=tenant_id, run_id=run_id,
+                        flag_type="invoice_not_cleared", severity="low",
+                        message=(
+                            f"Invoice expense {exp.id} ({exp.vendor_name}, {exp.amount}, "
+                            f"{exp.category}) has no matching bank debit this period — "
+                            f"payment may be pending, or made by card/cash."
+                        ),
+                        expense_id=exp.id,
+                        document_id=exp.document_id,
+                    )
+                    flags_raised += 1
+
+        # ---- Flag: balance_chain / balance_arithmetic ------------------------
+        # Strongest verification available: the statement's own summary figures.
+        # (1) closing balance of the previous statement must equal the opening
+        #     balance of this one — any gap means a missing statement or missed
+        #     activity between them.
+        # (2) opening + deposits - withdrawals must equal closing within the
+        #     statement — a gap means OCR missed or invented transactions.
+        stmt_docs, prev_stmt = await self._load_bank_statement_balance_docs(
+            tenant_id, period_start, period_end, location_id
+        )
+        prev = prev_stmt
+        for doc in stmt_docs:
+            if prev is not None and prev.closing_balance is not None \
+                    and doc.opening_balance is not None \
+                    and prev.closing_balance != doc.opening_balance:
+                await self._repo.create_flag(
+                    tenant_id=tenant_id, run_id=run_id,
+                    flag_type="balance_chain_mismatch", severity="high",
+                    message=(
+                        f"Closing balance of '{prev.original_filename}' is "
+                        f"{prev.closing_balance} but opening balance of "
+                        f"'{doc.original_filename}' is {doc.opening_balance} "
+                        f"(gap {doc.opening_balance - prev.closing_balance:+.2f}). "
+                        f"A statement may be missing between them."
+                    ),
+                    document_id=doc.id,
+                )
+                flags_raised += 1
+            if doc.opening_balance is not None and doc.closing_balance is not None \
+                    and doc.total_deposits is not None and doc.total_withdrawals is not None:
+                computed = doc.opening_balance + doc.total_deposits - doc.total_withdrawals
+                if computed != doc.closing_balance:
+                    await self._repo.create_flag(
+                        tenant_id=tenant_id, run_id=run_id,
+                        flag_type="balance_arithmetic_mismatch", severity="high",
+                        message=(
+                            f"'{doc.original_filename}': opening {doc.opening_balance} "
+                            f"+ deposits {doc.total_deposits} - withdrawals "
+                            f"{doc.total_withdrawals} = {computed}, but statement "
+                            f"closing balance is {doc.closing_balance} "
+                            f"(gap {doc.closing_balance - computed:+.2f}). OCR may have "
+                            f"missed or misread transactions — reprocess the statement."
+                        ),
+                        document_id=doc.id,
+                    )
+                    flags_raised += 1
+            prev = doc
+
         # ---- Aggregate totals ------------------------------------------------
         total_sales = sum(
             (o.net_amount for o in toast_orders if o.net_amount and not o.is_void),
@@ -391,6 +502,69 @@ class ReconciliationEngine:
             )
         )
         return [abs(a) for a in rows.scalars().all() if a is not None]
+
+    async def _load_bank_statement_lines(
+        self,
+        tenant_id: uuid.UUID,
+        period_start: datetime,
+        period_end: datetime,
+        location_id: uuid.UUID | None,
+    ) -> list[Expense]:
+        """Expense rows parsed off bank statements whose transaction date falls
+        in the period. These are the actual money movements used for
+        duplicate-draw detection."""
+        conditions = [
+            Expense.tenant_id == tenant_id,
+            Expense.expense_date >= period_start,
+            Expense.expense_date <= period_end,
+            Document.document_type == "bank_statement",
+        ]
+        if location_id:
+            conditions.append(Expense.location_id == location_id)
+        rows = await self._db.execute(
+            select(Expense)
+            .join(Document, Document.id == Expense.document_id)
+            .where(and_(*conditions))
+        )
+        return list(rows.scalars().all())
+
+    async def _load_bank_statement_balance_docs(
+        self,
+        tenant_id: uuid.UUID,
+        period_start: datetime,
+        period_end: datetime,
+        location_id: uuid.UUID | None,
+    ) -> tuple[list[Document], Document | None]:
+        """Bank statement documents for the period (ordered by statement date)
+        plus the most recent statement before the period, for balance-chain
+        verification across the period boundary."""
+        base = [
+            Document.tenant_id == tenant_id,
+            Document.document_type == "bank_statement",
+            Document.is_duplicate == False,  # noqa: E712
+        ]
+        if location_id:
+            base.append(Document.location_id == location_id)
+
+        in_period = (
+            await self._db.execute(
+                select(Document)
+                .where(and_(*base,
+                            Document.document_date >= period_start,
+                            Document.document_date <= period_end))
+                .order_by(Document.document_date)
+            )
+        ).scalars().all()
+
+        prev = (
+            await self._db.execute(
+                select(Document)
+                .where(and_(*base, Document.document_date < period_start))
+                .order_by(Document.document_date.desc())
+                .limit(1)
+            )
+        ).scalars().first()
+        return list(in_period), prev
 
     async def _load_franchise_totals(
         self,

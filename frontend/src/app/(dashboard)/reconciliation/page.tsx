@@ -27,6 +27,13 @@ const FLAG_LABELS: Record<FlagType, string> = {
   suspicious_amount: "Suspicious Amount",
   unmatched_sale: "Unmatched Sale",
   unverified_payroll: "Unverified Payroll",
+  unverified_royalty_invoice: "Unverified Royalty Invoice",
+  franchise_spend_bank_variance: "Franchise Spend vs Bank",
+  push_labor_bank_variance: "Labor vs Bank Payroll",
+  duplicate_bank_draw: "Duplicate Bank Draw",
+  invoice_not_cleared: "Invoice Not Cleared",
+  balance_chain_mismatch: "Balance Chain Mismatch",
+  balance_arithmetic_mismatch: "Statement Balance Math",
 };
 
 function StatusBadge({ status }: { status: ReconciliationRun["status"] }) {

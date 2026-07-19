@@ -112,6 +112,8 @@ async def _run_execute(
     engine._load_push_labor_total = AsyncMock(return_value=None)
     engine._load_payroll_expense_total_by_pay_date = AsyncMock(return_value=Decimal("0"))
     engine._load_franchise_totals = AsyncMock(return_value=(None, None))
+    engine._load_bank_statement_lines = AsyncMock(return_value=[])
+    engine._load_bank_statement_balance_docs = AsyncMock(return_value=([], None))
     return await engine._execute(RUN_ID, TENANT_ID, PERIOD_START, PERIOD_END, None)
 
 
@@ -420,6 +422,8 @@ async def _run_execute_with_push(
     engine._load_push_labor_total = AsyncMock(return_value=push_total)
     engine._load_payroll_expense_total_by_pay_date = AsyncMock(return_value=payroll_expense_total)
     engine._load_franchise_totals = AsyncMock(return_value=(None, None))
+    engine._load_bank_statement_lines = AsyncMock(return_value=[])
+    engine._load_bank_statement_balance_docs = AsyncMock(return_value=([], None))
     return await engine._execute(RUN_ID, TENANT_ID, PERIOD_START, PERIOD_END, None)
 
 
@@ -499,3 +503,156 @@ async def test_push_labor_bank_variance_skipped_when_no_payroll_expenses_in_peri
 def test_anomaly_threshold_values():
     assert ANOMALY_STDDEV_THRESHOLD == 3
     assert MIN_VENDOR_SAMPLES == 5
+
+
+# ---------------------------------------------------------------------------
+# Flag: duplicate_bank_draw
+# ---------------------------------------------------------------------------
+
+
+def _bank_line(vendor: str, amount: str, date: datetime) -> Expense:
+    e = _expense(vendor_name=vendor, amount=Decimal(amount))
+    e.expense_date = date
+    e.document_id = uuid.uuid4()
+    return e
+
+
+@pytest.mark.asyncio
+async def test_duplicate_bank_draw_flagged():
+    engine, repo = _make_engine()
+    d = datetime(2024, 6, 10, tzinfo=timezone.utc)
+    dup1 = _bank_line("Pre-Authorized Payment, ALEX FOOD BUS/ENT", "1214.75", d)
+    dup2 = _bank_line("Pre-Authorized Payment, ALEX FOOD BUS/ENT", "1214.75", d)
+    single = _bank_line("ENBRIDGE GAS", "585.94", d)
+    engine._load_bank_statement_lines = AsyncMock(return_value=[dup1, dup2, single])
+
+    async def run():
+        engine._load_documents = AsyncMock(return_value=[])
+        engine._load_expenses = AsyncMock(return_value=[])
+        engine._load_toast_orders = AsyncMock(return_value=[])
+        engine._load_vendor_amount_history = AsyncMock(return_value=defaultdict(list))
+        engine._load_bank_debit_amounts = AsyncMock(return_value=None)
+        engine._load_push_labor_total = AsyncMock(return_value=None)
+        engine._load_payroll_expense_total_by_pay_date = AsyncMock(return_value=Decimal("0"))
+        engine._load_franchise_totals = AsyncMock(return_value=(None, None))
+        engine._load_bank_statement_balance_docs = AsyncMock(return_value=([], None))
+        return await engine._execute(RUN_ID, TENANT_ID, PERIOD_START, PERIOD_END, None)
+
+    result = await run()
+    assert result["flags_raised"] == 1
+    kwargs = repo.create_flag.call_args.kwargs
+    assert kwargs["flag_type"] == "duplicate_bank_draw"
+    assert kwargs["severity"] == "critical"
+
+
+@pytest.mark.asyncio
+async def test_same_amount_different_days_not_flagged():
+    engine, repo = _make_engine()
+    a = _bank_line("ALEX FOOD BUS/ENT", "1214.75", datetime(2024, 6, 10, tzinfo=timezone.utc))
+    b = _bank_line("ALEX FOOD BUS/ENT", "1214.75", datetime(2024, 6, 17, tzinfo=timezone.utc))
+    engine._load_bank_statement_lines = AsyncMock(return_value=[a, b])
+    result = await _run_execute(engine, [], [], [])
+    # _run_execute resets the stub; re-run with our lines
+    engine._load_bank_statement_lines = AsyncMock(return_value=[a, b])
+    repo.create_flag.reset_mock()
+    result = await engine._execute(RUN_ID, TENANT_ID, PERIOD_START, PERIOD_END, None)
+    assert result["flags_raised"] == 0
+    repo.create_flag.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Flags: balance_chain_mismatch / balance_arithmetic_mismatch
+# ---------------------------------------------------------------------------
+
+
+def _stmt_doc(opening, closing, deposits=None, withdrawals=None, filename="stmt.pdf"):
+    d = _doc(filename=filename)
+    d.opening_balance = None if opening is None else Decimal(opening)
+    d.closing_balance = None if closing is None else Decimal(closing)
+    d.total_deposits = None if deposits is None else Decimal(deposits)
+    d.total_withdrawals = None if withdrawals is None else Decimal(withdrawals)
+    d.document_date = PERIOD_START
+    return d
+
+
+@pytest.mark.asyncio
+async def test_balance_chain_mismatch_flagged():
+    engine, repo = _make_engine()
+    prev = _stmt_doc("1000.00", "2500.00", filename="May.pdf")
+    cur = _stmt_doc("2400.00", "3000.00", filename="June.pdf")  # opening != prev closing
+    await _run_execute(engine, [], [], [])
+    engine._load_bank_statement_balance_docs = AsyncMock(return_value=([cur], prev))
+    repo.create_flag.reset_mock()
+    result = await engine._execute(RUN_ID, TENANT_ID, PERIOD_START, PERIOD_END, None)
+    assert result["flags_raised"] == 1
+    assert repo.create_flag.call_args.kwargs["flag_type"] == "balance_chain_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_balance_chain_match_no_flag():
+    engine, repo = _make_engine()
+    prev = _stmt_doc("1000.00", "2500.00")
+    cur = _stmt_doc("2500.00", "3000.00")
+    await _run_execute(engine, [], [], [])
+    engine._load_bank_statement_balance_docs = AsyncMock(return_value=([cur], prev))
+    repo.create_flag.reset_mock()
+    result = await engine._execute(RUN_ID, TENANT_ID, PERIOD_START, PERIOD_END, None)
+    assert result["flags_raised"] == 0
+
+
+@pytest.mark.asyncio
+async def test_balance_arithmetic_mismatch_flagged():
+    engine, repo = _make_engine()
+    # 1000 + 5000 - 3000 = 3000, but statement says 3100 -> flag
+    cur = _stmt_doc("1000.00", "3100.00", "5000.00", "3000.00")
+    await _run_execute(engine, [], [], [])
+    engine._load_bank_statement_balance_docs = AsyncMock(return_value=([cur], None))
+    repo.create_flag.reset_mock()
+    result = await engine._execute(RUN_ID, TENANT_ID, PERIOD_START, PERIOD_END, None)
+    assert result["flags_raised"] == 1
+    assert repo.create_flag.call_args.kwargs["flag_type"] == "balance_arithmetic_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_balance_arithmetic_match_no_flag():
+    engine, repo = _make_engine()
+    cur = _stmt_doc("1000.00", "3000.00", "5000.00", "3000.00")
+    await _run_execute(engine, [], [], [])
+    engine._load_bank_statement_balance_docs = AsyncMock(return_value=([cur], None))
+    repo.create_flag.reset_mock()
+    result = await engine._execute(RUN_ID, TENANT_ID, PERIOD_START, PERIOD_END, None)
+    assert result["flags_raised"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Flag: invoice_not_cleared
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_invoice_not_cleared_flagged_when_no_bank_match():
+    engine, repo = _make_engine()
+    inv = _expense(category="Maintenance", amount=Decimal("299.45"), vendor_name="Flue Cleaners")
+    inv.expense_date = datetime(2024, 6, 15, tzinfo=timezone.utc)
+    await _run_execute(engine, [], [], [])
+    engine._load_expenses = AsyncMock(return_value=[inv])
+    engine._load_bank_debit_amounts = AsyncMock(return_value=[Decimal("100.00")])
+    repo.create_flag.reset_mock()
+    result = await engine._execute(RUN_ID, TENANT_ID, PERIOD_START, PERIOD_END, None)
+    assert result["flags_raised"] == 1
+    kwargs = repo.create_flag.call_args.kwargs
+    assert kwargs["flag_type"] == "invoice_not_cleared"
+    assert kwargs["severity"] == "low"
+
+
+@pytest.mark.asyncio
+async def test_invoice_cleared_no_flag():
+    engine, repo = _make_engine()
+    inv = _expense(category="Maintenance", amount=Decimal("299.45"), vendor_name="Flue Cleaners")
+    inv.expense_date = datetime(2024, 6, 15, tzinfo=timezone.utc)
+    await _run_execute(engine, [], [], [])
+    engine._load_expenses = AsyncMock(return_value=[inv])
+    engine._load_bank_debit_amounts = AsyncMock(return_value=[Decimal("299.45")])
+    repo.create_flag.reset_mock()
+    result = await engine._execute(RUN_ID, TENANT_ID, PERIOD_START, PERIOD_END, None)
+    assert result["flags_raised"] == 0
