@@ -265,6 +265,7 @@ export interface ReviewsDetail {
   average_rating: number | null;
   total_reviews: number;
   stars: Record<string, number>;
+  full_history: boolean;
   new_this_month: number;
   month_avg_rating: number | null;
   response_rate_pct: number | null;

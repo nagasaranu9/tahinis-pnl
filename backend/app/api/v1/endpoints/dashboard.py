@@ -891,11 +891,20 @@ async def reviews_detail(
             avg_rating = round(float(snap.rating_average), 1)
         total_reviews = snap.review_count_total
 
+    # Same completeness check as ReviewsRepository.get_summary: the star
+    # histogram is only trustworthy once GBP has imported (most of) the real
+    # review set. Before that it's a handful of Places-sample rows plotted
+    # against the true 2,023 total, which draws near-empty bars next to a
+    # real-looking total (the bug this flag fixes).
+    star_sum = sum(stars.values())
+    full_history = total_reviews > 0 and star_sum >= total_reviews * 0.8
+
     return {
         "data": {
             "average_rating": avg_rating,
             "total_reviews": total_reviews,
             "stars": {f"{k}_star": v for k, v in stars.items()},
+            "full_history": full_history,
             "new_this_month": new_this_month,
             "month_avg_rating": round(month_rating_sum / month_rating_n, 1) if month_rating_n else None,
             "response_rate_pct": round(replied / total * 100, 1) if total else None,

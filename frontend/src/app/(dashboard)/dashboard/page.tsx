@@ -1012,17 +1012,23 @@ export default function DashboardPage() {
                 <p className="text-xs text-muted-foreground mt-1">
                   +{reviewsDetail.new_this_month} new · {reviewsDetail.response_rate_pct ?? 0}% responded · {reviewsDetail.unanswered} unanswered
                 </p>
-                <div className="mt-2 space-y-0.5">
-                  {[5, 4, 3, 2, 1].map((s) => (
-                    <div key={s} className="flex items-center gap-1.5 text-[10px]">
-                      <span className="w-3 text-muted-foreground">{s}★</span>
-                      <span className="flex-1 h-1.5 bg-muted rounded overflow-hidden">
-                        <span className="block h-full rounded" style={{ width: `${starPct(reviewsDetail.stars[`${s}_star`] ?? 0)}%`, background: s >= 4 ? "#639922" : s === 3 ? "#EF9F27" : "#E24B4A" }} />
-                      </span>
-                      <span className="w-10 text-right text-muted-foreground">{(reviewsDetail.stars[`${s}_star`] ?? 0).toLocaleString("en-CA")}</span>
-                    </div>
-                  ))}
-                </div>
+                {reviewsDetail.full_history ? (
+                  <div className="mt-2 space-y-0.5">
+                    {[5, 4, 3, 2, 1].map((s) => (
+                      <div key={s} className="flex items-center gap-1.5 text-[10px]">
+                        <span className="w-3 text-muted-foreground">{s}★</span>
+                        <span className="flex-1 h-1.5 bg-muted rounded overflow-hidden">
+                          <span className="block h-full rounded" style={{ width: `${starPct(reviewsDetail.stars[`${s}_star`] ?? 0)}%`, background: s >= 4 ? "#639922" : s === 3 ? "#EF9F27" : "#E24B4A" }} />
+                        </span>
+                        <span className="w-10 text-right text-muted-foreground">{(reviewsDetail.stars[`${s}_star`] ?? 0).toLocaleString("en-CA")}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-muted-foreground mt-2">
+                    Per-star breakdown syncing from Google Business Profile&hellip;
+                  </p>
+                )}
                 {sentiment?.available && (
                   <p className="text-xs text-muted-foreground mt-2 leading-snug">
                     {sentiment.positive_pct}% positive · praise: {sentiment.top_praise} · complaint: {sentiment.top_complaint}
