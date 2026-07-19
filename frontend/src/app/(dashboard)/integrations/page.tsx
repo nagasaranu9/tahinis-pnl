@@ -12,7 +12,7 @@ import {
   useGmailStatus, useGmailAuthUrl, useGmailSync, useGmailDisconnect,
   useOutlookStatus, useOutlookAuthUrl, useOutlookSync, useOutlookDisconnect,
 } from "@/hooks/use-email-integrations";
-import { useImportPushOpsCsv } from "@/hooks/use-pushops-integration";
+import { useImportPushOpsCsv, usePushSyncStatus, usePushSyncNow } from "@/hooks/use-pushops-integration";
 import { PipeboardIntegration } from "@/components/pipeboard-integration";
 import { useLocations } from "@/hooks/use-locations";
 import type { EmailSyncConfig } from "@/types/email-sync";
@@ -224,6 +224,81 @@ function PushOpsCard() {
         <div className="border-t border-border pt-3 flex items-center gap-2 text-sm text-destructive">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {errMsg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// PushOperations time-clock sync — the real API connection (distinct from the
+// CSV importer above, which stays under Not connected as a manual fallback).
+// ---------------------------------------------------------------------------
+
+function PushSyncCard({ status }: { status: NonNullable<ReturnType<typeof usePushSyncStatus>["data"]> }) {
+  const { mutate: syncNow, isPending } = usePushSyncNow();
+  const [expanded, setExpanded] = useState(false);
+
+  const lastMs = status.last_synced_at ? new Date(status.last_synced_at).getTime() : 0;
+  const stale = !status.last_synced_at || Date.now() - lastMs > 12 * 60 * 60 * 1000;
+  const lastLabel = status.last_synced_at
+    ? format(new Date(status.last_synced_at), "MMM d, HH:mm")
+    : "Never";
+
+  return (
+    <div className="rounded-lg border border-green-500/30 bg-green-500/[0.04]">
+      <div className="flex items-center justify-between gap-3 p-3">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center gap-2 min-w-0 text-left cursor-pointer"
+        >
+          <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+          <div className="min-w-0">
+            <p className="font-medium text-sm truncate">PushOperations {status.company_name ? `— ${status.company_name}` : ""}</p>
+            <p className="text-xs text-muted-foreground">Last sync: {lastLabel}</p>
+          </div>
+          <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`} />
+        </button>
+        <button
+          onClick={() => syncNow()}
+          disabled={isPending}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-md bg-card hover:bg-muted/50 disabled:opacity-50 transition-colors cursor-pointer shrink-0"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${isPending ? "animate-spin" : ""}`} />
+          Sync now
+        </button>
+      </div>
+      {expanded && (
+        <div className="border-t border-green-500/20 px-3 py-3 space-y-2 text-xs">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <p className="text-muted-foreground">Company</p>
+              <p className="font-medium">{status.company_name ?? "—"}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Sync frequency</p>
+              <p className="font-medium">Incremental, scheduled</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Historical import</p>
+              <p className="font-medium">
+                {status.historical_import_complete
+                  ? `Complete from ${status.historical_import_from ?? "—"}`
+                  : "In progress"}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Status</p>
+              <p className={`font-medium ${stale ? "text-amber-500" : "text-green-500"}`}>
+                {stale ? "Attention needed" : "Healthy"}
+              </p>
+            </div>
+          </div>
+          {stale && (
+            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-md px-2.5 py-1.5">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>No successful sync in over 12h. Click Sync now to retry.</span>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -479,7 +554,7 @@ function PipeboardCard() {
             <h3 className="font-semibold text-sm">Google Ads (Pipeboard)</h3>
           </div>
           <p className="text-xs text-muted-foreground truncate">
-            Sync Google Ads spend &amp; performance into your P&amp;L marketing line
+            Campaign spend &amp; performance dashboard. P&amp;L Marketing uses the Google billing invoice instead.
           </p>
         </div>
         <ChevronDown className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
@@ -570,10 +645,13 @@ export default function IntegrationsPage() {
 
   const gmailConnected = gmailAccounts.filter((a) => a.is_active).length > 0;
   const outlookConnected = outlookAccounts.filter((a) => a.is_active).length > 0;
+  const { data: pushStatus } = usePushSyncStatus();
+  const pushConnected = pushStatus?.connected ?? false;
   // Toast + Pipeboard (Google Ads) are always-connected surfaces on this page.
-  const connectedCount = 2 + (gmailConnected ? 1 : 0) + (outlookConnected ? 1 : 0);
-  // PushOps is an upload (no persistent connection); count it under Not connected.
-  const notConnectedCount = 1 + (gmailConnected ? 0 : 1) + (outlookConnected ? 0 : 1);
+  const connectedCount = 2 + (gmailConnected ? 1 : 0) + (outlookConnected ? 1 : 0) + (pushConnected ? 1 : 0);
+  // PushOps CSV importer is a manual fallback (no persistent connection); only
+  // count it under Not connected when the real API sync isn't active.
+  const notConnectedCount = (pushConnected ? 0 : 1) + (gmailConnected ? 0 : 1) + (outlookConnected ? 0 : 1);
   const anyStale =
     [...gmailAccounts, ...outlookAccounts]
       .filter((a) => a.is_active)
@@ -685,7 +763,13 @@ export default function IntegrationsPage() {
 
         {outlookConnected && outlookEl}
 
+        {pushConnected && pushStatus && <PushSyncCard status={pushStatus} />}
+
         <PipeboardCard />
+
+        {/* CSV importer stays available even with the API connected — manual
+            correction/backfill tool, not a separate connection. */}
+        {pushConnected && <PushOpsCard />}
       </section>
 
       {/* ── Not connected ── */}
@@ -701,7 +785,7 @@ export default function IntegrationsPage() {
 
         {!outlookConnected && outlookEl}
 
-        <PushOpsCard />
+        {!pushConnected && <PushOpsCard />}
       </section>
 
       {/* ── Coming soon ── */}
