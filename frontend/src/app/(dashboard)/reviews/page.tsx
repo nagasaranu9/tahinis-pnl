@@ -11,7 +11,6 @@ import {
   useReviewsList,
   useReviewsSync,
   useReviewsDisconnect,
-  useGbpDiagnostic,
   useSetReviewLocation,
 } from "@/hooks/use-reviews";
 import type { GoogleReview } from "@/types/google-reviews";
@@ -76,12 +75,12 @@ function ManualPin({ locationId }: { locationId: string }) {
   const [location, setLocation] = useState("");
   const [open, setOpen] = useState(false);
   return (
-    <div className="border-t border-border pt-3 mt-2">
+    <div className="border border-border rounded-lg bg-card p-4">
       <button
         onClick={() => setOpen((o) => !o)}
         className="text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
-        {open ? "− Hide" : "+ Enter account/location IDs manually"}
+        {open ? "− Hide" : "+ Reconnect to a different Google Business location"}
       </button>
       {open && (
         <div className="mt-2 space-y-2">
@@ -115,84 +114,6 @@ function ManualPin({ locationId }: { locationId: string }) {
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function GbpAccessCard({ locationId }: { locationId: string }) {
-  const { mutate: run, isPending, data } = useGbpDiagnostic();
-  const stepLabels: Record<string, string> = {
-    token_scopes: "OAuth scope (business.manage)",
-    account_management_api: "Account Management API",
-    business_information_api: "Business Information API",
-    reviews_v4_api: "Reviews API (v4)",
-  };
-  return (
-    <div className="border border-border rounded-lg bg-card p-6 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-semibold">Google Business Profile access</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Full review history + per-star breakdown needs the GBP APIs. Run a check to see what&apos;s enabled.
-          </p>
-        </div>
-        <button
-          onClick={() => run()}
-          disabled={isPending}
-          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-md hover:bg-muted/40 disabled:opacity-50 transition-colors"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${isPending ? "animate-spin" : ""}`} />
-          {isPending ? "Checking…" : "Check access"}
-        </button>
-      </div>
-      {data && (
-        <div className="space-y-2 pt-1">
-          <div className="flex items-center gap-2 text-sm">
-            {data.verdict === "ready" ? (
-              <span className="flex items-center gap-1 text-green-500 font-medium">
-                <CheckCircle className="h-4 w-4" /> Ready — GBP APIs reachable
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 text-amber-500 font-medium">
-                <AlertCircle className="h-4 w-4" /> Blocked
-              </span>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            {data.steps?.map((s) => (
-              <div key={s.step} className="flex items-start justify-between gap-3 text-xs">
-                <span className="text-muted-foreground">{stepLabels[s.step] ?? s.step}</span>
-                <span className="flex items-center gap-1.5 shrink-0">
-                  {s.ok ? (
-                    <CheckCircle className="h-3.5 w-3.5 text-green-500" />
-                  ) : (
-                    <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
-                  )}
-                  <span className={s.ok ? "text-muted-foreground" : "text-amber-600"}>
-                    {s.status ?? "err"}
-                  </span>
-                </span>
-              </div>
-            ))}
-          </div>
-          {data.pinned && (
-            <p className="text-xs text-green-600 flex items-center gap-1.5">
-              <CheckCircle className="h-3.5 w-3.5" /> Account + location pinned — click Sync Now to pull full history.
-            </p>
-          )}
-          {data.hint && (
-            <p className="text-xs text-muted-foreground border-t border-border pt-2 mt-2 leading-relaxed">
-              {data.hint}
-            </p>
-          )}
-          {data.first_failure?.detail && (
-            <p className="text-[11px] text-muted-foreground/80 font-mono break-all">
-              {data.first_failure.detail}
-            </p>
-          )}
-        </div>
-      )}
-      <ManualPin locationId={locationId} />
     </div>
   );
 }
@@ -328,7 +249,7 @@ function ReviewsContent() {
             </div>
           </div>
 
-          <GbpAccessCard locationId={activeConfig.location_id} />
+          <ManualPin locationId={activeConfig.location_id} />
 
           <div>
             <div className="flex items-baseline justify-between mb-3">
