@@ -12,6 +12,7 @@ class GoogleReviewConfigResponse(BaseModel):
     location_name: str | None
     is_active: bool
     last_synced_at: datetime | None
+    last_sync_error: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 

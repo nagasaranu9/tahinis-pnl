@@ -19,6 +19,7 @@ class GoogleReviewConfig(Base):
     location_name: Mapped[str | None] = mapped_column(String(500))  # GBP location resource name
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_sync_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

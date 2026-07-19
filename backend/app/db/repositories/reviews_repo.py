@@ -116,6 +116,18 @@ class ReviewsRepository:
         config = result.scalar_one_or_none()
         if config:
             config.last_synced_at = datetime.now(timezone.utc)
+            config.last_sync_error = None
+            await self._db.flush()
+
+    async def mark_last_error(
+        self, tenant_id: uuid.UUID, location_id: uuid.UUID, error: str
+    ) -> None:
+        """Record a failed sync so it's visible instead of looking silently
+        'Active' with 0 rows imported (the bug that hid the mybusiness.googleapis.com
+        403 until manually diagnosed)."""
+        config = await self.get_config(tenant_id, location_id)
+        if config:
+            config.last_sync_error = error[:2000]
             await self._db.flush()
 
     async def find_location_id_by_place_id(

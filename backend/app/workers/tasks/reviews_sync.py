@@ -85,8 +85,22 @@ async def _sync_async(tenant_id_str: str, location_id_str: str) -> dict:
                     await db.commit()
                     raise
                 except Exception as exc:
-                    logger.error("reviews_sync_api_error", error=str(exc))
-                    break
+                    # A page-fetch failure (e.g. the Reviews v4 API disabled/403)
+                    # used to break silently here, leaving last_synced_at updated
+                    # and the sync looking "Active" with 0 rows actually imported.
+                    # Surface it: keep whatever imported before this page, but make
+                    # the task result (and thus job monitor) show the failure.
+                    logger.error(
+                        "reviews_sync_api_error", tenant_id=tenant_id_str,
+                        error=str(exc), imported_before_failure=total_imported,
+                    )
+                    await repo.mark_last_error(tenant_id, location_id, str(exc))
+                    await db.commit()
+                    return {
+                        "status": "error",
+                        "imported": total_imported,
+                        "error": str(exc),
+                    }
 
                 for review in data.get("reviews", []):
                     review_id = review.get("reviewId") or review.get("name", "")
