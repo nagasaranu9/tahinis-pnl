@@ -5,16 +5,15 @@ import { useRef, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import {
-  CheckCircle, RefreshCw, Unplug, Plug, AlertCircle, ArrowRight, Upload,
+  CheckCircle, RefreshCw, Unplug, Plug, AlertCircle, ArrowRight,
   Users, Megaphone, Store, MoreHorizontal, ChevronDown, ShieldCheck, Clock,
 } from "lucide-react";
 import {
   useGmailStatus, useGmailAuthUrl, useGmailSync, useGmailDisconnect,
   useOutlookStatus, useOutlookAuthUrl, useOutlookSync, useOutlookDisconnect,
 } from "@/hooks/use-email-integrations";
-import { useImportPushOpsCsv, usePushSyncStatus, usePushSyncNow } from "@/hooks/use-pushops-integration";
+import { usePushSyncStatus, usePushSyncNow } from "@/hooks/use-pushops-integration";
 import { PipeboardIntegration } from "@/components/pipeboard-integration";
-import { useLocations } from "@/hooks/use-locations";
 import type { EmailSyncConfig } from "@/types/email-sync";
 
 // ---------------------------------------------------------------------------
@@ -150,88 +149,7 @@ function OverflowMenu({ children }: { children: (close: () => void) => React.Rea
   );
 }
 
-// ---------------------------------------------------------------------------
-// PushOperations payroll CSV import card
-// ---------------------------------------------------------------------------
-
-function PushOpsCard() {
-  const { selectedLocationId } = useLocations();
-  const { mutate, isPending, data, error, reset } = useImportPushOpsCsv();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [fileName, setFileName] = useState<string | null>(null);
-
-  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFileName(file.name);
-    reset();
-    mutate({ file, location_id: selectedLocationId ?? undefined });
-    e.target.value = ""; // allow re-selecting the same file
-  }
-
-  const errMsg =
-    (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-    (error ? "Import failed. Check the file format." : null);
-
-  return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <BrandLogo fallback={<Users className="h-5 w-5 text-primary" />} />
-          <div>
-            <h3 className="font-semibold text-sm">PushOperations Payroll</h3>
-            <p className="text-xs text-muted-foreground">
-              Upload a payroll CSV — or a screenshot/PDF — to import labor cost into your P&amp;L
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={() => inputRef.current?.click()}
-          disabled={isPending}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors cursor-pointer shrink-0"
-        >
-          <Upload className="h-3.5 w-3.5" />
-          {isPending ? "Importing…" : "Upload CSV / Image"}
-        </button>
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".csv,text/csv,image/png,image/jpeg,image/tiff,image/webp,application/pdf,.pdf"
-          className="hidden"
-          onChange={onFile}
-        />
-      </div>
-
-      {data && (
-        <div className="border-t border-border pt-3 text-sm space-y-1">
-          <div className="flex items-center gap-2 text-green-500">
-            <CheckCircle className="h-4 w-4 shrink-0" />
-            <span className="font-medium">
-              Imported {data.expenses_created} payroll line
-              {data.expenses_created === 1 ? "" : "s"}
-              {fileName ? ` from ${fileName}` : ""}
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground pl-6">
-            {data.currency_code} {Number(data.total_amount).toLocaleString()} total labor ·{" "}
-            {data.duplicates_skipped} duplicate{data.duplicates_skipped === 1 ? "" : "s"} skipped ·{" "}
-            {data.rows_parsed} rows parsed
-          </p>
-        </div>
-      )}
-
-      {errMsg && (
-        <div className="border-t border-border pt-3 flex items-center gap-2 text-sm text-destructive">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          {errMsg}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// PushOperations time-clock sync — the real API connection (distinct from the
-// CSV importer above, which stays under Not connected as a manual fallback).
+// PushOperations time-clock sync — the real API connection.
 // ---------------------------------------------------------------------------
 
 function PushSyncCard({ status }: { status: NonNullable<ReturnType<typeof usePushSyncStatus>["data"]> }) {
@@ -249,14 +167,17 @@ function PushSyncCard({ status }: { status: NonNullable<ReturnType<typeof usePus
       <div className="flex items-center justify-between gap-3 p-3">
         <button
           onClick={() => setExpanded((v) => !v)}
-          className="flex items-center gap-2 min-w-0 text-left cursor-pointer"
+          className="flex items-center gap-3 min-w-0 text-left cursor-pointer flex-1"
         >
-          <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
-          <div className="min-w-0">
-            <p className="font-medium text-sm truncate">PushOperations {status.company_name ? `— ${status.company_name}` : ""}</p>
+          <BrandLogo slug="pushoperations" domain="pushoperations.com" fallback={<Users className="h-5 w-5 text-primary" />} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <CheckCircle className="h-3.5 w-3.5 text-green-500 shrink-0" />
+              <p className="font-medium text-sm truncate">PushOperations {status.company_name ? `— ${status.company_name}` : ""}</p>
+            </div>
             <p className="text-xs text-muted-foreground">Last sync: {lastLabel}</p>
           </div>
-          <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`} />
+          <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0 ${expanded ? "rotate-180" : ""}`} />
         </button>
         <button
           onClick={() => syncNow()}
@@ -651,7 +572,7 @@ export default function IntegrationsPage() {
   const connectedCount = 2 + (gmailConnected ? 1 : 0) + (outlookConnected ? 1 : 0) + (pushConnected ? 1 : 0);
   // PushOps CSV importer is a manual fallback (no persistent connection); only
   // count it under Not connected when the real API sync isn't active.
-  const notConnectedCount = (pushConnected ? 0 : 1) + (gmailConnected ? 0 : 1) + (outlookConnected ? 0 : 1);
+  const notConnectedCount = (gmailConnected ? 0 : 1) + (outlookConnected ? 0 : 1);
   const anyStale =
     [...gmailAccounts, ...outlookAccounts]
       .filter((a) => a.is_active)
@@ -691,6 +612,7 @@ export default function IntegrationsPage() {
       connecting={connectingOutlook}
       syncing={syncingOutlook}
       disconnecting={disconnectingOutlook}
+      defaultCollapsed
     />
   );
 
@@ -766,10 +688,6 @@ export default function IntegrationsPage() {
         {pushConnected && pushStatus && <PushSyncCard status={pushStatus} />}
 
         <PipeboardCard />
-
-        {/* CSV importer stays available even with the API connected — manual
-            correction/backfill tool, not a separate connection. */}
-        {pushConnected && <PushOpsCard />}
       </section>
 
       {/* ── Not connected ── */}
@@ -784,8 +702,6 @@ export default function IntegrationsPage() {
         {!gmailConnected && gmailEl}
 
         {!outlookConnected && outlookEl}
-
-        {!pushConnected && <PushOpsCard />}
       </section>
 
       {/* ── Coming soon ── */}
