@@ -2,9 +2,47 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
-import type { PnLReport, PnLSnapshot } from "@/types/pnl";
+import type { DiscountBreakdown, PnLReport, PnLSnapshot, PnLTrend } from "@/types/pnl";
 
 const BASE = "/api/v1/pnl";
+
+export function useDiscountBreakdown(params: {
+  period_start: string;
+  period_end: string;
+  location_id?: string;
+}) {
+  const { period_start, period_end, location_id } = params;
+  const qs = new URLSearchParams({ period_start, period_end });
+  if (location_id) qs.set("location_id", location_id);
+
+  return useQuery({
+    queryKey: ["pnl-discount-breakdown", params],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: DiscountBreakdown }>(
+        `${BASE}/discount-breakdown?${qs}`
+      );
+      return data.data;
+    },
+    enabled: Boolean(period_start && period_end),
+  });
+}
+
+// Trend recomputes the P&L for each month server-side, so it's slower than the
+// other queries — cache it longer and don't poll it on the report's interval.
+export function usePnLTrend(params: { months?: number; location_id?: string } = {}) {
+  const { months = 6, location_id } = params;
+  const qs = new URLSearchParams({ months: String(months) });
+  if (location_id) qs.set("location_id", location_id);
+
+  return useQuery({
+    queryKey: ["pnl-trend", months, location_id],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: PnLTrend }>(`${BASE}/trend?${qs}`);
+      return data.data;
+    },
+    staleTime: 5 * 60_000,
+  });
+}
 
 export function usePnLReport(params: {
   period_start: string;

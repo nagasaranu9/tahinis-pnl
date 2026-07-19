@@ -13,10 +13,15 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
-import { usePnLReport } from "@/hooks/use-pnl";
+import { usePnLReport, usePnLTrend, useDiscountBreakdown } from "@/hooks/use-pnl";
 import { useLocationStore } from "@/lib/location-store";
 import { downloadPnL } from "@/lib/export-pnl";
-import type { ExpenseCategoryBreakdown, PnLLineItems } from "@/types/pnl";
+import type {
+  BenchmarkChip,
+  ExpenseCategoryBreakdown,
+  PnLLineItems,
+  PnLTrendPoint,
+} from "@/types/pnl";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -340,6 +345,246 @@ function ExpensePie({ breakdown }: { breakdown: ExpenseCategoryBreakdown[] }) {
   );
 }
 
+// ─── Benchmarks ──────────────────────────────────────────────────────────────
+
+const BENCH_STYLES: Record<string, string> = {
+  good: "border-green-500/30 bg-green-500/10 text-green-600 dark:text-green-400",
+  watch: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  bad: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
+  unknown: "border-border bg-muted/30 text-muted-foreground",
+};
+
+function BenchmarkPill({ chip }: { chip: BenchmarkChip }) {
+  return (
+    <span
+      className={`inline-flex items-baseline gap-1.5 rounded-md border px-2.5 py-1 text-xs ${
+        BENCH_STYLES[chip.status] ?? BENCH_STYLES.unknown
+      }`}
+      title={`${chip.label}: industry ${chip.target_label}`}
+    >
+      <span className="font-medium">{chip.label}</span>
+      <span className="font-mono font-semibold tabular-nums">
+        {chip.value_pct != null ? `${parseFloat(chip.value_pct).toFixed(1)}%` : "—"}
+      </span>
+      <span className="opacity-60">· {chip.target_label}</span>
+    </span>
+  );
+}
+
+// ─── Trend sparklines ────────────────────────────────────────────────────────
+
+/** Inline sparkline. Kept as raw SVG rather than a chart lib: these are ~6
+ *  points inside a table-dense page, where a full chart component costs more
+ *  than it communicates. */
+function Sparkline({
+  values,
+  invert = false,
+}: {
+  values: (number | null)[];
+  /** true when lower is better (cost ratios), so the trend colour flips. */
+  invert?: boolean;
+}) {
+  const pts = values.filter((v): v is number => v != null);
+  if (pts.length < 2) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  const min = Math.min(...pts);
+  const max = Math.max(...pts);
+  const span = max - min || 1;
+  const W = 72;
+  const H = 22;
+  const step = W / (values.length - 1);
+
+  // Nulls (a month with no data) break the line rather than being drawn as
+  // zero, which would invent a cliff that never happened.
+  const segments: string[] = [];
+  let current: string[] = [];
+  values.forEach((v, i) => {
+    if (v == null) {
+      if (current.length > 1) segments.push(current.join(" "));
+      current = [];
+      return;
+    }
+    const x = i * step;
+    const y = H - ((v - min) / span) * (H - 4) - 2;
+    current.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+  });
+  if (current.length > 1) segments.push(current.join(" "));
+
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  const rising = last > first;
+  const better = invert ? !rising : rising;
+  const stroke = last === first ? "#94a3b8" : better ? "#22c55e" : "#ef4444";
+
+  const lastIdx = values.map((v, i) => (v != null ? i : -1)).filter((i) => i >= 0).pop() ?? 0;
+  const lastX = lastIdx * step;
+  const lastY = H - ((last - min) / span) * (H - 4) - 2;
+
+  return (
+    <svg width={W} height={H} className="overflow-visible shrink-0" aria-hidden>
+      {segments.map((pointsAttr, i) => (
+        <polyline
+          key={i}
+          points={pointsAttr}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={1.5}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      ))}
+      <circle cx={lastX} cy={lastY} r={2} fill={stroke} />
+    </svg>
+  );
+}
+
+const TREND_METRICS: {
+  key: keyof PnLTrendPoint;
+  label: string;
+  pct?: boolean;
+  invert?: boolean;
+}[] = [
+  { key: "net_revenue", label: "Net Revenue" },
+  { key: "cogs_pct", label: "Food %", pct: true, invert: true },
+  { key: "labor_pct", label: "Labor %", pct: true, invert: true },
+  { key: "prime_cost_pct", label: "Prime %", pct: true, invert: true },
+  { key: "net_profit", label: "Net Profit" },
+];
+
+function TrendStrip({ locationId }: { locationId: string | null }) {
+  const { data, isLoading } = usePnLTrend({
+    months: 6,
+    location_id: locationId ?? undefined,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground border border-border rounded-lg px-4 py-3">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading 6-month trend…
+      </div>
+    );
+  }
+  if (!data?.points?.length) return null;
+
+  const range = `${data.points[0].period_label} → ${data.points[data.points.length - 1].period_label}`;
+
+  return (
+    <div className="border border-border rounded-lg bg-card">
+      <div className="px-4 py-2.5 border-b border-border flex items-baseline justify-between gap-3">
+        <h2 className="text-sm font-semibold">6-Month Trend</h2>
+        <span className="text-xs text-muted-foreground font-mono">{range}</span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 divide-y sm:divide-y-0 sm:divide-x divide-border">
+        {TREND_METRICS.map(({ key, label, pct, invert }) => {
+          const values = data.points.map((p) => {
+            const raw = p[key];
+            return raw == null ? null : parseFloat(raw as string);
+          });
+          const last = [...values].reverse().find((v) => v != null) ?? null;
+          return (
+            <div key={key} className="px-4 py-3 space-y-1.5">
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-mono font-semibold tabular-nums">
+                  {last == null
+                    ? "—"
+                    : pct
+                    ? `${last.toFixed(1)}%`
+                    : `$${last.toLocaleString("en-CA", { maximumFractionDigits: 0 })}`}
+                </span>
+                <Sparkline values={values} invert={invert} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Discount breakdown ──────────────────────────────────────────────────────
+
+function DiscountBreakdownCard({
+  periodStart,
+  periodEnd,
+  locationId,
+  totalDiscounts,
+  grossRevenue,
+}: {
+  periodStart: string;
+  periodEnd: string;
+  locationId: string | null;
+  totalDiscounts: string | null;
+  grossRevenue: string | null;
+}) {
+  const { data, isLoading } = useDiscountBreakdown({
+    period_start: periodStart,
+    period_end: periodEnd,
+    location_id: locationId ?? undefined,
+  });
+
+  const pctOfGross =
+    totalDiscounts && grossRevenue && parseFloat(grossRevenue) > 0
+      ? (parseFloat(totalDiscounts) / parseFloat(grossRevenue)) * 100
+      : null;
+
+  if (isLoading) return null;
+
+  // No named rows yet means the backfill hasn't run for this period — say so
+  // rather than rendering an empty card that reads like "no discounts".
+  if (!data?.discounts?.length) {
+    if (!totalDiscounts || parseFloat(totalDiscounts) === 0) return null;
+    return (
+      <div className="border border-border rounded-lg bg-card px-4 py-3">
+        <h2 className="text-sm font-semibold">Discount Breakdown</h2>
+        <p className="text-xs text-muted-foreground mt-1">
+          {fmt(totalDiscounts)} in discounts this period, not yet itemized by promo.
+          Run a Toast sync to capture discount names.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-border rounded-lg bg-card overflow-hidden">
+      <div className="px-4 py-3 border-b border-border">
+        <h2 className="text-sm font-semibold">Discount Breakdown</h2>
+        <p className="text-xs text-muted-foreground">
+          {fmt(data.total)} across {data.discounts.length} promo
+          {data.discounts.length === 1 ? "" : "s"}
+          {pctOfGross != null && ` · ${pctOfGross.toFixed(1)}% of gross revenue`}
+        </p>
+      </div>
+      <table className="w-full">
+        <tbody>
+          {data.discounts.map((d) => (
+            <tr key={`${d.name}-${d.scope}`} className="border-b border-border/60 last:border-0">
+              <td className="py-2 px-4 text-sm">
+                {d.name}
+                {d.scope === "item" && (
+                  <span className="ml-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                    item
+                  </span>
+                )}
+              </td>
+              <td className="py-2 px-3 text-right text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+                {d.count.toLocaleString("en-CA")}×
+              </td>
+              <td className="py-2 px-3 text-right text-xs text-muted-foreground tabular-nums w-16">
+                {d.pct_of_discounts != null ? `${parseFloat(d.pct_of_discounts).toFixed(1)}%` : "—"}
+              </td>
+              <td className="py-2 px-4 text-right text-sm font-mono tabular-nums whitespace-nowrap">
+                {fmt(d.total)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 function defaultPeriod(): DateRange {
@@ -563,6 +808,18 @@ export default function PnLPage() {
             })}
           </div>
 
+          {/* Benchmark chips — key operating ratios vs industry targets */}
+          {report.benchmarks?.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {report.benchmarks.map((b) => (
+                <BenchmarkPill key={b.metric} chip={b} />
+              ))}
+            </div>
+          )}
+
+          {/* 6-month trend */}
+          <TrendStrip locationId={locationId} />
+
           {/* Full P&L table */}
           <div className="border border-border rounded-lg overflow-x-auto">
             {compare && (
@@ -651,6 +908,15 @@ export default function PnLPage() {
               tracked in this system — consult your accountant for after-tax figures.
             </p>
           </div>
+
+          {/* Discount breakdown — attributes the discount line to promos */}
+          <DiscountBreakdownCard
+            periodStart={period.start}
+            periodEnd={period.end}
+            locationId={locationId}
+            totalDiscounts={li.total_discounts}
+            grossRevenue={li.gross_revenue}
+          />
 
           {/* Expense breakdown */}
           {report.expense_breakdown.length > 0 && (
