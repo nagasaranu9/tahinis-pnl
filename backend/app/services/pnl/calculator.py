@@ -16,6 +16,7 @@ P&L structure:
   EBITDA          = Net Revenue - COGS - Labor Cost - Opex
   Net Profit      = EBITDA  (simplified; no D/A or interest data)
 """
+import re
 import uuid
 from collections import defaultdict
 from datetime import datetime
@@ -61,6 +62,23 @@ _INVOICE_WINS_CATEGORIES = {"Royalties"}
 # engine (OCR rounding, minor fee differences).
 _ROYALTY_MATCH_ABS = Decimal("1.00")
 _ROYALTY_MATCH_PCT = Decimal("0.005")
+
+# Vendor identity token that marks the franchisor. The franchisor (Tahinis
+# Franchising Corp) bills the same weekly royalty/marketing/delivery charges
+# through THREE overlapping document formats, all of which get ingested and
+# expensed:
+#   1. Atomic per-charge invoice  — "Invoice_21284_from_Tahinis…", one
+#      invoice number, one week, one category. This is the truth.
+#   2. Weekly/periodic statement  — "Statement_6772_from_Tahinis…", a rollup
+#      that re-lists several invoice numbers (incl. ones already ingested
+#      atomically) plus balance-forward/payment lines.
+#   3. Monthly batch             — "1941 Tahinis Corp Invoices.pdf", a rollup
+#      spanning many weeks with no single invoice number, often re-ingested
+#      several times.
+# Formats 2 and 3 re-state charges already captured by format 1, so counting
+# them multiplies franchise Marketing/Royalties several-fold. _dedup_franchise
+# _rollups keeps the atomic invoices and drops the statement/batch rollups.
+_FRANCHISE_VENDOR_TOKEN = "franchising"
 
 
 def _pct(numerator: Decimal | None, denominator: Decimal | None) -> Decimal | None:
@@ -322,19 +340,127 @@ class PnLCalculator:
             conds.append(
                 _or(Expense.location_id == location_id, Expense.location_id.is_(None))
             )
-        # Pull the source document_type alongside each expense so we can tell a
-        # bank-statement line from an uploaded invoice/receipt (needed for dedup).
+        # Pull the source document_type + filename alongside each expense so we
+        # can tell a bank-statement line from an uploaded invoice/receipt, and
+        # an atomic franchisor invoice from a statement/batch rollup (dedup).
         rows = await self._db.execute(
-            select(Expense, Document.document_type)
+            select(Expense, Document.document_type, Document.original_filename)
             .outerjoin(Document, Document.id == Expense.document_id)
             .where(and_(*conds))
         )
         expenses: list[Expense] = []
-        for exp, doc_type in rows.all():
+        for exp, doc_type, filename in rows.all():
             exp._doc_type = doc_type  # type: ignore[attr-defined]
+            exp._filename = filename  # type: ignore[attr-defined]
             expenses.append(exp)
+        await self._annotate_franchise_roles(expenses)
+        expenses = self._dedup_franchise_rollups(expenses)
         expenses = self._dedup_invoice_vs_bank_by_amount(expenses)
         return self._dedup_bank_vs_invoice(expenses)
+
+    # Invoice-number token in a franchisor filename or OCR'd line-item
+    # description: "Invoice_21284…", "Invoice #21357: Marketing", "INV-020768".
+    _FRANCHISE_INV_RE = re.compile(r"(?:Invoice|INV)\s*[#_\-]?\s*0*(\d{4,})", re.IGNORECASE)
+
+    @classmethod
+    def _franchise_invoice_numbers(cls, filename: str | None, descriptions: list[str]) -> set[str]:
+        nums: set[str] = set()
+        for text in [filename or "", *descriptions]:
+            for m in cls._FRANCHISE_INV_RE.finditer(text):
+                nums.add(m.group(1).lstrip("0"))
+        return nums
+
+    async def _annotate_franchise_roles(self, expenses: list[Expense]) -> None:
+        """Tag each franchisor expense with a role:
+          - 'atomic'     — a single-invoice document, the source of truth.
+          - 'rollup'     — a statement/batch re-listing charges already
+                           captured atomically (uploaded invoice/receipt).
+          - 'bank'       — the pre-authorized bank debit that settles those
+                           invoices ("Pre-Authorized Payment, TAHINIS BUS/ENT").
+        Non-franchisor expenses are left untagged.
+
+        Atomic vs rollup is decided by how many distinct franchisor invoice
+        numbers the source document references (filename + OCR'd line-item
+        descriptions): exactly one => atomic; zero or many => rollup (a batch
+        with only week ranges, or a statement enumerating several invoices).
+
+        The bank debit is identified separately: its description is the
+        franchisor's pre-auth label ("TAHINIS BUS/ENT"), which shares only the
+        'tahinis' token with the "Tahinis Franchising Corp" invoice vendor —
+        not 'franchising' — so it needs its own match. It is the cash side of
+        the same invoices, not additional spend."""
+        for e in expenses:
+            e._franchise_role = None  # type: ignore[attr-defined]
+
+        paper = [
+            e for e in expenses
+            if getattr(e, "_doc_type", None) != "bank_statement"
+            and e.document_id is not None
+            and _FRANCHISE_VENDOR_TOKEN in self._vendor_tokens(e.vendor_name)
+        ]
+        for e in expenses:
+            if (
+                getattr(e, "_doc_type", None) == "bank_statement"
+                and "tahinis" in self._vendor_tokens(e.vendor_name)
+            ):
+                e._franchise_role = "bank"  # type: ignore[attr-defined]
+
+        if not paper:
+            return
+
+        doc_ids = {e.document_id for e in paper}
+        from app.db.models.document import ExtractedLineItem
+        li_rows = await self._db.execute(
+            select(ExtractedLineItem.document_id, ExtractedLineItem.description).where(
+                ExtractedLineItem.document_id.in_(doc_ids)
+            )
+        )
+        descs_by_doc: dict[uuid.UUID, list[str]] = defaultdict(list)
+        for doc_id, desc in li_rows.all():
+            if desc:
+                descs_by_doc[doc_id].append(desc)
+
+        for e in paper:
+            nums = self._franchise_invoice_numbers(
+                getattr(e, "_filename", None), descs_by_doc.get(e.document_id, [])
+            )
+            e._franchise_role = "atomic" if len(nums) == 1 else "rollup"  # type: ignore[attr-defined]
+
+    def _dedup_franchise_rollups(self, expenses: list[Expense]) -> list[Expense]:
+        """Collapse franchisor spend onto the atomic per-invoice documents.
+
+        When atomic invoices are present, both other representations of the
+        same charges are dropped:
+          - statement/batch 'rollup' invoices (re-list the atomics), and
+          - the 'bank' pre-auth debits that settle them.
+        The atomic invoices carry the correct per-charge amount, week, and
+        category (Marketing 2% vs Royalties 5%); the rollups double-count on
+        the paper side and the bank debits double-count on the cash side. The
+        bank total is not lost — the reconciliation engine cross-checks the
+        kept atomic-invoice total against it (unverified_franchise_spend).
+
+        Guard: only collapse when at least one atomic franchisor invoice
+        exists. With no atomic invoice, whatever franchise record exists
+        (a lone statement, or only bank debits) is the sole evidence of the
+        spend and must stay, or franchise Marketing/Royalties would be zeroed."""
+        has_atomic = any(getattr(e, "_franchise_role", None) == "atomic" for e in expenses)
+        if not has_atomic:
+            return expenses
+        kept: list[Expense] = []
+        for e in expenses:
+            role = getattr(e, "_franchise_role", None)
+            if role in ("rollup", "bank"):
+                logger.info(
+                    "pnl_dedup_dropped_franchise_rollup",
+                    vendor=e.vendor_name,
+                    amount=str(e.amount),
+                    filename=getattr(e, "_filename", None),
+                    role=role,
+                    reason="atomic_invoices_present",
+                )
+                continue
+            kept.append(e)
+        return kept
 
     # Words that carry no vendor identity — bank-description boilerplate,
     # corporate suffixes, generic descriptors. Stripped before token matching.
@@ -353,7 +479,6 @@ class PnLCalculator:
         Payment, ALEX FOOD' -> {'alex', 'food'})."""
         if not name:
             return frozenset()
-        import re
         raw = re.split(r"[^a-z0-9]+", name.lower())
         return frozenset(
             t for t in raw if t and t not in cls._VENDOR_NOISE and len(t) > 1

@@ -215,6 +215,38 @@ class ReconciliationEngine:
                     )
                     flags_raised += 1
 
+        # ---- Flag: franchise_spend_bank_variance -----------------------------
+        # The P&L counts franchisor spend from the atomic per-invoice documents
+        # and drops the statement/batch rollups and the bank pre-auth debits
+        # that settle them (PnLCalculator._dedup_franchise_rollups). This is the
+        # cross-check the user asked for: the kept atomic-invoice total should
+        # equal what actually cleared the bank to the franchisor. A large gap
+        # means an invoice is missing (understated spend) or a stray charge
+        # (overstated), so surface it rather than trusting the paper silently.
+        franchise_invoice_total, franchise_bank_total = await self._load_franchise_totals(
+            tenant_id, period_start, period_end, location_id
+        )
+        if franchise_bank_total is not None and franchise_invoice_total is not None \
+                and franchise_bank_total > 0 and franchise_invoice_total > 0:
+            variance = franchise_invoice_total - franchise_bank_total
+            # Franchisor bank debits bundle royalties + marketing + delivery +
+            # tech for the week, so allow a wider tolerance than the exact
+            # payroll match — small ancillary charges legitimately differ.
+            tol = max(Decimal("50.00"), franchise_bank_total * Decimal("0.10"))
+            if abs(variance) > tol:
+                await self._repo.create_flag(
+                    tenant_id=tenant_id, run_id=run_id,
+                    flag_type="franchise_spend_bank_variance", severity="medium",
+                    message=(
+                        f"Franchisor invoices counted in the P&L total "
+                        f"{franchise_invoice_total}, but franchisor bank debits "
+                        f"total {franchise_bank_total} for this period "
+                        f"(variance {variance:+.2f}). Confirm no franchise invoice "
+                        f"is missing or duplicated."
+                    ),
+                )
+                flags_raised += 1
+
         # ---- Flag: push_labor_bank_variance (Push total vs bank Payroll total) ---
         # Push is the P&L's Labor source (see PnLCalculator), so the Payroll
         # expenses parsed off the bank statement / CSV are no longer summed into
@@ -359,6 +391,86 @@ class ReconciliationEngine:
             )
         )
         return [abs(a) for a in rows.scalars().all() if a is not None]
+
+    async def _load_franchise_totals(
+        self,
+        tenant_id: uuid.UUID,
+        period_start: datetime,
+        period_end: datetime,
+        location_id: uuid.UUID | None,
+    ) -> tuple[Decimal | None, Decimal | None]:
+        """Return (atomic_invoice_total, bank_debit_total) for franchisor spend
+        in the period, or (None, None)/partial when either side is absent.
+
+        atomic_invoice_total mirrors what the P&L keeps: franchisor invoices/
+        receipts whose source document references exactly one franchisor
+        invoice number (statements/batches reference several or none and are
+        excluded). bank_debit_total sums the franchisor's pre-authorized bank
+        debits ("TAHINIS BUS/ENT"). The two are the paper and cash sides of the
+        same charges and should reconcile.
+        """
+        from app.services.pnl.calculator import _FRANCHISE_VENDOR_TOKEN, PnLCalculator
+
+        # --- atomic invoice side ---
+        paper_rows = (
+            await self._db.execute(
+                select(Expense.id, Expense.amount, Expense.document_id, Document.original_filename)
+                .join(Document, Document.id == Expense.document_id)
+                .where(
+                    Expense.tenant_id == tenant_id,
+                    Expense.expense_date >= period_start,
+                    Expense.expense_date <= period_end,
+                    Expense.amount.isnot(None),
+                    Document.document_type != "bank_statement",
+                    Expense.vendor_name.ilike(f"%{_FRANCHISE_VENDOR_TOKEN}%"),
+                )
+            )
+        ).all()
+        atomic_total: Decimal | None = None
+        if paper_rows:
+            doc_ids = {r.document_id for r in paper_rows if r.document_id}
+            descs_by_doc: dict[uuid.UUID, list[str]] = defaultdict(list)
+            if doc_ids:
+                li_rows = await self._db.execute(
+                    select(ExtractedLineItem.document_id, ExtractedLineItem.description).where(
+                        ExtractedLineItem.document_id.in_(doc_ids)
+                    )
+                )
+                for doc_id, desc in li_rows.all():
+                    if desc:
+                        descs_by_doc[doc_id].append(desc)
+            atomic_total = Decimal("0")
+            for r in paper_rows:
+                nums = PnLCalculator._franchise_invoice_numbers(
+                    r.original_filename, descs_by_doc.get(r.document_id, [])
+                )
+                if len(nums) == 1:  # atomic — one invoice number
+                    atomic_total += abs(r.amount)
+
+        # --- bank settlement side ---
+        bank_conds = [
+            Expense.tenant_id == tenant_id,
+            Expense.expense_date >= period_start,
+            Expense.expense_date <= period_end,
+            Expense.amount.isnot(None),
+            Document.document_type == "bank_statement",
+            Expense.vendor_name.ilike("%tahinis%"),
+        ]
+        if location_id:
+            from sqlalchemy import or_ as _or
+            bank_conds.append(_or(Expense.location_id == location_id, Expense.location_id.is_(None)))
+        bank_amounts = (
+            await self._db.execute(
+                select(Expense.amount)
+                .join(Document, Document.id == Expense.document_id)
+                .where(and_(*bank_conds))
+            )
+        ).scalars().all()
+        bank_total: Decimal | None = None
+        if bank_amounts:
+            bank_total = sum((abs(a) for a in bank_amounts), Decimal("0"))
+
+        return atomic_total, bank_total
 
     async def _load_push_labor_total(
         self,

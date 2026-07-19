@@ -111,6 +111,7 @@ async def _run_execute(
     engine._load_bank_debit_amounts = AsyncMock(return_value=None)
     engine._load_push_labor_total = AsyncMock(return_value=None)
     engine._load_payroll_expense_total_by_pay_date = AsyncMock(return_value=Decimal("0"))
+    engine._load_franchise_totals = AsyncMock(return_value=(None, None))
     return await engine._execute(RUN_ID, TENANT_ID, PERIOD_START, PERIOD_END, None)
 
 
@@ -418,6 +419,7 @@ async def _run_execute_with_push(
     engine._load_bank_debit_amounts = AsyncMock(return_value=bank_debits)
     engine._load_push_labor_total = AsyncMock(return_value=push_total)
     engine._load_payroll_expense_total_by_pay_date = AsyncMock(return_value=payroll_expense_total)
+    engine._load_franchise_totals = AsyncMock(return_value=(None, None))
     return await engine._execute(RUN_ID, TENANT_ID, PERIOD_START, PERIOD_END, None)
 
 
