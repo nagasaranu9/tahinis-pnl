@@ -22,6 +22,11 @@ class PnLLineItems(BaseModel):
     operating_expenses: Optional[Decimal] = None
 
     ebitda: Optional[Decimal] = None
+    # Financing costs (bank interest, loan interest) — excluded from EBITDA by
+    # definition, subtracted between EBITDA and Net Profit. D&A and income tax
+    # are not tracked (no fixed-asset register / tax accrual), so Net Profit is
+    # pre-tax, pre-depreciation: EBITDA - interest.
+    interest_expense: Optional[Decimal] = None
     net_profit: Optional[Decimal] = None
 
     # Percentage breakdowns (of net_revenue)

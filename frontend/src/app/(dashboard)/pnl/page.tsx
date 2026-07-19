@@ -624,6 +624,16 @@ export default function PnLPage() {
                   highlight={parseFloat(li.ebitda ?? "0") >= 0 ? "green" : "red"}
                   compare={compare}
                 />
+                {li.interest_expense && (
+                  <PnLRow
+                    label="Interest & Financing"
+                    indent
+                    value={li.interest_expense}
+                    prevValue={pli?.interest_expense}
+                    highlight="red"
+                    compare={compare}
+                  />
+                )}
                 <PnLRow
                   label="Net Profit"
                   value={li.net_profit}
@@ -635,6 +645,11 @@ export default function PnLPage() {
                 />
               </tbody>
             </table>
+            <p className="px-4 py-2 text-[11px] text-muted-foreground border-t">
+              Net Profit is pre-tax and pre-depreciation: EBITDA less interest &amp;
+              financing costs. Depreciation/amortization and income tax are not
+              tracked in this system — consult your accountant for after-tax figures.
+            </p>
           </div>
 
           {/* Expense breakdown */}

@@ -13,8 +13,8 @@ P&L structure:
                     otherwise Payroll expenses (bank statement / payroll CSV)
   Prime Cost      = COGS + Labor Cost
   Opex            = all other expenses (not COGS / Payroll)
-  EBITDA          = Net Revenue - COGS - Labor Cost - Opex
-  Net Profit      = EBITDA  (simplified; no D/A or interest data)
+  EBITDA          = Net Revenue - COGS - Labor Cost - Opex (excl. interest)
+  Net Profit      = EBITDA - interest expense  (no D/A or income-tax data)
 """
 import re
 import uuid
@@ -187,10 +187,24 @@ class PnLCalculator:
         opex_cats = set(category_totals.keys()) - _COGS_CATEGORIES - _LABOR_CATEGORIES
         operating_expenses = _sum_cat(opex_cats)
 
+        # Financing costs (bank/loan interest) live in the expense categories
+        # (categorization puts "Interest Paid" under Professional Services) but
+        # are below-the-line by definition: EBITDA is Earnings Before Interest…
+        # Split them out so EBITDA excludes interest and Net Profit subtracts it.
+        # D&A and income tax aren't tracked, so Net Profit = EBITDA - interest
+        # (pre-tax, pre-depreciation).
+        interest_expense = Decimal("0")
+        for c in opex_cats:
+            for exp in category_totals.get(c, []):
+                vendor = (getattr(exp, "vendor_name", None) or "").lower()
+                if exp.amount and ("interest paid" in vendor or "interest charge" in vendor):
+                    interest_expense += exp.amount
+        operating_expenses -= interest_expense
+
         gross_profit = net_revenue - cogs
         prime_cost = cogs + labor_cost
         ebitda = net_revenue - cogs - labor_cost - operating_expenses
-        net_profit = ebitda  # simplified
+        net_profit = ebitda - interest_expense
 
         # ------------------------------------------------------------------
         # Percentage breakdowns
@@ -206,6 +220,7 @@ class PnLCalculator:
             prime_cost=prime_cost or None,
             operating_expenses=operating_expenses or None,
             ebitda=ebitda if ebitda != 0 else None,
+            interest_expense=interest_expense or None,
             net_profit=net_profit if net_profit != 0 else None,
             cogs_pct=_pct(cogs, nr),
             labor_pct=_pct(labor_cost, nr),

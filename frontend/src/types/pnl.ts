@@ -8,6 +8,7 @@ export interface PnLLineItems {
   prime_cost: string | null;
   operating_expenses: string | null;
   ebitda: string | null;
+  interest_expense: string | null;
   net_profit: string | null;
   cogs_pct: string | null;
   labor_pct: string | null;
