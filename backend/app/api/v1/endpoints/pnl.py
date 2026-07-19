@@ -204,8 +204,10 @@ async def discount_breakdown(
     try:
         start_bd = datetime.fromisoformat(period_start).strftime("%Y%m%d")
         end_bd = datetime.fromisoformat(period_end).strftime("%Y%m%d")
-    except ValueError:
-        raise HTTPException(status_code=422, detail="period_start and period_end must be YYYY-MM-DD")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail="period_start and period_end must be YYYY-MM-DD"
+        ) from exc
 
     conds = [
         ToastOrderDiscount.tenant_id == user.tenant_id,
@@ -331,11 +333,12 @@ async def pnl_trend(
     predating any calculation fix (dedup, interest split), so a trend built on
     them can disagree with the report shown right above it.
     """
+    import asyncio
     from calendar import monthrange
 
-    calculator = PnLCalculator(db)
+    from app.db.session import AsyncSessionLocal
+
     today = datetime.now(timezone.utc)
-    points: list[dict] = []
 
     # Walk back `months` calendar months, oldest first.
     year, month = today.year, today.month
@@ -348,17 +351,22 @@ async def pnl_trend(
             year -= 1
     periods.reverse()
 
-    for yr, mo in periods:
+    async def _month(yr: int, mo: int) -> dict:
         start = datetime(yr, mo, 1, tzinfo=timezone.utc)
         end = datetime(yr, mo, monthrange(yr, mo)[1], 23, 59, 59, tzinfo=timezone.utc)
-        report = await calculator.compute(
-            tenant_id=user.tenant_id,
-            period_start=start,
-            period_end=end,
-            location_id=location_id,
-        )
+        # Each month gets its own session: a single AsyncSession can't be shared
+        # across concurrent tasks, and running the months sequentially on the
+        # request's session made this endpoint several times slower than the
+        # report it sits next to.
+        async with AsyncSessionLocal() as session:
+            report = await PnLCalculator(session).compute(
+                tenant_id=user.tenant_id,
+                period_start=start,
+                period_end=end,
+                location_id=location_id,
+            )
         li = report.line_items
-        points.append({
+        return {
             "period_label": f"{yr}-{mo:02d}",
             "period_start": start.date().isoformat(),
             "net_revenue": li.net_revenue,
@@ -370,9 +378,10 @@ async def pnl_trend(
             "ebitda": li.ebitda,
             "net_profit": li.net_profit,
             "net_profit_pct": li.net_profit_pct,
-        })
+        }
 
-    return {"data": {"months": months, "points": points}, "errors": None}
+    points = await asyncio.gather(*(_month(yr, mo) for yr, mo in periods))
+    return {"data": {"months": months, "points": list(points)}, "errors": None}
 
 
 @router.get("/snapshots", response_model=PaginatedResponse[PnLSnapshotResponse])
