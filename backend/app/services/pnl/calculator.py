@@ -101,7 +101,14 @@ class PnLCalculator:
     ) -> PnLReportResponse:
         orders = await self._load_orders(tenant_id, period_start, period_end, location_id)
         expenses = await self._load_expenses(tenant_id, period_start, period_end, location_id)
-        pipeboard_expenses = await self._load_pipeboard_metrics(tenant_id, period_start, period_end, location_id)
+        # Pipeboard daily ad metrics are intentionally NOT merged into the P&L:
+        # they report platform-side spend that can exceed what Google actually
+        # bills (credits, thresholds, stale campaign data — June 2026 showed
+        # $1,266 Pipeboard vs $624.79 billed). The Google billing invoice that
+        # arrives by email is the source of truth for ad spend, entering the
+        # P&L through the normal document→OCR→expense pipeline like any vendor
+        # bill. Pipeboard data remains available for dashboards only.
+        pipeboard_expenses: list = []
         location = await self._load_location(tenant_id, location_id) if location_id else None
         bank_statement_verified = await self._has_bank_statement(
             tenant_id, period_start, period_end, location_id
