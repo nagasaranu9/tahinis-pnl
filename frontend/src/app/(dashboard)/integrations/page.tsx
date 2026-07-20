@@ -14,6 +14,7 @@ import {
 } from "@/hooks/use-email-integrations";
 import { usePushSyncStatus, usePushSyncNow } from "@/hooks/use-pushops-integration";
 import { PipeboardIntegration } from "@/components/pipeboard-integration";
+import { useTenant, useUpdateOcrProvider, type OcrProvider } from "@/hooks/use-tenant";
 import type { EmailSyncConfig } from "@/types/email-sync";
 
 // ---------------------------------------------------------------------------
@@ -151,6 +152,53 @@ function OverflowMenu({ children }: { children: (close: () => void) => React.Rea
 
 // PushOperations time-clock sync — the real API connection.
 // ---------------------------------------------------------------------------
+
+const OCR_OPTIONS: { value: OcrProvider; label: string; hint: string }[] = [
+  { value: "auto", label: "Auto", hint: "Google primary, Claude fallback if it fails" },
+  { value: "google", label: "Google only", hint: "Document AI — no fallback" },
+  { value: "claude", label: "Claude only", hint: "Vision OCR — no fallback" },
+];
+
+function OcrProviderCard() {
+  const { data: tenant, isLoading } = useTenant();
+  const { mutate: setProvider, isPending } = useUpdateOcrProvider();
+
+  if (isLoading || !tenant) return null;
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-3">
+      <div className="flex items-center gap-3 mb-2.5">
+        <div className="h-10 w-10 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
+          <ShieldCheck className="h-5 w-5 text-primary" />
+        </div>
+        <div className="min-w-0">
+          <p className="font-medium text-sm">Document OCR provider</p>
+          <p className="text-xs text-muted-foreground">Which engine reads your invoices, receipts, and statements.</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {OCR_OPTIONS.map((opt) => {
+          const active = tenant.ocr_preferred_provider === opt.value;
+          return (
+            <button
+              key={opt.value}
+              onClick={() => setProvider(opt.value)}
+              disabled={isPending}
+              className={`text-left px-2.5 py-2 rounded-md border text-xs transition-colors cursor-pointer disabled:opacity-50 ${
+                active
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:bg-muted/50"
+              }`}
+            >
+              <p className={`font-medium ${active ? "text-primary" : ""}`}>{opt.label}</p>
+              <p className="text-muted-foreground mt-0.5 leading-snug">{opt.hint}</p>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function PushSyncCard({ status }: { status: NonNullable<ReturnType<typeof usePushSyncStatus>["data"]> }) {
   const { mutate: syncNow, isPending } = usePushSyncNow();
@@ -702,6 +750,17 @@ export default function IntegrationsPage() {
         {!gmailConnected && gmailEl}
 
         {!outlookConnected && outlookEl}
+      </section>
+
+      {/* ── OCR settings ── */}
+      <section className="rounded-xl border border-border p-4 space-y-4">
+        <SectionHeader
+          dot="bg-muted-foreground/50"
+          title="Document processing"
+          count={1}
+          subtitle="Controls which OCR engine extracts data from uploaded/synced documents."
+        />
+        <OcrProviderCard />
       </section>
 
       {/* ── Coming soon ── */}

@@ -17,6 +17,9 @@ class Tenant(Base, TimestampMixin):
     currency_code: Mapped[str] = mapped_column(String(3), nullable=False, default="CAD")
     plan: Mapped[str] = mapped_column(String(50), nullable=False, default="starter")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # OCR provider preference: "auto" (Google primary, Claude fallback on failure),
+    # "google" (Google only, no fallback), "claude" (Claude only).
+    ocr_preferred_provider: Mapped[str] = mapped_column(String(20), nullable=False, default="auto")
 
     locations: Mapped[list["Location"]] = relationship(back_populates="tenant")  # type: ignore[name-defined]
     users: Mapped[list["User"]] = relationship(back_populates="tenant")  # type: ignore[name-defined]

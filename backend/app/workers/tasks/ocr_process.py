@@ -626,6 +626,7 @@ def _classify_document_type(
 
 
 async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
+    from app.db.models.tenant import Tenant
     from app.db.repositories.document_repo import DocumentRepository
     from app.db.session import AsyncSessionLocal
     from app.services.ocr import get_ocr_adapter
@@ -636,6 +637,8 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
 
     async with AsyncSessionLocal() as db:
         repo = DocumentRepository(db)
+        tenant = await db.get(Tenant, tenant_id)
+        ocr_preferred_provider = tenant.ocr_preferred_provider if tenant else None
 
         try:
             doc = await repo.get(tenant_id, doc_id)
@@ -650,7 +653,7 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
             start_ms = int(datetime.now(UTC).timestamp() * 1000)
             file_bytes = download_document(doc.storage_path)
 
-            adapter = get_ocr_adapter()
+            adapter = get_ocr_adapter(ocr_preferred_provider)
             result = await adapter.process(file_bytes, doc.mime_type)
 
             end_ms = int(datetime.now(UTC).timestamp() * 1000)
