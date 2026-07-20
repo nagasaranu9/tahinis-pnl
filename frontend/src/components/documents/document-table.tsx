@@ -77,6 +77,9 @@ function DocRow({ doc }: { doc: Document }) {
       <td className="px-4 py-3 text-right font-medium">
         {formatCurrency(doc.total_amount, doc.currency_code)}
       </td>
+      <td className="px-4 py-3 text-right text-muted-foreground">
+        {doc.tax_amount != null ? formatCurrency(doc.tax_amount, doc.currency_code) : "—"}
+      </td>
       <td className="px-4 py-3">
         <DocumentStatusBadge status={doc.status} />
       </td>
@@ -171,6 +174,7 @@ export function DocumentTable({ documents }: Props) {
                   <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Type</th>
                   <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Date</th>
                   <th className="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Amount</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">HST</th>
                   <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
                   <th className="px-4 py-2.5" />
                 </tr>

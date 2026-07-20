@@ -53,6 +53,7 @@ class Document(Base, TenantMixin, TimestampMixin):
     document_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     vendor_name: Mapped[str | None] = mapped_column(String(255))
     total_amount: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
+    tax_amount: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))  # HST/GST — ITC-recoverable
     currency_code: Mapped[str] = mapped_column(String(3), nullable=False, default="CAD")
     # Bank statements only: account summary figures extracted at OCR time.
     # Used by the reconciliation engine for month-over-month balance-chain

@@ -141,6 +141,7 @@ class DocumentRepository:
         total_amount: Decimal | None,
         currency_code: str,
         document_type: str,
+        tax_amount: Decimal | None = None,
     ) -> None:
         await self._db.execute(
             update(Document)
@@ -149,6 +150,7 @@ class DocumentRepository:
                 vendor_name=vendor_name,
                 document_date=document_date,
                 total_amount=total_amount,
+                tax_amount=tax_amount,
                 currency_code=currency_code,
                 document_type=document_type,
                 status="extracted",

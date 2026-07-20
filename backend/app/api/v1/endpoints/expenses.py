@@ -279,6 +279,96 @@ async def purge_expenses_in_range(
     return {"data": {"deleted": deleted}, "errors": None}
 
 
+@router.get("/hst-summary")
+async def hst_summary(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    period_start: str = Query(..., description="ISO date YYYY-MM-DD"),
+    period_end: str = Query(..., description="ISO date YYYY-MM-DD"),
+    location_id: uuid.UUID | None = Query(None),
+) -> dict:
+    """Recoverable HST/GST (Input Tax Credits) rolled up by month and quarter.
+
+    HST paid on expenses is an Input Tax Credit — recoverable against HST
+    collected on sales at GST/HST filing time. This surfaces the ITC pool per
+    period so nothing is left unclaimed, and flags expenses missing a captured
+    tax amount (potential un-claimed credits)."""
+    try:
+        start = datetime.strptime(period_start, "%Y-%m-%d").replace(tzinfo=UTC)
+        end = datetime.strptime(period_end, "%Y-%m-%d").replace(
+            hour=23, minute=59, second=59, tzinfo=UTC
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Dates must be YYYY-MM-DD") from exc
+
+    rows = await ExpenseRepository(db).hst_by_month(
+        user.tenant_id, start=start, end=end, location_id=location_id
+    )
+
+    months = []
+    quarters: dict[tuple[int, int], dict] = {}
+    total_tax = Decimal("0")
+    total_missing = 0
+    for yr, mo, tax_total, expense_total, doc_count, missing in rows:
+        q = (mo - 1) // 3 + 1
+        months.append(
+            {
+                "period_label": f"{yr}-{mo:02d}",
+                "year": yr,
+                "month": mo,
+                "quarter": q,
+                "hst_total": str(tax_total),
+                "expense_total": str(expense_total),
+                "expense_count": doc_count,
+                "missing_tax_count": missing,
+            }
+        )
+        qk = (yr, q)
+        agg = quarters.setdefault(
+            qk, {"year": yr, "quarter": q, "hst_total": Decimal("0"),
+                 "expense_total": Decimal("0"), "expense_count": 0, "missing_tax_count": 0}
+        )
+        agg["hst_total"] += tax_total
+        agg["expense_total"] += expense_total
+        agg["expense_count"] += doc_count
+        agg["missing_tax_count"] += missing
+        total_tax += tax_total
+        total_missing += missing
+
+    quarter_list = [
+        {
+            "period_label": f"{v['year']} Q{v['quarter']}",
+            "year": v["year"],
+            "quarter": v["quarter"],
+            "hst_total": str(v["hst_total"]),
+            "expense_total": str(v["expense_total"]),
+            "expense_count": v["expense_count"],
+            "missing_tax_count": v["missing_tax_count"],
+        }
+        for v in sorted(quarters.values(), key=lambda x: (x["year"], x["quarter"]))
+    ]
+
+    return {
+        "data": {
+            "months": months,
+            "quarters": quarter_list,
+            "total_hst": str(total_tax),
+            "total_missing_tax_count": total_missing,
+        },
+        "errors": None,
+    }
+
+
+@router.post("/hst-backfill")
+async def hst_backfill(user: ManagerDep, limit: int = Query(500, ge=1, le=2000)) -> dict:
+    """Re-read stored OCR text for extracted invoices/receipts missing a tax
+    amount and backfill HST/GST (cheap Claude haiku, no re-OCR). Idempotent."""
+    from app.workers.tasks.hst_backfill import backfill_hst
+
+    task = backfill_hst.delay(str(user.tenant_id), limit)
+    return {"data": {"task_id": task.id, "status": "queued"}, "errors": None}
+
+
 @router.delete("/{expense_id}", status_code=204)
 async def delete_expense(expense_id: uuid.UUID, user: ManagerDep, db: AsyncSessionDep) -> None:
     repo = ExpenseRepository(db)

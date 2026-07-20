@@ -25,6 +25,7 @@ Respond with ONLY a valid JSON object — no markdown fences, no preamble:
   "vendor_name": "string or null",
   "document_date": "YYYY-MM-DD or null",
   "total_amount": number or null,
+  "tax_amount": number or null,
   "currency_code": "3-letter code, default CAD",
   "line_items": [
     {
@@ -40,6 +41,9 @@ Respond with ONLY a valid JSON object — no markdown fences, no preamble:
 Rules:
 - amounts as plain numbers (no currency symbols, no commas)
 - date as YYYY-MM-DD
+- tax_amount: the sales tax total on this document — HST/GST/QST/PST line (Canada) or
+  VAT/sales tax elsewhere. Sum all tax lines if several. null if none shown. This is the
+  tax charged, NOT the grand total.
 - currency_code: CAD if Canadian vendor, USD if US, else infer from symbols
 - line_items: include EVERY line item / transaction visible across ALL pages, not just the first page. For bank
   or credit card statements this means every individual transaction line, not just the summary totals.
@@ -240,6 +244,7 @@ class ClaudeVisionAdapter(OCRAdapter):
         vendor_name: Optional[str] = data.get("vendor_name")
         document_date: Optional[str] = data.get("document_date")
         total_amount = _parse_decimal(data.get("total_amount"))
+        tax_amount = _parse_decimal(data.get("tax_amount"))
         currency_code = (data.get("currency_code") or "CAD").strip().upper()[:3]
         extracted_text = data.get("extracted_text") or ""
 
@@ -275,6 +280,7 @@ class ClaudeVisionAdapter(OCRAdapter):
             raw_response=raw_response,
             vendor_name=vendor_name or None,
             total_amount=total_amount,
+            tax_amount=tax_amount,
             document_date=document_date,
             currency_code=currency_code,
             line_items=line_items,

@@ -24,6 +24,7 @@ class OCRResult:
     vendor_name: str | None = None
     document_date: str | None = None  # ISO date string
     total_amount: Decimal | None = None
+    tax_amount: Decimal | None = None  # HST/GST/sales tax portion (ITC-recoverable)
     currency_code: str = "CAD"
 
 

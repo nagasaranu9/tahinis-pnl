@@ -53,6 +53,7 @@ class GoogleDocumentAIAdapter(OCRAdapter):
 
         vendor_name: Optional[str] = None
         total_amount: Optional[Decimal] = None
+        tax_amount: Optional[Decimal] = None
         document_date: Optional[str] = None
         currency_code = "CAD"
         line_items: list[OCRLineItem] = []
@@ -70,6 +71,8 @@ class GoogleDocumentAIAdapter(OCRAdapter):
                 document_date = _parse_date(val)
             elif t == "total_amount" and not total_amount:
                 total_amount = _parse_money(val)
+            elif t in ("total_tax_amount", "vat", "tax_amount") and not tax_amount:
+                tax_amount = _parse_money(val)
             elif t == "currency" and val:
                 currency_code = val.strip().upper()[:3]
             elif t == "line_item":
@@ -89,6 +92,7 @@ class GoogleDocumentAIAdapter(OCRAdapter):
             raw_response=raw_response,
             vendor_name=vendor_name,
             total_amount=total_amount,
+            tax_amount=tax_amount,
             document_date=document_date,
             currency_code=currency_code,
             line_items=line_items,

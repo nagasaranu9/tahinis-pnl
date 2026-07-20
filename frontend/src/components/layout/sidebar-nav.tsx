@@ -31,6 +31,7 @@ import {
   Star,
   Sparkles,
   Users,
+  Receipt,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -60,6 +61,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Staffing", href: "/staffing", icon: Users, roles: ALL },
       { label: "Expenses", href: "/expenses", icon: DollarSign, roles: ALL },
       { label: "Reconciliation", href: "/reconciliation", icon: GitMerge, roles: ALL },
+      { label: "HST / Tax", href: "/tax", icon: Receipt, roles: ALL },
     ],
   },
   {

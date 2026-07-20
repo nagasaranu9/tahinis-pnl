@@ -717,6 +717,7 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
                 vendor_name=result.vendor_name,
                 document_date=doc_date,
                 total_amount=result.total_amount,
+                tax_amount=result.tax_amount,
                 currency_code=result.currency_code,
                 document_type=classified_type,
             )
@@ -813,6 +814,7 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
                     document_id=doc_id,
                     vendor_name=result.vendor_name,
                     amount=result.total_amount,
+                    tax_amount=result.tax_amount,
                     currency_code=result.currency_code or "CAD",
                     location_id=doc.location_id,
                     created_by=None,

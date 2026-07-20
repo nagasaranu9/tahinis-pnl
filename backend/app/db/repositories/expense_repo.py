@@ -28,6 +28,7 @@ class ExpenseRepository:
         expense_date: datetime,
         category: str | None = None,
         user_overridden: bool = False,
+        tax_amount: Decimal | None = None,
     ) -> Expense:
         expense = Expense(
             tenant_id=tenant_id,
@@ -35,6 +36,7 @@ class ExpenseRepository:
             location_id=location_id,
             vendor_name=vendor_name,
             amount=amount,
+            tax_amount=tax_amount,
             currency_code=currency_code,
             created_by=created_by,
             expense_date=expense_date,
@@ -322,3 +324,53 @@ class ExpenseRepository:
         )
         await self._db.flush()
         return result.rowcount or 0
+
+    async def hst_by_month(
+        self,
+        tenant_id: uuid.UUID,
+        *,
+        start: datetime,
+        end: datetime,
+        location_id: uuid.UUID | None = None,
+    ) -> list[tuple[int, int, Decimal, Decimal, int, int]]:
+        """Sum recoverable HST/GST (Input Tax Credits) per calendar month.
+
+        Returns rows of (year, month, tax_total, expense_total, doc_count,
+        docs_missing_tax) for expenses whose expense_date is in [start, end].
+        docs_missing_tax counts expenses with an amount but no tax captured —
+        those are potential un-claimed ITCs worth a manual look."""
+        from sqlalchemy import Integer, case, cast, extract, or_ as _or
+
+        yr = cast(extract("year", Expense.expense_date), Integer)
+        mo = cast(extract("month", Expense.expense_date), Integer)
+        missing = case(
+            (and_(Expense.tax_amount.is_(None), Expense.amount.isnot(None)), 1),
+            else_=0,
+        )
+        conds = [
+            Expense.tenant_id == tenant_id,
+            Expense.expense_date >= start,
+            Expense.expense_date <= end,
+        ]
+        if location_id is not None:
+            conds.append(_or(Expense.location_id == location_id, Expense.location_id.is_(None)))
+
+        rows = (
+            await self._db.execute(
+                select(
+                    yr.label("yr"),
+                    mo.label("mo"),
+                    func.coalesce(func.sum(Expense.tax_amount), 0),
+                    func.coalesce(func.sum(Expense.amount), 0),
+                    func.count(Expense.id),
+                    func.coalesce(func.sum(missing), 0),
+                )
+                .where(and_(*conds))
+                .group_by("yr", "mo")
+                .order_by("yr", "mo")
+            )
+        ).all()
+        return [
+            (int(r[0]), int(r[1]), Decimal(r[2]), Decimal(r[3]), int(r[4]), int(r[5]))
+            for r in rows
+        ]

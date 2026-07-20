@@ -18,6 +18,7 @@ class DocumentResponse(BaseModel):
     document_date: datetime | None
     vendor_name: str | None
     total_amount: Decimal | None
+    tax_amount: Decimal | None = None
     currency_code: str
     is_duplicate: bool
     duplicate_of: uuid.UUID | None

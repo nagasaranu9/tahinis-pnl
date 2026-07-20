@@ -16,6 +16,7 @@ class ExpenseResponse(BaseModel):
     document_id: uuid.UUID | None
     vendor_name: str | None
     amount: Decimal | None
+    tax_amount: Decimal | None = None
     currency_code: str
     expense_date: datetime
     category: str | None

@@ -23,6 +23,7 @@ export interface Document {
   document_date: string | null;
   vendor_name: string | null;
   total_amount: string | null;
+  tax_amount: string | null;
   currency_code: string;
   is_duplicate: boolean;
   duplicate_of: string | null;
