@@ -88,8 +88,10 @@ async def _run(tenant_id_str: str, limit: int) -> dict:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("hst_backfill_extract_failed", document_id=str(doc_id), error=str(exc))
                 continue
+            # No tax line found → record 0 (most food invoices are zero-rated), so
+            # the doc is marked scanned and a later backfill won't re-bill haiku on it.
             if tax is None:
-                continue
+                tax = Decimal("0")
             doc = await db.get(Document, doc_id)
             if doc is not None:
                 doc.tax_amount = tax
