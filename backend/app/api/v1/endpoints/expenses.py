@@ -138,6 +138,118 @@ async def create_manual_expense(
     return {"data": ExpenseResponse.model_validate(expense), "errors": None}
 
 
+@router.get("/hst-summary")  # noqa: must precede GET /{expense_id} or it 422s on the literal path
+async def hst_summary(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    period_start: str = Query(..., description="ISO date YYYY-MM-DD"),
+    period_end: str = Query(..., description="ISO date YYYY-MM-DD"),
+    location_id: uuid.UUID | None = Query(None),
+) -> dict:
+    """Recoverable HST/GST (Input Tax Credits) rolled up by month and quarter.
+
+    HST paid on expenses is an Input Tax Credit — recoverable against HST
+    collected on sales at GST/HST filing time. This surfaces the ITC pool per
+    period so nothing is left unclaimed, and flags expenses missing a captured
+    tax amount (potential un-claimed credits)."""
+    try:
+        start = datetime.strptime(period_start, "%Y-%m-%d").replace(tzinfo=UTC)
+        end = datetime.strptime(period_end, "%Y-%m-%d").replace(
+            hour=23, minute=59, second=59, tzinfo=UTC
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Dates must be YYYY-MM-DD") from exc
+
+    repo = ExpenseRepository(db)
+    rows = await repo.hst_by_month(
+        user.tenant_id, start=start, end=end, location_id=location_id
+    )
+    collected = await repo.hst_collected_by_month(
+        user.tenant_id, start=start, end=end, location_id=location_id
+    )
+
+    months = []
+    quarters: dict[tuple[int, int], dict] = {}
+    total_itc = Decimal("0")
+    total_collected = Decimal("0")
+    total_missing = 0
+    # Union of months that have expenses (ITCs) OR Toast sales (HST collected).
+    all_keys = {(yr, mo) for yr, mo, *_ in rows} | set(collected.keys())
+    row_map = {(yr, mo): (tax, exp, cnt, miss) for yr, mo, tax, exp, cnt, miss in rows}
+
+    for (yr, mo) in sorted(all_keys):
+        tax_total, expense_total, doc_count, missing = row_map.get(
+            (yr, mo), (Decimal("0"), Decimal("0"), 0, 0)
+        )
+        hst_collected = collected.get((yr, mo), Decimal("0"))
+        net_remit = hst_collected - tax_total
+        q = (mo - 1) // 3 + 1
+        months.append(
+            {
+                "period_label": f"{yr}-{mo:02d}",
+                "year": yr,
+                "month": mo,
+                "quarter": q,
+                "hst_total": str(tax_total),
+                "hst_collected": str(hst_collected),
+                "net_remittance": str(net_remit),
+                "expense_total": str(expense_total),
+                "expense_count": doc_count,
+                "missing_tax_count": missing,
+            }
+        )
+        agg = quarters.setdefault(
+            (yr, q), {"year": yr, "quarter": q, "hst_total": Decimal("0"),
+                      "hst_collected": Decimal("0"), "expense_total": Decimal("0"),
+                      "expense_count": 0, "missing_tax_count": 0}
+        )
+        agg["hst_total"] += tax_total
+        agg["hst_collected"] += hst_collected
+        agg["expense_total"] += expense_total
+        agg["expense_count"] += doc_count
+        agg["missing_tax_count"] += missing
+        total_itc += tax_total
+        total_collected += hst_collected
+        total_missing += missing
+
+    quarter_list = [
+        {
+            "period_label": f"{v['year']} Q{v['quarter']}",
+            "year": v["year"],
+            "quarter": v["quarter"],
+            "hst_total": str(v["hst_total"]),
+            "hst_collected": str(v["hst_collected"]),
+            "net_remittance": str(v["hst_collected"] - v["hst_total"]),
+            "expense_total": str(v["expense_total"]),
+            "expense_count": v["expense_count"],
+            "missing_tax_count": v["missing_tax_count"],
+        }
+        for v in sorted(quarters.values(), key=lambda x: (x["year"], x["quarter"]))
+    ]
+
+    return {
+        "data": {
+            "months": months,
+            "quarters": quarter_list,
+            "total_hst": str(total_itc),
+            "total_hst_collected": str(total_collected),
+            "total_net_remittance": str(total_collected - total_itc),
+            "total_missing_tax_count": total_missing,
+        },
+        "errors": None,
+    }
+
+
+@router.post("/hst-backfill")
+async def hst_backfill(user: ManagerDep, limit: int = Query(500, ge=1, le=2000)) -> dict:
+    """Re-read stored OCR text for extracted invoices/receipts missing a tax
+    amount and backfill HST/GST (cheap Claude haiku, no re-OCR). Idempotent."""
+    from app.workers.tasks.hst_backfill import backfill_hst
+
+    task = backfill_hst.delay(str(user.tenant_id), limit)
+    return {"data": {"task_id": task.id, "status": "queued"}, "errors": None}
+
+
 @router.get("/{expense_id}", response_model=APIResponse[ExpenseResponse])
 async def get_expense(expense_id: uuid.UUID, user: CurrentUserDep, db: AsyncSessionDep) -> dict:
     repo = ExpenseRepository(db)
@@ -277,118 +389,6 @@ async def purge_expenses_in_range(
         deleted=deleted,
     )
     return {"data": {"deleted": deleted}, "errors": None}
-
-
-@router.get("/hst-summary")
-async def hst_summary(
-    user: CurrentUserDep,
-    db: AsyncSessionDep,
-    period_start: str = Query(..., description="ISO date YYYY-MM-DD"),
-    period_end: str = Query(..., description="ISO date YYYY-MM-DD"),
-    location_id: uuid.UUID | None = Query(None),
-) -> dict:
-    """Recoverable HST/GST (Input Tax Credits) rolled up by month and quarter.
-
-    HST paid on expenses is an Input Tax Credit — recoverable against HST
-    collected on sales at GST/HST filing time. This surfaces the ITC pool per
-    period so nothing is left unclaimed, and flags expenses missing a captured
-    tax amount (potential un-claimed credits)."""
-    try:
-        start = datetime.strptime(period_start, "%Y-%m-%d").replace(tzinfo=UTC)
-        end = datetime.strptime(period_end, "%Y-%m-%d").replace(
-            hour=23, minute=59, second=59, tzinfo=UTC
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail="Dates must be YYYY-MM-DD") from exc
-
-    repo = ExpenseRepository(db)
-    rows = await repo.hst_by_month(
-        user.tenant_id, start=start, end=end, location_id=location_id
-    )
-    collected = await repo.hst_collected_by_month(
-        user.tenant_id, start=start, end=end, location_id=location_id
-    )
-
-    months = []
-    quarters: dict[tuple[int, int], dict] = {}
-    total_itc = Decimal("0")
-    total_collected = Decimal("0")
-    total_missing = 0
-    # Union of months that have expenses (ITCs) OR Toast sales (HST collected).
-    all_keys = {(yr, mo) for yr, mo, *_ in rows} | set(collected.keys())
-    row_map = {(yr, mo): (tax, exp, cnt, miss) for yr, mo, tax, exp, cnt, miss in rows}
-
-    for (yr, mo) in sorted(all_keys):
-        tax_total, expense_total, doc_count, missing = row_map.get(
-            (yr, mo), (Decimal("0"), Decimal("0"), 0, 0)
-        )
-        hst_collected = collected.get((yr, mo), Decimal("0"))
-        net_remit = hst_collected - tax_total
-        q = (mo - 1) // 3 + 1
-        months.append(
-            {
-                "period_label": f"{yr}-{mo:02d}",
-                "year": yr,
-                "month": mo,
-                "quarter": q,
-                "hst_total": str(tax_total),
-                "hst_collected": str(hst_collected),
-                "net_remittance": str(net_remit),
-                "expense_total": str(expense_total),
-                "expense_count": doc_count,
-                "missing_tax_count": missing,
-            }
-        )
-        agg = quarters.setdefault(
-            (yr, q), {"year": yr, "quarter": q, "hst_total": Decimal("0"),
-                      "hst_collected": Decimal("0"), "expense_total": Decimal("0"),
-                      "expense_count": 0, "missing_tax_count": 0}
-        )
-        agg["hst_total"] += tax_total
-        agg["hst_collected"] += hst_collected
-        agg["expense_total"] += expense_total
-        agg["expense_count"] += doc_count
-        agg["missing_tax_count"] += missing
-        total_itc += tax_total
-        total_collected += hst_collected
-        total_missing += missing
-
-    quarter_list = [
-        {
-            "period_label": f"{v['year']} Q{v['quarter']}",
-            "year": v["year"],
-            "quarter": v["quarter"],
-            "hst_total": str(v["hst_total"]),
-            "hst_collected": str(v["hst_collected"]),
-            "net_remittance": str(v["hst_collected"] - v["hst_total"]),
-            "expense_total": str(v["expense_total"]),
-            "expense_count": v["expense_count"],
-            "missing_tax_count": v["missing_tax_count"],
-        }
-        for v in sorted(quarters.values(), key=lambda x: (x["year"], x["quarter"]))
-    ]
-
-    return {
-        "data": {
-            "months": months,
-            "quarters": quarter_list,
-            "total_hst": str(total_itc),
-            "total_hst_collected": str(total_collected),
-            "total_net_remittance": str(total_collected - total_itc),
-            "total_missing_tax_count": total_missing,
-        },
-        "errors": None,
-    }
-
-
-@router.post("/hst-backfill")
-async def hst_backfill(user: ManagerDep, limit: int = Query(500, ge=1, le=2000)) -> dict:
-    """Re-read stored OCR text for extracted invoices/receipts missing a tax
-    amount and backfill HST/GST (cheap Claude haiku, no re-OCR). Idempotent."""
-    from app.workers.tasks.hst_backfill import backfill_hst
-
-    task = backfill_hst.delay(str(user.tenant_id), limit)
-    return {"data": {"task_id": task.id, "status": "queued"}, "errors": None}
 
 
 @router.delete("/{expense_id}", status_code=204)
