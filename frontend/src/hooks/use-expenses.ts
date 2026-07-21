@@ -11,6 +11,7 @@ interface ListParams {
   category?: string;
   vendor_name?: string;
   uncategorized_only?: boolean;
+  missing_tax_only?: boolean;
   page?: number;
   limit?: number;
 }
@@ -21,6 +22,7 @@ export function useExpenses(params: ListParams = {}) {
   if (params.category) qs.set("category", params.category);
   if (params.vendor_name) qs.set("vendor_name", params.vendor_name);
   if (params.uncategorized_only) qs.set("uncategorized_only", "true");
+  if (params.missing_tax_only) qs.set("missing_tax_only", "true");
   if (params.page) qs.set("page", String(params.page));
   if (params.limit) qs.set("limit", String(params.limit));
 

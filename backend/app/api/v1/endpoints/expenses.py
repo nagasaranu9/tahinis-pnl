@@ -26,6 +26,7 @@ async def list_expenses(
     category: str | None = Query(None),
     vendor_name: str | None = Query(None),
     uncategorized_only: bool = Query(False),
+    missing_tax_only: bool = Query(False),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
 ) -> dict:
@@ -36,6 +37,7 @@ async def list_expenses(
         category=category,
         vendor_name=vendor_name,
         uncategorized_only=uncategorized_only,
+        missing_tax_only=missing_tax_only,
         page=page,
         limit=limit,
     )

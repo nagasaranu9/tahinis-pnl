@@ -148,6 +148,7 @@ class ExpenseRepository:
         category: str | None = None,
         vendor_name: str | None = None,
         uncategorized_only: bool = False,
+        missing_tax_only: bool = False,
         page: int = 1,
         limit: int = 50,
     ) -> tuple[list[Expense], int]:
@@ -178,6 +179,11 @@ class ExpenseRepository:
             conditions.append(Expense.vendor_name.ilike(f"%{vendor_name}%"))
         if uncategorized_only:
             conditions.append(Expense.category.is_(None))
+        if missing_tax_only:
+            # Amount present but no HST captured — potential un-claimed ITC to chase
+            # down against the source invoice.
+            conditions.append(Expense.amount.isnot(None))
+            conditions.append(Expense.tax_amount.is_(None))
 
         count_q = select(func.count()).select_from(Expense).where(and_(*conditions))
         total = (await self._db.execute(count_q)).scalar_one()

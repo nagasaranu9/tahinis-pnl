@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import { AlertCircle, Bot, CheckCircle, Eraser, Paperclip, Plus, RefreshCw, Trash2, User, X } from "lucide-react";
 import { EXPENSE_CATEGORIES } from "@/types/expense";
@@ -348,9 +349,13 @@ function ExpenseRow({ expense }: { expense: Expense }) {
 }
 
 export default function ExpensesPage() {
+  const searchParams = useSearchParams();
   const [category, setCategory] = useState("");
   const [vendorSearch, setVendorSearch] = useState("");
   const [uncategorizedOnly, setUncategorizedOnly] = useState(false);
+  const [missingTaxOnly, setMissingTaxOnly] = useState(
+    () => searchParams.get("missing_tax") === "1"
+  );
   const [page, setPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
@@ -360,6 +365,7 @@ export default function ExpensesPage() {
     category: category || undefined,
     vendor_name: vendorSearch || undefined,
     uncategorized_only: uncategorizedOnly,
+    missing_tax_only: missingTaxOnly,
     location_id: locationId ?? undefined,
     page,
     limit: 50,
@@ -425,6 +431,14 @@ export default function ExpensesPage() {
             onChange={(e) => { setUncategorizedOnly(e.target.checked); setPage(1); }}
           />
           Uncategorized only
+        </label>
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={missingTaxOnly}
+            onChange={(e) => { setMissingTaxOnly(e.target.checked); setPage(1); }}
+          />
+          Missing HST only
         </label>
         <span className="ml-auto text-sm text-muted-foreground">{total} expense{total !== 1 ? "s" : ""}</span>
       </div>

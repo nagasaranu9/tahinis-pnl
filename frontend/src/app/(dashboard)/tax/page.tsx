@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { RefreshCw, AlertTriangle, Receipt } from "lucide-react";
 import { useLocationStore } from "@/lib/location-store";
 import { useHstSummary, useHstBackfill, type HstPeriod } from "@/hooks/use-hst";
@@ -92,15 +93,18 @@ export default function TaxPage() {
           <p className="text-xs text-muted-foreground mt-1">collected − ITCs</p>
         </div>
         {missing > 0 && (
-          <div className="rounded-xl border border-amber-500/40 bg-amber-500/[0.05] p-4">
+          <Link
+            href="/expenses?missing_tax=1"
+            className="rounded-xl border border-amber-500/40 bg-amber-500/[0.05] p-4 block hover:bg-amber-500/[0.09] transition-colors"
+          >
             <p className="text-xs text-amber-700 dark:text-amber-400 flex items-center gap-1">
               <AlertTriangle className="h-3.5 w-3.5" /> Expenses missing tax
             </p>
             <p className="text-2xl font-semibold mt-1">{missing}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Possible un-claimed ITCs. Run backfill or open each doc.
+              Mostly bank-statement rows — the invoice has the HST. Click to review →
             </p>
-          </div>
+          </Link>
         )}
       </div>
 
@@ -168,7 +172,12 @@ function Section({
                 </td>
                 <td className="px-4 py-2 text-right">
                   {r.missing_tax_count > 0 ? (
-                    <span className="text-amber-600 dark:text-amber-400">{r.missing_tax_count}</span>
+                    <Link
+                      href="/expenses?missing_tax=1"
+                      className="text-amber-600 dark:text-amber-400 underline underline-offset-2 hover:opacity-80"
+                    >
+                      {r.missing_tax_count}
+                    </Link>
                   ) : (
                     <span className="text-muted-foreground">0</span>
                   )}
