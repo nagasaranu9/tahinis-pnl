@@ -70,13 +70,26 @@ export default function TaxPage() {
         />
       </div>
 
-      {/* Headline ITC pool */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+      {/* Headline: net remittance = collected − ITCs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground">HST collected on sales</p>
+          <p className="text-2xl font-semibold mt-1">
+            {isLoading ? "…" : money(data?.total_hst_collected ?? 0)}
+          </p>
+        </div>
         <div className="rounded-xl border border-primary/30 bg-primary/[0.04] p-4">
-          <p className="text-xs text-muted-foreground">Recoverable HST (ITCs) this range</p>
+          <p className="text-xs text-muted-foreground">Recoverable HST (ITCs)</p>
           <p className="text-2xl font-semibold text-primary mt-1">
             {isLoading ? "…" : money(data?.total_hst ?? 0)}
           </p>
+        </div>
+        <div className="rounded-xl border border-border bg-muted/40 p-4">
+          <p className="text-xs text-muted-foreground">Net remittance (owe CRA)</p>
+          <p className="text-2xl font-semibold mt-1">
+            {isLoading ? "…" : money(data?.total_net_remittance ?? 0)}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">collected − ITCs</p>
         </div>
         {missing > 0 && (
           <div className="rounded-xl border border-amber-500/40 bg-amber-500/[0.05] p-4">
@@ -130,9 +143,10 @@ function Section({
           <thead>
             <tr className="text-xs text-muted-foreground text-left">
               <th className="px-4 py-2 font-medium">Period</th>
-              <th className="px-4 py-2 font-medium text-right">Recoverable HST</th>
+              <th className="px-4 py-2 font-medium text-right">HST collected</th>
+              <th className="px-4 py-2 font-medium text-right">Recoverable (ITC)</th>
+              <th className="px-4 py-2 font-medium text-right">Net remit</th>
               <th className="px-4 py-2 font-medium text-right">Expenses</th>
-              <th className="px-4 py-2 font-medium text-right"># Docs</th>
               <th className="px-4 py-2 font-medium text-right">Missing tax</th>
             </tr>
           </thead>
@@ -144,11 +158,14 @@ function Section({
                     ? `${r.year} Q${r.quarter} (${QUARTER_MONTHS[r.quarter]})`
                     : r.period_label}
                 </td>
+                <td className="px-4 py-2 text-right">{money(r.hst_collected)}</td>
                 <td className="px-4 py-2 text-right font-medium text-primary">
                   {money(r.hst_total)}
                 </td>
-                <td className="px-4 py-2 text-right">{money(r.expense_total)}</td>
-                <td className="px-4 py-2 text-right text-muted-foreground">{r.expense_count}</td>
+                <td className="px-4 py-2 text-right font-medium">{money(r.net_remittance)}</td>
+                <td className="px-4 py-2 text-right text-muted-foreground">
+                  {money(r.expense_total)}
+                </td>
                 <td className="px-4 py-2 text-right">
                   {r.missing_tax_count > 0 ? (
                     <span className="text-amber-600 dark:text-amber-400">{r.missing_tax_count}</span>

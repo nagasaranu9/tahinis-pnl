@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 
 import structlog
-from sqlalchemy import and_, select, func
+from sqlalchemy import Integer, and_, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.document import Document
@@ -339,7 +339,7 @@ class ExpenseRepository:
         docs_missing_tax) for expenses whose expense_date is in [start, end].
         docs_missing_tax counts expenses with an amount but no tax captured —
         those are potential un-claimed ITCs worth a manual look."""
-        from sqlalchemy import Integer, case, cast, extract, or_ as _or
+        from sqlalchemy import case, extract, or_ as _or
 
         yr = cast(extract("year", Expense.expense_date), Integer)
         mo = cast(extract("month", Expense.expense_date), Integer)
@@ -374,3 +374,37 @@ class ExpenseRepository:
             (int(r[0]), int(r[1]), Decimal(r[2]), Decimal(r[3]), int(r[4]), int(r[5]))
             for r in rows
         ]
+
+    async def hst_collected_by_month(
+        self,
+        tenant_id: uuid.UUID,
+        *,
+        start: datetime,
+        end: datetime,
+        location_id: uuid.UUID | None = None,
+    ) -> dict[tuple[int, int], Decimal]:
+        """Sum HST/GST collected on Toast sales per calendar month, keyed by
+        (year, month). This is the tax you owe CRA before subtracting ITCs.
+
+        Toast business_date is a 'YYYYMMDD' string (4am→3:59am day boundary), so
+        year/month come from string slices, not a date extract."""
+        from app.db.models.toast import ToastOrder
+
+        yr = cast(func.substr(ToastOrder.business_date, 1, 4), Integer)
+        mo = cast(func.substr(ToastOrder.business_date, 5, 2), Integer)
+        conds = [
+            ToastOrder.tenant_id == tenant_id,
+            ToastOrder.business_date >= start.strftime("%Y%m%d"),
+            ToastOrder.business_date <= end.strftime("%Y%m%d"),
+        ]
+        if location_id is not None:
+            conds.append(ToastOrder.location_id == location_id)
+
+        rows = (
+            await self._db.execute(
+                select(yr.label("yr"), mo.label("mo"), func.coalesce(func.sum(ToastOrder.tax_amount), 0))
+                .where(and_(*conds))
+                .group_by("yr", "mo")
+            )
+        ).all()
+        return {(int(r[0]), int(r[1])): Decimal(r[2]) for r in rows}

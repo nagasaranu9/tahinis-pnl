@@ -301,15 +301,29 @@ async def hst_summary(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Dates must be YYYY-MM-DD") from exc
 
-    rows = await ExpenseRepository(db).hst_by_month(
+    repo = ExpenseRepository(db)
+    rows = await repo.hst_by_month(
+        user.tenant_id, start=start, end=end, location_id=location_id
+    )
+    collected = await repo.hst_collected_by_month(
         user.tenant_id, start=start, end=end, location_id=location_id
     )
 
     months = []
     quarters: dict[tuple[int, int], dict] = {}
-    total_tax = Decimal("0")
+    total_itc = Decimal("0")
+    total_collected = Decimal("0")
     total_missing = 0
-    for yr, mo, tax_total, expense_total, doc_count, missing in rows:
+    # Union of months that have expenses (ITCs) OR Toast sales (HST collected).
+    all_keys = {(yr, mo) for yr, mo, *_ in rows} | set(collected.keys())
+    row_map = {(yr, mo): (tax, exp, cnt, miss) for yr, mo, tax, exp, cnt, miss in rows}
+
+    for (yr, mo) in sorted(all_keys):
+        tax_total, expense_total, doc_count, missing = row_map.get(
+            (yr, mo), (Decimal("0"), Decimal("0"), 0, 0)
+        )
+        hst_collected = collected.get((yr, mo), Decimal("0"))
+        net_remit = hst_collected - tax_total
         q = (mo - 1) // 3 + 1
         months.append(
             {
@@ -318,21 +332,25 @@ async def hst_summary(
                 "month": mo,
                 "quarter": q,
                 "hst_total": str(tax_total),
+                "hst_collected": str(hst_collected),
+                "net_remittance": str(net_remit),
                 "expense_total": str(expense_total),
                 "expense_count": doc_count,
                 "missing_tax_count": missing,
             }
         )
-        qk = (yr, q)
         agg = quarters.setdefault(
-            qk, {"year": yr, "quarter": q, "hst_total": Decimal("0"),
-                 "expense_total": Decimal("0"), "expense_count": 0, "missing_tax_count": 0}
+            (yr, q), {"year": yr, "quarter": q, "hst_total": Decimal("0"),
+                      "hst_collected": Decimal("0"), "expense_total": Decimal("0"),
+                      "expense_count": 0, "missing_tax_count": 0}
         )
         agg["hst_total"] += tax_total
+        agg["hst_collected"] += hst_collected
         agg["expense_total"] += expense_total
         agg["expense_count"] += doc_count
         agg["missing_tax_count"] += missing
-        total_tax += tax_total
+        total_itc += tax_total
+        total_collected += hst_collected
         total_missing += missing
 
     quarter_list = [
@@ -341,6 +359,8 @@ async def hst_summary(
             "year": v["year"],
             "quarter": v["quarter"],
             "hst_total": str(v["hst_total"]),
+            "hst_collected": str(v["hst_collected"]),
+            "net_remittance": str(v["hst_collected"] - v["hst_total"]),
             "expense_total": str(v["expense_total"]),
             "expense_count": v["expense_count"],
             "missing_tax_count": v["missing_tax_count"],
@@ -352,7 +372,9 @@ async def hst_summary(
         "data": {
             "months": months,
             "quarters": quarter_list,
-            "total_hst": str(total_tax),
+            "total_hst": str(total_itc),
+            "total_hst_collected": str(total_collected),
+            "total_net_remittance": str(total_collected - total_itc),
             "total_missing_tax_count": total_missing,
         },
         "errors": None,

@@ -10,7 +10,9 @@ export interface HstPeriod {
   year: number;
   quarter: number;
   month?: number;
-  hst_total: string;
+  hst_total: string; // ITCs (recoverable HST paid)
+  hst_collected: string; // HST charged on Toast sales
+  net_remittance: string; // collected − ITCs = what you owe CRA
   expense_total: string;
   expense_count: number;
   missing_tax_count: number;
@@ -20,6 +22,8 @@ export interface HstSummary {
   months: HstPeriod[];
   quarters: HstPeriod[];
   total_hst: string;
+  total_hst_collected: string;
+  total_net_remittance: string;
   total_missing_tax_count: number;
 }
 
