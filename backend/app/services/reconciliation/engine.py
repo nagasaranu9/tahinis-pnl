@@ -418,6 +418,18 @@ class ReconciliationEngine:
                     flags_raised += 1
             prev = doc
 
+        # ---- Propagate HST onto bank-statement expenses ----------------------
+        # A bank debit carries no HST line, but the invoice behind it does. Copy
+        # the invoice's captured HST onto the matching bank expense so the ITC is
+        # recovered instead of sitting in the "missing tax" worklist.
+        from app.db.repositories.expense_repo import ExpenseRepository
+
+        hst_filled = await ExpenseRepository(self._db).propagate_hst_to_bank_expenses(
+            tenant_id, location_id=location_id
+        )
+        if hst_filled:
+            logger.info("reconciliation_hst_propagated", run_id=str(run_id), filled=hst_filled)
+
         # ---- Aggregate totals ------------------------------------------------
         total_sales = sum(
             (o.net_amount for o in toast_orders if o.net_amount and not o.is_void),

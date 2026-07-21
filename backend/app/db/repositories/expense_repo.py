@@ -5,6 +5,7 @@ from decimal import Decimal
 import structlog
 from sqlalchemy import Integer, and_, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.db.models.document import Document
 from app.db.models.expense import Expense
@@ -380,6 +381,70 @@ class ExpenseRepository:
             (int(r[0]), int(r[1]), Decimal(r[2]), Decimal(r[3]), int(r[4]), int(r[5]))
             for r in rows
         ]
+
+    async def propagate_hst_to_bank_expenses(
+        self,
+        tenant_id: uuid.UUID,
+        *,
+        location_id: uuid.UUID | None = None,
+        amount_tol: Decimal = Decimal("0.01"),
+        date_window_days: int = 35,
+    ) -> int:
+        """Fill HST on bank-statement expenses from a matching invoice/receipt.
+
+        A bank debit doesn't itemize HST, but the invoice behind it does. When a
+        bank-statement expense (tax_amount NULL) equals an invoice/receipt total
+        (within amount_tol) dated within date_window_days and that document has a
+        captured tax_amount, copy the HST onto the bank expense so the ITC is
+        recovered. Idempotent — only touches NULL-tax bank rows."""
+        from datetime import timedelta
+
+        bank_doc = aliased(Document)
+        # Bank-statement expenses still missing HST.
+        rows = (
+            await self._db.execute(
+                select(Expense.id, Expense.amount, Expense.expense_date, Expense.location_id)
+                .join(bank_doc, bank_doc.id == Expense.document_id)
+                .where(
+                    Expense.tenant_id == tenant_id,
+                    Expense.tax_amount.is_(None),
+                    Expense.amount.isnot(None),
+                    bank_doc.document_type == "bank_statement",
+                    *( [Expense.location_id == location_id] if location_id is not None else [] ),
+                )
+            )
+        ).all()
+
+        updated = 0
+        for exp_id, amount, exp_date, _loc in rows:
+            lo = exp_date - timedelta(days=date_window_days)
+            hi = exp_date + timedelta(days=date_window_days)
+            doc = (
+                await self._db.execute(
+                    select(Document.tax_amount)
+                    .where(
+                        Document.tenant_id == tenant_id,
+                        Document.document_type.in_(["invoice", "receipt"]),
+                        Document.tax_amount.isnot(None),
+                        Document.tax_amount > 0,
+                        Document.total_amount.isnot(None),
+                        func.abs(Document.total_amount - amount) <= amount_tol,
+                        Document.document_date >= lo,
+                        Document.document_date <= hi,
+                    )
+                    .order_by(func.abs(Document.total_amount - amount))
+                    .limit(1)
+                )
+            ).first()
+            if doc is None:
+                continue
+            exp = await self._db.get(Expense, exp_id)
+            if exp is not None and exp.tax_amount is None:
+                exp.tax_amount = doc[0]
+                updated += 1
+        if updated:
+            await self._db.flush()
+        return updated
 
     async def hst_collected_by_month(
         self,
