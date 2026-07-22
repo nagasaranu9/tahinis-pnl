@@ -27,7 +27,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.document import Document
-from app.db.models.expense import Expense
+from app.db.models.expense import NON_PNL_CATEGORIES, Expense
 from app.db.models.location import Location
 from app.db.models.toast import ToastOrder
 from app.schemas.pnl import (
@@ -81,6 +81,10 @@ def _benchmark_chips(li: PnLLineItems) -> list[BenchmarkChip]:
         )
     return chips
 
+# Categories that never touch the P&L — personal spend on a company card, owner
+# draws, and shareholder-loan movements are balance-sheet items, not operating
+# cost. Tagging an expense with one of these pulls it out of every P&L line.
+_EXCLUDED_FROM_PNL = NON_PNL_CATEGORIES
 # Expense categories that map to COGS
 _COGS_CATEGORIES = {"Food Cost", "Beverage Cost", "Packaging"}
 # Expense categories that map to Labor.
@@ -189,6 +193,8 @@ class PnLCalculator:
         category_totals: dict[str, list[Expense]] = defaultdict(list)
         for exp in all_expenses:
             cat = exp.category or "Uncategorized"
+            if cat in _EXCLUDED_FROM_PNL:
+                continue  # personal / owner-draw / shareholder-loan — not P&L
             category_totals[cat].append(exp)
 
         def _sum_cat(cats: set[str]) -> Decimal:

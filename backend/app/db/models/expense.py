@@ -24,7 +24,17 @@ EXPENSE_CATEGORIES = {
     "Professional Services",
     "Royalties",
     "Miscellaneous",
+    # Non-P&L buckets — balance-sheet items, excluded from every P&L line.
+    # Manual-only: the AI categorizer must never auto-assign these.
+    "Owner's Draw",
+    "Personal",
+    "Shareholder Loan",
 }
+
+# Categories that are valid to tag manually but never flow to the P&L (personal
+# spend on a company card, owner draws, shareholder-loan movements). The P&L
+# calculator drops these; the AI categorizer excludes them from its choices.
+NON_PNL_CATEGORIES = {"Owner's Draw", "Personal", "Shareholder Loan"}
 
 
 class Expense(Base, TenantMixin, TimestampMixin):

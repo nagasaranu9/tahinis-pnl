@@ -11,11 +11,15 @@ import anthropic
 import structlog
 
 from app.core.config import settings
-from app.db.models.expense import EXPENSE_CATEGORIES
+from app.db.models.expense import EXPENSE_CATEGORIES, NON_PNL_CATEGORIES
 
 logger = structlog.get_logger(__name__)
 
-_CATEGORIES_LIST = "\n".join(f"- {c}" for c in sorted(EXPENSE_CATEGORIES))
+# Owner-draw / personal / shareholder-loan are manual-only tags — never let the
+# AI auto-assign them, so drop them from the choices it sees.
+_CATEGORIES_LIST = "\n".join(
+    f"- {c}" for c in sorted(EXPENSE_CATEGORIES - NON_PNL_CATEGORIES)
+)
 
 _SYSTEM_PROMPT = f"""You are a restaurant financial expert. Categorize expenses into exactly one of these categories:
 
