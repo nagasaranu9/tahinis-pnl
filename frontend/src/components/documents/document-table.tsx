@@ -3,13 +3,21 @@
 import { useState } from "react";
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
-import { FileText, ExternalLink, Copy, Trash2, RefreshCw } from "lucide-react";
+import { FileText, ExternalLink, Copy, Trash2, RefreshCw, CircleCheck, CircleSlash } from "lucide-react";
 import { DocumentStatusBadge } from "./document-status-badge";
 import { useDeleteDocument, useReprocessDocument } from "@/hooks/use-documents";
 import type { Document } from "@/types/document";
 
 interface Props {
   documents: Document[];
+}
+
+// Types that book an expense into the P&L. Everything else (payment receipts,
+// payroll reports, bank reconciliations, "other") plus any duplicate is kept as
+// proof only — see the Document Map. Mirrors backend /documents/summary-map.
+const COUNTED_TYPES = new Set(["invoice", "receipt", "bank_statement"]);
+function isCounted(doc: Document): boolean {
+  return !doc.is_duplicate && COUNTED_TYPES.has(doc.document_type);
 }
 
 function formatCurrency(amount: string | null, currency: string): string {
@@ -48,6 +56,16 @@ function DocRow({ doc }: { doc: Document }) {
     <tr className="hover:bg-muted/20 transition-colors">
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
+          <span
+            className="shrink-0 inline-flex"
+            title={isCounted(doc) ? "Counted in P&L" : "Recorded, not counted in P&L"}
+          >
+            {isCounted(doc) ? (
+              <CircleCheck className="h-4 w-4 text-green-600" aria-label="Counted in P&L" />
+            ) : (
+              <CircleSlash className="h-4 w-4 text-muted-foreground/60" aria-label="Not counted" />
+            )}
+          </span>
           <FileText className="h-4 w-4 text-primary/60 shrink-0" />
           <span className="truncate max-w-[200px]" title={doc.original_filename}>
             {doc.original_filename}
