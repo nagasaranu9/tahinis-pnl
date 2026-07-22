@@ -23,6 +23,9 @@ def get_ocr_adapter(tenant_preferred_provider: str | None = None) -> OCRAdapter:
     if choice == "claude":
         from app.services.ocr.claude_adapter import ClaudeVisionAdapter
         return ClaudeVisionAdapter()
+    if choice == "markitdown":
+        from app.services.ocr.markitdown_adapter import MarkItDownAdapter
+        return MarkItDownAdapter()
     if choice == "tesseract":
         from app.services.ocr.tesseract_adapter import TesseractAdapter
         return TesseractAdapter()
@@ -30,19 +33,29 @@ def get_ocr_adapter(tenant_preferred_provider: str | None = None) -> OCRAdapter:
         from app.services.ocr.mock_adapter import MockOCRAdapter
         return MockOCRAdapter()
 
-    # auto: Google primary + Claude fallback when both are configured;
-    # otherwise whichever one is configured; otherwise mock.
+    # auto: cheapest-capable-first chain with fallback on failure.
+    # markitdown (native-text extract, cheap) -> Google Doc AI -> Claude Vision.
+    # markitdown needs an Anthropic key to structure the extracted text; it
+    # raises on scanned/image PDFs so the next engine handles them.
+    from app.services.ocr.auto_adapter import AutoOCRAdapter
+
+    tail: OCRAdapter | None = None
     if google_configured and claude_configured:
-        from app.services.ocr.auto_adapter import AutoOCRAdapter
         from app.services.ocr.claude_adapter import ClaudeVisionAdapter
         from app.services.ocr.google_adapter import GoogleDocumentAIAdapter
-        return AutoOCRAdapter(primary=GoogleDocumentAIAdapter(), secondary=ClaudeVisionAdapter())
-    if google_configured:
+        tail = AutoOCRAdapter(primary=GoogleDocumentAIAdapter(), secondary=ClaudeVisionAdapter())
+    elif google_configured:
         from app.services.ocr.google_adapter import GoogleDocumentAIAdapter
-        return GoogleDocumentAIAdapter()
-    if claude_configured:
+        tail = GoogleDocumentAIAdapter()
+    elif claude_configured:
         from app.services.ocr.claude_adapter import ClaudeVisionAdapter
-        return ClaudeVisionAdapter()
+        tail = ClaudeVisionAdapter()
+
+    if claude_configured and tail is not None:
+        from app.services.ocr.markitdown_adapter import MarkItDownAdapter
+        return AutoOCRAdapter(primary=MarkItDownAdapter(), secondary=tail)
+    if tail is not None:
+        return tail
     from app.services.ocr.mock_adapter import MockOCRAdapter
     return MockOCRAdapter()
 
