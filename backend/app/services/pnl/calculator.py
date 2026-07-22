@@ -472,6 +472,7 @@ class PnLCalculator:
             exp._filename = filename  # type: ignore[attr-defined]
             expenses.append(exp)
         await self._annotate_franchise_roles(expenses)
+        expenses = self._drop_franchise_bank_settlements(expenses)
         expenses = self._dedup_franchise_rollups(expenses)
         expenses = self._dedup_invoice_vs_bank_by_amount(expenses)
         return self._dedup_bank_vs_invoice(expenses)
@@ -610,6 +611,42 @@ class PnLCalculator:
         if not name:
             return None
         return " ".join(name.lower().split())
+
+    def _drop_franchise_bank_settlements(self, expenses: list[Expense]) -> list[Expense]:
+        """Drop the weekly 'TAHINIS BUS/ENT' bank pre-auth debits from the P&L.
+
+        The franchisor (Tahinis Franchising Corp.) itemizes every charge —
+        royalties, marketing/ad-fund, tech/software fees — on uploaded invoices.
+        The bank 'TAHINIS BUS/ENT' pre-authorized debits are just the weekly cash
+        settlement of those invoices, so counting both double-books the cost. The
+        amount-based dedup can't catch it (a single weekly lump debit settles
+        several itemized invoices, and the bank line is blanket-tagged Royalties
+        while the matching invoice may be Marketing/Software), so the money leaks.
+
+        Invoices are authoritative here (tenant-confirmed) — drop the bank
+        settlement lines whenever franchise invoices exist in the window. If no
+        franchise invoice is present the bank line stays, so a period with a
+        missing invoice isn't silently understated.
+        """
+        has_franchise_invoice = any(
+            getattr(e, "_doc_type", None) != "bank_statement"
+            and (e.vendor_name or "").lower().find("tahinis franch") >= 0
+            for e in expenses
+        )
+        if not has_franchise_invoice:
+            return expenses
+        kept: list[Expense] = []
+        for e in expenses:
+            vn = (e.vendor_name or "").lower()
+            if getattr(e, "_doc_type", None) == "bank_statement" and "tahinis bus" in vn:
+                logger.info(
+                    "pnl_dropped_franchise_bank_settlement",
+                    amount=str(e.amount),
+                    reason="tahinis_invoices_are_authoritative",
+                )
+                continue
+            kept.append(e)
+        return kept
 
     def _dedup_invoice_vs_bank_by_amount(self, expenses: list[Expense]) -> list[Expense]:
         """Invoice wins for _INVOICE_WINS_CATEGORIES: when a bank-statement
