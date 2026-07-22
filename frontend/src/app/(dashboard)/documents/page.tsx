@@ -1,15 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { RefreshCw, Trash2 } from "lucide-react";
 import { useDocuments, useReprocessDocument, useDeleteAllDocuments } from "@/hooks/use-documents";
 import { UploadDropzone } from "@/components/documents/upload-dropzone";
 import { DocumentTable } from "@/components/documents/document-table";
+import { DocumentMap } from "@/components/documents/document-map";
 
 export default function DocumentsPage() {
+  const searchParams = useSearchParams();
+  const typeFilter = searchParams.get("type") || undefined;
   const [page, setPage] = useState(1);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const { data, isLoading, isError } = useDocuments({ page, limit: 50 });
+  const { data, isLoading, isError } = useDocuments({
+    page,
+    limit: 50,
+    document_type: typeFilter,
+  });
   const { mutate: reprocess, isPending: reprocessing } = useReprocessDocument();
   const { mutate: deleteAll, isPending: deleting } = useDeleteAllDocuments();
 
@@ -47,6 +55,8 @@ export default function DocumentsPage() {
       </div>
 
       <UploadDropzone />
+
+      <DocumentMap />
 
       <div className="space-y-2">
         <div className="flex items-center justify-between">

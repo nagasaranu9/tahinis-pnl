@@ -115,6 +115,82 @@ async def list_documents(
     }
 
 
+@router.get("/summary-map")  # must precede GET /{document_id} (literal path)
+async def documents_summary_map(user: CurrentUserDep, db: AsyncSessionDep) -> dict:
+    """Glanceable map of how synced documents land in the P&L.
+
+    Two groups: types that book an expense (counted once) and types recorded as
+    proof only (payment receipts, payroll reports, duplicates) that are
+    deliberately excluded to avoid double-counting."""
+    from sqlalchemy import and_, func, select
+
+    from app.db.models.document import Document
+
+    # Extracted docs grouped by type; duplicates pulled out separately.
+    rows = (
+        await db.execute(
+            select(
+                Document.document_type,
+                func.count(),
+                func.coalesce(func.sum(Document.total_amount), 0),
+            )
+            .where(
+                Document.tenant_id == user.tenant_id,
+                Document.status == "extracted",
+                Document.is_duplicate.is_(False),
+            )
+            .group_by(Document.document_type)
+        )
+    ).all()
+
+    dup = (
+        await db.execute(
+            select(func.count(), func.coalesce(func.sum(Document.total_amount), 0)).where(
+                Document.tenant_id == user.tenant_id, Document.is_duplicate.is_(True)
+            )
+        )
+    ).first()
+
+    _COUNTED = {"invoice", "receipt", "bank_statement"}
+    _LABELS = {
+        "invoice": "Invoices",
+        "receipt": "Receipts",
+        "bank_statement": "Bank-statement debits",
+        "payment_receipt": "Payment receipts",
+        "payroll_report": "Payroll reports",
+        "bank_reconciliation": "Bank reconciliations",
+        "other": "Uncategorized / other",
+    }
+
+    counted, excluded = [], []
+    for dtype, cnt, total in rows:
+        bucket = {
+            "type": dtype,
+            "label": _LABELS.get(dtype, (dtype or "other").replace("_", " ").title()),
+            "count": int(cnt),
+            "total": str(total),
+        }
+        (counted if dtype in _COUNTED else excluded).append(bucket)
+
+    if dup and dup[0]:
+        excluded.append(
+            {"type": "duplicate", "label": "Duplicate documents", "count": int(dup[0]), "total": str(dup[1])}
+        )
+
+    counted.sort(key=lambda b: -b["count"])
+    excluded.sort(key=lambda b: -b["count"])
+    counted_total = sum(float(b["total"]) for b in counted)
+
+    return {
+        "data": {
+            "counted": counted,
+            "excluded": excluded,
+            "counted_total": f"{counted_total:.2f}",
+        },
+        "errors": None,
+    }
+
+
 @router.get("/{document_id}", response_model=APIResponse[DocumentResponse])
 async def get_document(document_id: uuid.UUID, user: CurrentUserDep, db: AsyncSessionDep) -> dict:
     repo = DocumentRepository(db)

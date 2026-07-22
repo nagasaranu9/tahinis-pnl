@@ -127,3 +127,27 @@ export function useReprocessDocument() {
     },
   });
 }
+
+export interface DocMapBucket {
+  type: string;
+  label: string;
+  count: number;
+  total: string;
+}
+export interface DocSummaryMap {
+  counted: DocMapBucket[];
+  excluded: DocMapBucket[];
+  counted_total: string;
+}
+
+export function useDocumentSummaryMap() {
+  return useQuery({
+    queryKey: ["documents-summary-map"],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: DocSummaryMap }>(
+        "/api/v1/documents/summary-map"
+      );
+      return data.data;
+    },
+  });
+}
