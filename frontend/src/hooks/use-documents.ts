@@ -138,6 +138,7 @@ export interface DocSummaryMap {
   counted: DocMapBucket[];
   excluded: DocMapBucket[];
   counted_total: string;
+  deduped_document_ids: string[];
 }
 
 export function useDocumentSummaryMap() {

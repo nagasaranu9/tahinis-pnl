@@ -181,11 +181,18 @@ async def documents_summary_map(user: CurrentUserDep, db: AsyncSessionDep) -> di
     excluded.sort(key=lambda b: -b["count"])
     counted_total = sum(float(b["total"]) for b in counted)
 
+    # Invoice/receipt docs that survive dedup end up as a third bucket on the
+    # client: counted-type but deduped (paid via bank / rolled into a statement).
+    from app.services.pnl.calculator import PnLCalculator
+
+    deduped = await PnLCalculator(db).deduped_paper_document_ids(user.tenant_id)
+
     return {
         "data": {
             "counted": counted,
             "excluded": excluded,
             "counted_total": f"{counted_total:.2f}",
+            "deduped_document_ids": [str(i) for i in deduped],
         },
         "errors": None,
     }

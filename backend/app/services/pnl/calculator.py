@@ -19,7 +19,7 @@ P&L structure:
 import re
 import uuid
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
 import structlog
@@ -382,6 +382,48 @@ class PnLCalculator:
             conds.append(ToastOrder.location_id == location_id)
         rows = await self._db.execute(select(ToastOrder).where(and_(*conds)))
         return list(rows.scalars().all())
+
+    async def deduped_paper_document_ids(
+        self, tenant_id: uuid.UUID, location_id: uuid.UUID | None = None
+    ) -> set[uuid.UUID]:
+        """Invoice/receipt documents whose expense is dropped by dedup (paid via
+        a matching bank debit, or rolled into a franchise statement) — i.e. a
+        counted-type doc that nonetheless does NOT add to the P&L. All-time.
+
+        Reuses the same dedup passes _load_expenses applies, then diffs the paper
+        documents that survived against every paper document that had an expense.
+        """
+        wide_start = datetime(2000, 1, 1, tzinfo=timezone.utc)
+        wide_end = datetime(2100, 1, 1, tzinfo=timezone.utc)
+        survivors = await self._load_expenses(tenant_id, wide_start, wide_end, location_id)
+        surviving = {
+            e.document_id
+            for e in survivors
+            if getattr(e, "_doc_type", None) in ("invoice", "receipt") and e.document_id
+        }
+
+        loc_conds = []
+        if location_id is not None:
+            from sqlalchemy import or_ as _or
+
+            loc_conds.append(_or(Expense.location_id == location_id, Expense.location_id.is_(None)))
+        all_paper = {
+            r[0]
+            for r in (
+                await self._db.execute(
+                    select(Expense.document_id)
+                    .join(Document, Document.id == Expense.document_id)
+                    .where(
+                        Expense.tenant_id == tenant_id,
+                        Document.document_type.in_(["invoice", "receipt"]),
+                        Document.is_duplicate.is_(False),
+                        Expense.document_id.isnot(None),
+                        *loc_conds,
+                    )
+                )
+            ).all()
+        }
+        return all_paper - surviving
 
     async def _load_expenses(
         self,

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import { FileText, ExternalLink, Copy, Trash2, RefreshCw, CircleCheck, CircleSlash } from "lucide-react";
 import { DocumentStatusBadge } from "./document-status-badge";
-import { useDeleteDocument, useReprocessDocument } from "@/hooks/use-documents";
+import { useDeleteDocument, useReprocessDocument, useDocumentSummaryMap } from "@/hooks/use-documents";
 import type { Document } from "@/types/document";
 
 interface Props {
@@ -16,8 +16,13 @@ interface Props {
 // payroll reports, bank reconciliations, "other") plus any duplicate is kept as
 // proof only — see the Document Map. Mirrors backend /documents/summary-map.
 const COUNTED_TYPES = new Set(["invoice", "receipt", "bank_statement"]);
-function isCounted(doc: Document): boolean {
-  return !doc.is_duplicate && COUNTED_TYPES.has(doc.document_type);
+type CountState = "counted" | "excluded" | "deduped";
+function countState(doc: Document, deduped: Set<string>): CountState {
+  if (!COUNTED_TYPES.has(doc.document_type) || doc.is_duplicate) return "excluded";
+  // Counted-type but its expense was dropped by dedup (paid via a matching bank
+  // debit, or rolled into a franchise statement) — real, but not added again.
+  if (deduped.has(doc.id)) return "deduped";
+  return "counted";
 }
 
 function formatCurrency(amount: string | null, currency: string): string {
@@ -45,7 +50,8 @@ function getSortDate(doc: Document): number {
   }
 }
 
-function DocRow({ doc }: { doc: Document }) {
+function DocRow({ doc, deduped }: { doc: Document; deduped: Set<string> }) {
+  const state = countState(doc, deduped);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const { mutate: deleteDoc, isPending: deleting } = useDeleteDocument();
   const { mutate: reprocess, isPending: reprocessing } = useReprocessDocument();
@@ -58,10 +64,18 @@ function DocRow({ doc }: { doc: Document }) {
         <div className="flex items-center gap-2">
           <span
             className="shrink-0 inline-flex"
-            title={isCounted(doc) ? "Counted in P&L" : "Recorded, not counted in P&L"}
+            title={
+              state === "counted"
+                ? "Counted in P&L"
+                : state === "deduped"
+                  ? "Counted type, but deduped — paid via bank or rolled into a statement (not added twice)"
+                  : "Recorded, not counted in P&L"
+            }
           >
-            {isCounted(doc) ? (
+            {state === "counted" ? (
               <CircleCheck className="h-4 w-4 text-green-600" aria-label="Counted in P&L" />
+            ) : state === "deduped" ? (
+              <CircleSlash className="h-4 w-4 text-amber-500" aria-label="Deduped" />
             ) : (
               <CircleSlash className="h-4 w-4 text-muted-foreground/60" aria-label="Not counted" />
             )}
@@ -154,6 +168,9 @@ function DocRow({ doc }: { doc: Document }) {
 }
 
 export function DocumentTable({ documents }: Props) {
+  const { data: summaryMap } = useDocumentSummaryMap();
+  const deduped = new Set(summaryMap?.deduped_document_ids ?? []);
+
   if (documents.length === 0) {
     return (
       <div className="text-center py-12 text-muted-foreground">
@@ -199,7 +216,7 @@ export function DocumentTable({ documents }: Props) {
               </thead>
               <tbody className="divide-y divide-border">
                 {grouped.get(monthYear)!.map((doc) => (
-                  <DocRow key={doc.id} doc={doc} />
+                  <DocRow key={doc.id} doc={doc} deduped={deduped} />
                 ))}
               </tbody>
             </table>
