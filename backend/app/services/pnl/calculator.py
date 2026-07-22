@@ -535,11 +535,14 @@ class PnLCalculator:
     # Words that carry no vendor identity — bank-description boilerplate,
     # corporate suffixes, generic descriptors. Stripped before token matching.
     _VENDOR_NOISE = frozenset({
-        "pre", "authorized", "pre-authorized", "preauthorized", "payment",
-        "payments", "pap", "pad", "debit", "credit", "chq", "cheque", "eft",
-        "bill", "online", "transfer", "purchase", "pos", "inc", "inc.", "ltd",
-        "ltd.", "llc", "corp", "co", "co.", "company", "the", "and", "of",
+        "pre", "authorized", "authorised", "pre-authorized", "preauthorized",
+        "payment", "payments", "pap", "pad", "debit", "credit", "chq", "cheque",
+        "eft", "bill", "online", "transfer", "purchase", "pos", "inc", "inc.",
+        "ltd", "ltd.", "llc", "corp", "co", "co.", "company", "the", "and", "of",
         "service", "services", "wholesale", "store", "ca", "on", "toronto",
+        # bank-descriptor tags that carry no vendor identity: "TOAST INVOICE 9
+        # BUS/ENT" must reduce to {toast}, and "TAHINIS BUS/ENT" to {tahinis}.
+        "invoice", "bus", "ent", "bus/ent",
     })
 
     @classmethod
