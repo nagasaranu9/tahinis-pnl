@@ -1,6 +1,6 @@
 import asyncio
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import structlog
 
@@ -466,12 +466,21 @@ async def _extract_bank_statement_expenses(
             continue
 
         # Use per-transaction date when Claude extracted it; fall back to statement date.
+        # Statement lines are often yearless ("Jun 3") so Claude guesses a year and
+        # frequently picks the wrong one (prior year). The statement's document_date
+        # is the period end — derive the year from it instead of trusting the guess:
+        # snap the month/day onto doc_date's year, and if that lands after the period
+        # end (a Dec/Jan period wrap), roll back one year.
         tx_date = doc_date
         if tx.get("date"):
             try:
                 from datetime import date as _date
                 parsed = _date.fromisoformat(str(tx["date"]))
-                tx_date = datetime(parsed.year, parsed.month, parsed.day, tzinfo=UTC)
+                yr = doc_date.year
+                candidate = datetime(yr, parsed.month, parsed.day, tzinfo=UTC)
+                if candidate > doc_date + timedelta(days=5):
+                    candidate = datetime(yr - 1, parsed.month, parsed.day, tzinfo=UTC)
+                tx_date = candidate
             except Exception:
                 pass
 
