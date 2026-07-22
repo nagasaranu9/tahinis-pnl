@@ -14,7 +14,20 @@ export const EXPENSE_CATEGORIES = [
   "Professional Services",
   "Royalties",
   "Miscellaneous",
+  // Non-P&L buckets — personal spend / owner draws / shareholder-loan movements.
+  // Excluded from every P&L line; manual-only (AI never assigns these).
+  "Owner's Draw",
+  "Personal",
+  "Shareholder Loan",
 ] as const;
+
+// Categories that never flow to the P&L — kept in sync with backend
+// NON_PNL_CATEGORIES. Used to visually flag them in the expense list.
+export const NON_PNL_CATEGORIES: readonly ExpenseCategory[] = [
+  "Owner's Draw",
+  "Personal",
+  "Shareholder Loan",
+];
 
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
 
