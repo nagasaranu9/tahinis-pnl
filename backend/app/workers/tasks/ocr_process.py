@@ -584,6 +584,15 @@ def _classify_document_type(
 
     combined = f"{name_lower} {vendor_lower} {text_lower}"
 
+    # Payment receipt = proof a vendor invoice was paid (e.g. Alex Food
+    # "Payment_PAD*.pdf"). The invoice itself is already booked as the expense, so
+    # the receipt must NOT create a second one. Detect by filename prefix or a
+    # payment-acknowledgement in the text, but never override a bank statement
+    # (those are handled below and carry their own line-item expenses).
+    _PAYMENT_RECEIPT_TEXT = ("payment received", "thank you for your payment", "payment confirmation", "remittance advice")
+    if name_lower.startswith("payment") or any(k in text_lower for k in _PAYMENT_RECEIPT_TEXT):
+        return "payment_receipt"
+
     _BANK_VENDOR_KEYWORDS = (
         "bank", "bmo", "td", "rbc", "scotiabank", "cibc", "desjardins",
         "hsbc", "tangerine", "simplii", "national bank", "montreal",
@@ -729,7 +738,7 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
             # OCR has extracted vendor/date/amount, a second signal is
             # available. Skipped for bank statements: their "vendor" field
             # isn't a comparable identity the same way an invoice's is.
-            if classified_type not in ("bank_statement", "bank_reconciliation", "payroll_report", "other"):
+            if classified_type not in ("bank_statement", "bank_reconciliation", "payroll_report", "payment_receipt", "other"):
                 content_dup = await repo.find_content_duplicate(
                     tenant_id,
                     exclude_document_id=doc_id,
@@ -799,7 +808,7 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
                 }
 
             # Skip other non-expense document types
-            _NON_EXPENSE_TYPES = {"bank_reconciliation", "payroll_report", "other"}
+            _NON_EXPENSE_TYPES = {"bank_reconciliation", "payroll_report", "payment_receipt", "other"}
             if classified_type in _NON_EXPENSE_TYPES:
                 await db.commit()
                 logger.info("ocr_skip_expense_for_type", document_type=classified_type)
