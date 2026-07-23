@@ -643,6 +643,70 @@ def _classify_document_type(
     return "invoice"  # safe default — creates expense, user can reclassify
 
 
+async def _process_csv_statement(db, repo, doc, doc_id, tenant_id, file_bytes: bytes) -> dict:
+    """Ingest a bank/credit-card statement CSV without OCR.
+
+    Parses the structured rows into money-OUT transactions and books them through
+    the same _extract_bank_statement_expenses path used for OCR'd statements —
+    so the non-expense filters, per-line dates, dedup and AI categorization all
+    still apply. Exact amounts + full dates, no LLM cost.
+    """
+    from decimal import Decimal
+
+    from app.services.statements.csv_statement import parse_statement_csv
+
+    try:
+        parsed = parse_statement_csv(file_bytes, filename=doc.original_filename or "")
+    except ValueError as exc:
+        logger.warning("csv_statement_parse_failed", document_id=str(doc_id), error=str(exc))
+        await repo.update_status(doc_id, "error")
+        await db.commit()
+        return {"status": "error", "reason": f"csv_parse_failed: {exc}"}
+
+    from datetime import date as _date
+    parsed_d = _date.fromisoformat(parsed["document_date"])
+    doc_date = datetime(parsed_d.year, parsed_d.month, parsed_d.day, tzinfo=UTC)
+    currency = parsed["currency_code"]
+    txns = parsed["transactions"]
+
+    # Persist a lightweight OCR record so the document has a provenance trail.
+    await repo.save_ocr_result(
+        tenant_id=tenant_id,
+        document_id=doc_id,
+        provider="csv_import",
+        raw_response={"provider": "csv_import", "rows": len(txns)},
+        extracted_text="",
+        confidence_score=Decimal("1.0"),
+        page_count=1,
+        processing_time_ms=0,
+    )
+    await repo.update_extracted_data(
+        doc_id,
+        vendor_name=None,
+        document_date=doc_date,
+        total_amount=sum((t["amount"] for t in txns), Decimal("0")),
+        tax_amount=None,
+        currency_code=currency,
+        document_type="bank_statement",
+    )
+
+    created = await _extract_bank_statement_expenses(
+        db,
+        tenant_id=tenant_id,
+        document_id=doc_id,
+        location_id=doc.location_id,
+        doc_date=doc_date,
+        line_items=[],
+        currency_code=currency,
+        extracted_text="",
+        prebuilt_transactions=txns,
+    )
+    await repo.update_status(doc_id, "extracted")
+    await db.commit()
+    logger.info("csv_statement_ingested", document_id=str(doc_id), rows=len(txns), expenses=created)
+    return {"status": "ok", "document_type": "bank_statement", "expenses_created": created, "source": "csv"}
+
+
 async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
     from app.db.models.tenant import Tenant
     from app.db.repositories.document_repo import DocumentRepository
@@ -670,6 +734,12 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
         try:
             start_ms = int(datetime.now(UTC).timestamp() * 1000)
             file_bytes = download_document(doc.storage_path)
+
+            # CSV statements bypass OCR entirely — parse the structured rows
+            # directly into bank-statement expenses (exact, no LLM cost).
+            from app.services.virus_scan import CSV_MIME_TYPES
+            if doc.mime_type in CSV_MIME_TYPES:
+                return await _process_csv_statement(db, repo, doc, doc_id, tenant_id, file_bytes)
 
             adapter = get_ocr_adapter(ocr_preferred_provider)
             result = await adapter.process(file_bytes, doc.mime_type)

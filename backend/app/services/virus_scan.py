@@ -26,7 +26,12 @@ _MAGIC: dict[str, list[bytes]] = {
     "image/tiff": [b"II*\x00", b"MM\x00*"],
 }
 
-ALLOWED_MIME_TYPES = set(_MAGIC.keys())
+# CSV bank/credit-card statement exports. No reliable magic bytes — validated as
+# decodable delimited text instead of by prefix (see validate_mime). Browsers
+# send CSVs under several content-types depending on OS/spreadsheet app.
+CSV_MIME_TYPES = {"text/csv", "application/csv", "application/vnd.ms-excel"}
+
+ALLOWED_MIME_TYPES = set(_MAGIC.keys()) | CSV_MIME_TYPES
 
 
 class VirusScanError(Exception):
@@ -35,6 +40,9 @@ class VirusScanError(Exception):
 
 def validate_mime(file_bytes: bytes, declared_mime: str) -> None:
     """Validate file magic bytes match declared MIME type."""
+    if declared_mime in CSV_MIME_TYPES:
+        _validate_csv(file_bytes)
+        return
     prefixes = _MAGIC.get(declared_mime)
     if prefixes is None:
         # Unsupported MIME — block it
@@ -43,6 +51,27 @@ def validate_mime(file_bytes: bytes, declared_mime: str) -> None:
         raise VirusScanError(
             f"File content does not match declared MIME type: {declared_mime}"
         )
+
+
+def _validate_csv(file_bytes: bytes) -> None:
+    """CSV has no magic bytes — accept if it decodes as text and looks delimited.
+
+    Guards against a binary file (or spoofed executable) being uploaded under a
+    CSV content-type: reject non-decodable bytes, embedded NULs, and content with
+    no row/column structure in the first chunk.
+    """
+    head = file_bytes[:8192]
+    if b"\x00" in head:
+        raise VirusScanError("CSV content is not valid text (contains NUL bytes)")
+    try:
+        text = head.decode("utf-8")
+    except UnicodeDecodeError:
+        try:
+            text = head.decode("latin-1")
+        except UnicodeDecodeError as exc:
+            raise VirusScanError("CSV content is not decodable text") from exc
+    if "," not in text and "\t" not in text and ";" not in text:
+        raise VirusScanError("File does not look like a delimited CSV")
 
 
 def scan_with_clamav(file_bytes: bytes, filename: str) -> None:

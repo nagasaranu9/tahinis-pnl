@@ -46,6 +46,11 @@ async def upload_document(
     mime_type = file.content_type or "application/octet-stream"
     filename = file.filename or "upload"
 
+    # Browsers send an empty/generic MIME for .csv on some platforms — normalize
+    # by extension so a valid CSV export isn't rejected on content-type alone.
+    if filename.lower().endswith(".csv") and mime_type not in ALLOWED_MIME_TYPES:
+        mime_type = "text/csv"
+
     if mime_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(status_code=422, detail=f"Unsupported file type: {mime_type}")
 

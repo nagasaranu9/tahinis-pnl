@@ -5,8 +5,18 @@ import { useUploadDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 import { Upload, AlertCircle, CheckCircle, Loader2 } from "lucide-react";
 
-const ALLOWED_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/tiff"];
+const ALLOWED_TYPES = [
+  "application/pdf", "image/png", "image/jpeg", "image/tiff",
+  "text/csv", "application/csv", "application/vnd.ms-excel",
+];
 const MAX_SIZE_MB = 50;
+
+// Browsers set an empty or spreadsheet MIME for .csv depending on the OS — accept
+// by extension too so a bank/CC CSV export isn't wrongly rejected.
+function isAllowed(file: File): boolean {
+  if (ALLOWED_TYPES.includes(file.type)) return true;
+  return file.name.toLowerCase().endsWith(".csv");
+}
 
 interface FileStatus {
   id: string;
@@ -37,7 +47,7 @@ export function UploadDropzone() {
         const file = files[i];
         const entryId = entries[i].id;
 
-        if (!ALLOWED_TYPES.includes(file.type)) {
+        if (!isAllowed(file)) {
           setQueue((prev) =>
             prev.map((e) =>
               e.id === entryId
@@ -112,7 +122,7 @@ export function UploadDropzone() {
           type="file"
           multiple
           className="hidden"
-          accept=".pdf,.png,.jpg,.jpeg,.tiff"
+          accept=".pdf,.png,.jpg,.jpeg,.tiff,.csv"
           onChange={onInputChange}
           disabled={isUploading}
         />
