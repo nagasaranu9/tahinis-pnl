@@ -23,6 +23,7 @@ EXPENSE_CATEGORIES = {
     "Software",
     "Professional Services",
     "Royalties",
+    "Delivery Commissions",
     "Miscellaneous",
     # Non-P&L buckets — balance-sheet items, excluded from every P&L line.
     # Manual-only: the AI categorizer must never auto-assign these.

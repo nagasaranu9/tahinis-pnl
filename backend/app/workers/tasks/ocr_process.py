@@ -701,10 +701,91 @@ async def _process_csv_statement(db, repo, doc, doc_id, tenant_id, file_bytes: b
         extracted_text="",
         prebuilt_transactions=txns,
     )
+    commissions = await _book_delivery_commissions(
+        db, tenant_id, doc_id, doc.location_id, doc_date,
+        parsed.get("deposits_by_channel") or {}, currency,
+    )
     await repo.update_status(doc_id, "extracted")
     await db.commit()
-    logger.info("csv_statement_ingested", document_id=str(doc_id), rows=len(txns), expenses=created)
-    return {"status": "ok", "document_type": "bank_statement", "expenses_created": created, "source": "csv"}
+    logger.info("csv_statement_ingested", document_id=str(doc_id), rows=len(txns), expenses=created, commissions=commissions)
+    return {"status": "ok", "document_type": "bank_statement", "expenses_created": created, "delivery_commissions": commissions, "source": "csv"}
+
+
+# Delivery platforms keep a commission out of each order: the restaurant books
+# the full sale (Toast POS) but only the net lands in the bank. Commission =
+# Toast gross for that channel − the platform's bank deposit. Booked as a
+# Delivery Commissions expense so P&L profit reflects the real cash economics.
+# Channel key (from the deposit description) -> Toast dining_option match.
+_COMMISSION_CHANNELS = {
+    "uber": "uber",
+    "doordash": "doordash",
+    "skip": "skip",
+}
+
+
+async def _book_delivery_commissions(
+    db, tenant_id, document_id, location_id, doc_date, deposits_by_channel: dict, currency: str
+) -> int:
+    """Book per-platform delivery commission = Toast gross(channel) − deposit."""
+    from decimal import Decimal
+
+    from sqlalchemy import and_, func, select
+
+    from app.db.models.toast import ToastOrder
+    from app.db.repositories.expense_repo import ExpenseRepository
+
+    if not deposits_by_channel:
+        return 0
+    # Statement month window (business_date is a YYYYMMDD string).
+    start = doc_date.replace(day=1).strftime("%Y%m%d")
+    end = doc_date.strftime("%Y%m%d")
+    repo = ExpenseRepository(db)
+    booked = 0
+    for ch_key, dining_kw in _COMMISSION_CHANNELS.items():
+        deposit = Decimal(str(deposits_by_channel.get(ch_key, "0") or "0"))
+        if deposit <= 0:
+            continue
+        # Toast gross (net + tax + tip) for this dining_option over the period.
+        gross = await db.scalar(
+            select(
+                func.coalesce(func.sum(
+                    ToastOrder.net_amount
+                    + func.coalesce(ToastOrder.tax_amount, 0)
+                    + func.coalesce(ToastOrder.tip_amount, 0)
+                ), 0)
+            ).where(and_(
+                ToastOrder.tenant_id == tenant_id,
+                ToastOrder.business_date >= start,
+                ToastOrder.business_date <= end,
+                func.lower(ToastOrder.dining_option).like(f"%{dining_kw}%"),
+                ToastOrder.is_void.is_(False),
+            ))
+        )
+        gross = Decimal(str(gross or 0))
+        commission = (gross - deposit).quantize(Decimal("0.01"))
+        if commission <= 0:
+            continue  # deposit >= gross (platform passed tax/tips) — no commission
+        vendor = f"{ch_key.title()} delivery commission"
+        if await repo.bank_line_exists(
+            tenant_id=tenant_id, document_id=document_id,
+            vendor_name=vendor, amount=commission, expense_date=doc_date,
+        ):
+            continue
+        exp = await repo.create_from_document(
+            tenant_id=tenant_id, document_id=document_id, vendor_name=vendor,
+            amount=commission, currency_code=currency, location_id=location_id,
+            created_by=None, expense_date=doc_date,
+        )
+        exp.category = "Delivery Commissions"
+        exp.is_ai_categorized = False
+        exp.user_overridden = True
+        exp.ai_explanation = (
+            f"Delivery commission = Toast {ch_key.title()} gross {gross} − bank deposit {deposit}."
+        )
+        booked += 1
+        logger.info("delivery_commission_booked", channel=ch_key,
+                    gross=str(gross), deposit=str(deposit), commission=str(commission))
+    return booked
 
 
 async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:

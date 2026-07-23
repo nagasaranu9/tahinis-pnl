@@ -13,6 +13,7 @@ export const EXPENSE_CATEGORIES = [
   "Software",
   "Professional Services",
   "Royalties",
+  "Delivery Commissions",
   "Miscellaneous",
   // Non-P&L buckets — personal spend / owner draws / shareholder-loan movements.
   // Excluded from every P&L line; manual-only (AI never assigns these).

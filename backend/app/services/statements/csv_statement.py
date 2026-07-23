@@ -103,6 +103,25 @@ def _looks_like_header(row: list[str]) -> bool:
     return any(k in joined for k in ("date", "amount", "description", "debit", "credit", "balance"))
 
 
+# Deposit-description keyword -> revenue channel key. Used to bucket bank credits
+# so delivery commission (Toast gross - deposit) can be derived per platform.
+_DEPOSIT_CHANNELS = (
+    ("uber", "uber"),
+    ("doordash", "doordash"),
+    ("skip", "skip"),
+    ("square", "square"),  # Tacit online orders settle via Square
+    ("toast", "toast"),
+)
+
+
+def _deposit_channel(desc: str) -> str | None:
+    low = desc.lower()
+    for kw, ch in _DEPOSIT_CHANNELS:
+        if kw in low:
+            return ch
+    return None
+
+
 def _normalize_desc(desc: str) -> str:
     """Clean a BMO statement description and interpret its [XX] type-code.
 
@@ -191,6 +210,7 @@ def parse_statement_csv(file_bytes: bytes, filename: str = "") -> dict:
     )
 
     txns: list[dict] = []
+    deposits_by_channel: dict[str, Decimal] = {}
     latest: date | None = None
     dropped = 0
     for r in body:
@@ -203,26 +223,41 @@ def parse_statement_csv(file_bytes: bytes, filename: str = "") -> dict:
         if latest is None or d > latest:
             latest = d
 
+        raw_desc = (r[desc_i].strip() if desc_i is not None and len(r) > desc_i else "").strip()
+
         # Determine the money-OUT amount (positive) for this row.
         out: Decimal | None = None
+        inflow: Decimal | None = None
         if debit_i is not None and len(r) > debit_i:
             dv = _clean_money(r[debit_i])
             if dv is not None and dv != 0:
                 out = abs(dv)  # dedicated debit column is always an outflow
-        if out is None and debit_i is None and amount_i is not None and len(r) > amount_i:
+        if out is None and credit_i is not None and len(r) > credit_i:
+            cv = _clean_money(r[credit_i])
+            if cv is not None and cv != 0:
+                inflow = abs(cv)
+        if out is None and inflow is None and amount_i is not None and len(r) > amount_i:
             av = _clean_money(r[amount_i])
             if av is not None and av != 0:
-                # Single signed amount column. Bank: negative = money out.
-                # Credit card: a positive amount is a purchase (money out); a
-                # negative is a payment/refund (skip — not an expense).
+                # Single signed amount column. Bank: negative = money out,
+                # positive = deposit. Credit card: positive = purchase (out),
+                # negative = payment/refund (skip).
                 if is_card:
                     out = av if av > 0 else None
                 else:
                     out = -av if av < 0 else None
+                    inflow = av if av > 0 else None
+
+        # Deposits: bucket by revenue channel so the caller can derive delivery
+        # commission (Toast gross − deposit) per platform.
+        if inflow is not None and inflow > 0:
+            ch = _deposit_channel(raw_desc)
+            if ch:
+                deposits_by_channel[ch] = deposits_by_channel.get(ch, Decimal("0")) + inflow
+            continue
         if out is None or out <= 0:
             continue
 
-        raw_desc = (r[desc_i].strip() if desc_i is not None and len(r) > desc_i else "").strip()
         desc = _normalize_desc(raw_desc) if raw_desc else "CSV transaction"
         txns.append({"description": desc, "amount": out, "date": d.isoformat()})
 
@@ -241,4 +276,5 @@ def parse_statement_csv(file_bytes: bytes, filename: str = "") -> dict:
         "document_date": (latest or date.today()).isoformat(),
         "currency_code": "CAD",
         "transactions": txns,
+        "deposits_by_channel": {k: str(v) for k, v in deposits_by_channel.items()},
     }
