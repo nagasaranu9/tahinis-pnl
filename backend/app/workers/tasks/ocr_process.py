@@ -701,24 +701,22 @@ async def _process_csv_statement(db, repo, doc, doc_id, tenant_id, file_bytes: b
         extracted_text="",
         prebuilt_transactions=txns,
     )
-    # NOTE: delivery-commission estimation via (Toast gross − deposit) is DISABLED.
-    # Uber's payout report proved it unreliable: platforms use markup pricing +
-    # offers + facilitator tax, so gross−deposit doesn't equal commission (Uber's
-    # payout actually exceeded Toast menu revenue). Accurate commission requires
-    # parsing each platform's payout report — see _book_delivery_commissions,
-    # kept for when payout-report ingestion lands. Deposits are still bucketed for
-    # reconciliation.
+    commissions = await _book_delivery_commissions(
+        db, tenant_id, doc_id, doc.location_id, doc_date,
+        parsed.get("deposits_by_channel") or {}, currency,
+    )
     await repo.update_status(doc_id, "extracted")
     await db.commit()
-    logger.info("csv_statement_ingested", document_id=str(doc_id), rows=len(txns), expenses=created,
-                deposits=parsed.get("deposits_by_channel"))
-    return {"status": "ok", "document_type": "bank_statement", "expenses_created": created, "source": "csv"}
+    logger.info("csv_statement_ingested", document_id=str(doc_id), rows=len(txns), expenses=created, commissions=commissions)
+    return {"status": "ok", "document_type": "bank_statement", "expenses_created": created, "delivery_commissions": commissions, "source": "csv"}
 
 
-# Delivery platforms keep a commission out of each order: the restaurant books
-# the full sale (Toast POS) but only the net lands in the bank. Commission =
-# Toast gross for that channel − the platform's bank deposit. Booked as a
-# Delivery Commissions expense so P&L profit reflects the real cash economics.
+# Delivery platforms keep a cut of each order: the restaurant books the sale in
+# Toast POS but only the net lands in the bank. Policy B (tenant-confirmed):
+# delivery cost = Toast NET revenue(channel) − actual bank payout(channel),
+# floored at 0. Uses Toast net (ex-tax/tip) so it compares like-for-like against
+# the deposit and captures the true cash lost to the platform — verified against
+# Uber/DoorDash/Skip payout statements (Uber nets ~0 via markup, so floors to 0).
 # Channel key (from the deposit description) -> Toast dining_option match.
 _COMMISSION_CHANNELS = {
     "uber": "uber",
@@ -730,7 +728,7 @@ _COMMISSION_CHANNELS = {
 async def _book_delivery_commissions(
     db, tenant_id, document_id, location_id, doc_date, deposits_by_channel: dict, currency: str
 ) -> int:
-    """Book per-platform delivery commission = Toast gross(channel) − deposit."""
+    """Book per-platform delivery cost = max(0, Toast net(channel) − deposit)."""
     from decimal import Decimal
 
     from sqlalchemy import and_, func, select
@@ -749,14 +747,10 @@ async def _book_delivery_commissions(
         deposit = Decimal(str(deposits_by_channel.get(ch_key, "0") or "0"))
         if deposit <= 0:
             continue
-        # Toast gross (net + tax + tip) for this dining_option over the period.
-        gross = await db.scalar(
+        # Toast net sales for this dining_option over the period (ex-tax, ex-tip).
+        net = await db.scalar(
             select(
-                func.coalesce(func.sum(
-                    ToastOrder.net_amount
-                    + func.coalesce(ToastOrder.tax_amount, 0)
-                    + func.coalesce(ToastOrder.tip_amount, 0)
-                ), 0)
+                func.coalesce(func.sum(ToastOrder.net_amount), 0)
             ).where(and_(
                 ToastOrder.tenant_id == tenant_id,
                 ToastOrder.business_date >= start,
@@ -765,10 +759,10 @@ async def _book_delivery_commissions(
                 ToastOrder.is_void.is_(False),
             ))
         )
-        gross = Decimal(str(gross or 0))
-        commission = (gross - deposit).quantize(Decimal("0.01"))
+        net = Decimal(str(net or 0))
+        commission = (net - deposit).quantize(Decimal("0.01"))
         if commission <= 0:
-            continue  # deposit >= gross (platform passed tax/tips) — no commission
+            continue  # payout >= booked revenue (e.g. Uber markup) — no net cost
         vendor = f"{ch_key.title()} delivery commission"
         if await repo.bank_line_exists(
             tenant_id=tenant_id, document_id=document_id,
@@ -784,7 +778,7 @@ async def _book_delivery_commissions(
         exp.is_ai_categorized = False
         exp.user_overridden = True
         exp.ai_explanation = (
-            f"Delivery commission = Toast {ch_key.title()} gross {gross} − bank deposit {deposit}."
+            f"Delivery cost (Policy B) = Toast {ch_key.title()} net {net} − bank payout {deposit}."
         )
         booked += 1
         logger.info("delivery_commission_booked", channel=ch_key,
