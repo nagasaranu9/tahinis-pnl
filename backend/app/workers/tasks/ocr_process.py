@@ -782,7 +782,7 @@ async def _book_delivery_commissions(
         )
         booked += 1
         logger.info("delivery_commission_booked", channel=ch_key,
-                    gross=str(gross), deposit=str(deposit), commission=str(commission))
+                    net=str(net), deposit=str(deposit), commission=str(commission))
     return booked
 
 
