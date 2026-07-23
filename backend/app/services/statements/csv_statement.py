@@ -103,6 +103,38 @@ def _looks_like_header(row: list[str]) -> bool:
     return any(k in joined for k in ("date", "amount", "description", "debit", "credit", "balance"))
 
 
+def _normalize_desc(desc: str) -> str:
+    """Clean a BMO statement description and interpret its [XX] type-code.
+
+    BMO CSV descriptions carry a two-letter transaction-type code in brackets
+    ([DS] pre-auth, [SO] standing order, [IN] interest, [MB]/[CW] withdrawal,
+    [DN] bill payment, [IB]/[SC] …) plus column padding. The bare code breaks the
+    downstream keyword categorizer, dedup and AMEX-rent detection, so we strip it
+    and, for the codes that carry accounting meaning, rewrite the text into the
+    phrasing the existing pipeline already understands.
+    """
+    desc = re.sub(r"\s+", " ", desc).strip()
+    m = re.match(r"^\[([A-Z]{2})\]\s*(.*)$", desc)
+    code, rest = (m.group(1), m.group(2).strip()) if m else ("", desc)
+    low = rest.lower()
+
+    # AMEX card autopay = rent (tenant-confirmed). BMO labels it "[CW]AMEX CARDS".
+    if "amex" in low:
+        return "ONLINE BILL PAYMENT, AMEX CARDS"
+    # BMO loan account 3699#6999-671: standing orders = principal, [IN] = interest.
+    if code == "IN":
+        return f"INTEREST PAID {rest}"
+    if code == "SO":
+        return f"LOAN PAYMENT {rest}"
+    # [DN]BMO PAYMENT = automatic Mastercard bill payment (clears the card).
+    if "bmo payment" in low:
+        return "CREDIT CARD PAYMENT, BMO"
+    # ABM / branch cash withdrawals (BR.####) — tenant books these to staffing.
+    if re.search(r"\bbr\.?\d{3,4}\b", low):
+        return f"STAFFING CASH WITHDRAWAL {rest}"
+    return rest or desc
+
+
 def parse_statement_csv(file_bytes: bytes, filename: str = "") -> dict:
     """Parse a statement CSV. Returns document_date, currency, and outflow txns.
 
@@ -180,10 +212,8 @@ def parse_statement_csv(file_bytes: bytes, filename: str = "") -> dict:
         if out is None or out <= 0:
             continue
 
-        desc = (r[desc_i].strip() if desc_i is not None and len(r) > desc_i else "").strip()
-        if not desc:
-            desc = "CSV transaction"
-        desc = re.sub(r"\s+", " ", desc)
+        raw_desc = (r[desc_i].strip() if desc_i is not None and len(r) > desc_i else "").strip()
+        desc = _normalize_desc(raw_desc) if raw_desc else "CSV transaction"
         txns.append({"description": desc, "amount": out, "date": d.isoformat()})
 
     logger.info(

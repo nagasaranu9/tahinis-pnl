@@ -67,6 +67,8 @@ _KEYWORD_CATEGORY_MAP: list[tuple[tuple[str, ...], str]] = [
       # Delivery-software fees + franchisor tech services (tenant-classified as Software):
       "uber direct", "data candy", "stingray", "tacit", "bin allocation",
       "software", "saas", "subscription", "app store", "aws", "amazon web"), "Software"),
+    # Payroll / staffing (bank payroll debits + tenant-tagged cash withdrawals)
+    (("pushoperations", "payroll", "wages", "staffing"), "Payroll"),
     # Royalties / franchise fees (Tahinis intercompany royalty draw)
     (("royalt", "franchise", "tahinis bus"), "Royalties"),
     # Repairs & maintenance
