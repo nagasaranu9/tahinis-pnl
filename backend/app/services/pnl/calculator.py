@@ -19,8 +19,8 @@ P&L structure:
 import re
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
-from decimal import Decimal, ROUND_HALF_UP
+from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
 from sqlalchemy import and_, select
@@ -138,6 +138,22 @@ def _pct(numerator: Decimal | None, denominator: Decimal | None) -> Decimal | No
     return (numerator / denominator * 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _net_cost(exp: object) -> Decimal:
+    """Expense cost NET of recoverable HST (input tax credit).
+
+    For an HST registrant the tax paid on a purchase is a receivable from CRA,
+    not a cost — the P&L expense is the pre-tax amount. ``tax_amount`` holds the
+    recoverable HST actually shown on the invoice (Canadian basic groceries are
+    zero-rated, so most Food Cost lines carry $0 — we never fabricate 13%).
+    Bank-statement lines with no line detail leave ``tax_amount`` NULL and stay
+    gross (conservative: no ITC claimed on an unverified amount). Synthetic rows
+    (prorated rent, Push labour) have no ``tax_amount`` attr → treated as gross.
+    """
+    amount = getattr(exp, "amount", None) or Decimal("0")
+    tax = getattr(exp, "tax_amount", None) or Decimal("0")
+    return amount - tax
+
+
 class PnLCalculator:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
@@ -199,7 +215,7 @@ class PnLCalculator:
 
         def _sum_cat(cats: set[str]) -> Decimal:
             return sum(
-                (exp.amount for c in cats for exp in category_totals.get(c, []) if exp.amount),
+                (_net_cost(exp) for c in cats for exp in category_totals.get(c, []) if exp.amount),
                 Decimal("0"),
             )
 
@@ -295,7 +311,8 @@ class PnLCalculator:
         # ------------------------------------------------------------------
         breakdown: list[ExpenseCategoryBreakdown] = []
         for cat, exps in sorted(category_totals.items()):
-            total = sum((e.amount for e in exps if e.amount), Decimal("0"))
+            # Net of recoverable HST so the breakdown ties to the P&L cost lines.
+            total = sum((_net_cost(e) for e in exps if e.amount), Decimal("0"))
             if total:
                 breakdown.append(
                     ExpenseCategoryBreakdown(
@@ -303,7 +320,7 @@ class PnLCalculator:
                         total=total,
                         expense_count=len(exps),
                         expenses=[
-                            ExpenseLineItem(vendor_name=getattr(e, "vendor_name", None), amount=e.amount)
+                            ExpenseLineItem(vendor_name=getattr(e, "vendor_name", None), amount=_net_cost(e))
                             for e in exps
                             if e.amount
                         ],
@@ -407,8 +424,8 @@ class PnLCalculator:
         Reuses the same dedup passes _load_expenses applies, then diffs the paper
         documents that survived against every paper document that had an expense.
         """
-        wide_start = datetime(2000, 1, 1, tzinfo=timezone.utc)
-        wide_end = datetime(2100, 1, 1, tzinfo=timezone.utc)
+        wide_start = datetime(2000, 1, 1, tzinfo=UTC)
+        wide_end = datetime(2100, 1, 1, tzinfo=UTC)
         survivors = await self._load_expenses(tenant_id, wide_start, wide_end, location_id)
         surviving = {
             e.document_id
@@ -767,7 +784,7 @@ class PnLCalculator:
         location_id: uuid.UUID | None,
     ) -> list:
         """Load Pipeboard metrics as synthetic expenses with category mapping applied."""
-        from app.db.models.external_platform import PipeboardDailyMetric, PipeboardCampaign
+        from app.db.models.external_platform import PipeboardCampaign, PipeboardDailyMetric
         from app.db.repositories.pipeboard_repo import PipeboardRepository
 
         period_start_str = period_start.strftime("%Y-%m-%d")
