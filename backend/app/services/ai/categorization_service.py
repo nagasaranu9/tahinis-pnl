@@ -83,7 +83,7 @@ _KEYWORD_CATEGORY_MAP: list[tuple[tuple[str, ...], str]] = [
     (("coca-cola", "coca cola", "pepsi", "beverage", "lcbo", "liquor", "brewery",
       "coffee", "beer", "wine"), "Beverage Cost"),
     # Food suppliers / distributors
-    (("alex food", "a1 cash and carry", "a1 cash", "cash and carry",
+    (("alex food", "a1 cash and carry", "a1 cash", "cash and carry", "cash & carry",
       "sysco", "gordon food", "gfs", "costco", "restaurant depot", "produce",
       "meat", "bakery", "food service", "wholesale", "distribut", "grocery",
       "farm", "dairy", "halal", "fresh"), "Food Cost"),
