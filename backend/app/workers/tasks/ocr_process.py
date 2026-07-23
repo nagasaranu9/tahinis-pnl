@@ -701,14 +701,18 @@ async def _process_csv_statement(db, repo, doc, doc_id, tenant_id, file_bytes: b
         extracted_text="",
         prebuilt_transactions=txns,
     )
-    commissions = await _book_delivery_commissions(
-        db, tenant_id, doc_id, doc.location_id, doc_date,
-        parsed.get("deposits_by_channel") or {}, currency,
-    )
+    # NOTE: delivery-commission estimation via (Toast gross − deposit) is DISABLED.
+    # Uber's payout report proved it unreliable: platforms use markup pricing +
+    # offers + facilitator tax, so gross−deposit doesn't equal commission (Uber's
+    # payout actually exceeded Toast menu revenue). Accurate commission requires
+    # parsing each platform's payout report — see _book_delivery_commissions,
+    # kept for when payout-report ingestion lands. Deposits are still bucketed for
+    # reconciliation.
     await repo.update_status(doc_id, "extracted")
     await db.commit()
-    logger.info("csv_statement_ingested", document_id=str(doc_id), rows=len(txns), expenses=created, commissions=commissions)
-    return {"status": "ok", "document_type": "bank_statement", "expenses_created": created, "delivery_commissions": commissions, "source": "csv"}
+    logger.info("csv_statement_ingested", document_id=str(doc_id), rows=len(txns), expenses=created,
+                deposits=parsed.get("deposits_by_channel"))
+    return {"status": "ok", "document_type": "bank_statement", "expenses_created": created, "source": "csv"}
 
 
 # Delivery platforms keep a commission out of each order: the restaurant books
