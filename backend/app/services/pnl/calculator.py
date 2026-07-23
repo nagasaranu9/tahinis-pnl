@@ -231,8 +231,16 @@ class PnLCalculator:
         labor_source = "expenses"
         if push_labor is not None:
             labor_source = "pushoperations"
+            # Push actuals replace the bank PAYROLL debits (same wages, two views)
+            # — but ABM/branch cash paid to staff isn't in PushOperations, so it
+            # must be added ON TOP, not substituted away (tenant-confirmed).
+            staffing_cash = [
+                e for e in category_totals.get("Payroll", [])
+                if "staffing cash" in (getattr(e, "vendor_name", None) or "").lower()
+            ]
             category_totals["Payroll"] = [
-                type("_P", (), {"amount": push_labor, "category": "Payroll", "vendor_name": "PushOperations (actual labour)"})()
+                type("_P", (), {"amount": push_labor, "category": "Payroll", "vendor_name": "PushOperations (actual labour)"})(),
+                *staffing_cash,
             ]
 
         cogs = _sum_cat(_COGS_CATEGORIES)
