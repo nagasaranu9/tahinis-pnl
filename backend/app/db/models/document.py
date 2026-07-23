@@ -28,6 +28,10 @@ ALLOWED_MIME_TYPES = {
     "image/png",
     "image/jpeg",
     "image/tiff",
+    # CSV bank/credit-card statement exports (no magic bytes — validated as text)
+    "text/csv",
+    "application/csv",
+    "application/vnd.ms-excel",
 }
 
 

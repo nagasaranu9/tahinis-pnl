@@ -12,6 +12,8 @@ logger = structlog.get_logger(__name__)
 
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
 
+_CSV_MIME_TYPES = {"text/csv", "application/csv", "application/vnd.ms-excel"}
+
 # Non-financial documents that arrive as email attachments (HR/ops noise, not
 # invoices/receipts/bills). Skipped at ingest so they never hit OCR or the P&L.
 _IGNORED_FILENAME_KEYWORDS = (
@@ -50,8 +52,24 @@ def validate_file(file_bytes: bytes, declared_mime_type: str, filename: str) -> 
 
     if declared_mime_type not in ALLOWED_MIME_TYPES:
         raise ValidationError(
-            f"File type '{declared_mime_type}' not allowed. Allowed: pdf, png, jpg, jpeg, tiff"
+            f"File type '{declared_mime_type}' not allowed. Allowed: pdf, png, jpg, jpeg, tiff, csv"
         )
+
+    # CSV has no magic bytes — validate as decodable delimited text instead.
+    if declared_mime_type in _CSV_MIME_TYPES:
+        head = file_bytes[:8192]
+        if b"\x00" in head:
+            raise ValidationError(f"File '{filename}' is not valid CSV text (NUL bytes).")
+        try:
+            sample = head.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                sample = head.decode("latin-1")
+            except UnicodeDecodeError as exc:
+                raise ValidationError(f"File '{filename}' is not decodable text.") from exc
+        if "," not in sample and "\t" not in sample and ";" not in sample:
+            raise ValidationError(f"File '{filename}' does not look like a delimited CSV.")
+        return "text/csv"
 
     # Magic byte check — detect MIME from actual bytes
     detected: str | None = None
