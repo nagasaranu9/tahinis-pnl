@@ -176,8 +176,18 @@ def parse_statement_csv(file_bytes: bytes, filename: str = "") -> dict:
     if debit_i is None and amount_i is None:
         raise ValueError("No amount/debit column found in CSV")
 
-    is_card = any(h in filename.lower() for h in _CARD_HINTS) or any(
-        h in " ".join(header).lower() for h in _CARD_HINTS
+    # Credit-card vs chequing detection drives the single-amount sign convention
+    # (card: positive = purchase = out; bank: negative = out). Signals:
+    #   - filename/header naming (mastercard/visa/amex/ascend, or a "CC" token)
+    #   - CC exports have a "Posting Date" column and no CREDIT/DEBIT type column;
+    #     BMO chequing exports have a "Transaction Type" column instead.
+    header_l = " ".join(header).lower()
+    fname_l = filename.lower()
+    is_card = (
+        any(h in fname_l for h in _CARD_HINTS)
+        or any(h in header_l for h in _CARD_HINTS)
+        or bool(re.search(r"\bcc\b", fname_l))
+        or ("posting date" in header_l and "transaction type" not in header_l)
     )
 
     txns: list[dict] = []
