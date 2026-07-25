@@ -109,6 +109,36 @@ class ExpenseRepository:
         )
         return result.scalar_one_or_none() is not None
 
+    async def prior_user_override(
+        self,
+        tenant_id: uuid.UUID,
+        vendor_name: str,
+        amount: Decimal,
+        expense_date: datetime,
+        exclude_document_id: uuid.UUID | None = None,
+    ) -> str | None:
+        """Category a user manually set on this same charge in an earlier import.
+
+        Keyed on the charge identity (vendor+amount+date), not the document, so a
+        re-uploaded statement inherits the tenant's hand-categorization instead of
+        reverting to the keyword/AI guess. Returns the category string, or None if
+        the charge was never manually overridden."""
+        conditions = [
+            Expense.tenant_id == tenant_id,
+            Expense.vendor_name == vendor_name,
+            Expense.amount == amount,
+            Expense.expense_date == expense_date,
+            Expense.user_overridden.is_(True),
+            Expense.category.is_not(None),
+        ]
+        if exclude_document_id is not None:
+            conditions.append(Expense.document_id != exclude_document_id)
+        result = await self._db.execute(
+            select(Expense.category).where(and_(*conditions))
+            .order_by(Expense.updated_at.desc()).limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def payroll_duplicate_exists(
         self,
         tenant_id: uuid.UUID,

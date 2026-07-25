@@ -521,7 +521,23 @@ async def _extract_bank_statement_expenses(
         )
         expense.is_ai_categorized = False
 
-        if is_rent:
+        # Sticky manual overrides: if the tenant previously hand-categorized this
+        # exact charge (same vendor+amount+date) on an earlier import, honour that
+        # choice instead of re-running keyword/AI categorization. Reprocessing a
+        # re-uploaded statement otherwise silently reverts every manual fix (e.g.
+        # a Costco run tagged Personal snaps back to Food Cost). Matched on the
+        # charge identity — not a global vendor rule — so it stays correct even
+        # when the same vendor is personal one month and business the next.
+        prior_override = await expense_repo.prior_user_override(
+            tenant_id=tenant_id, vendor_name=vendor, amount=amount,
+            expense_date=tx_date, exclude_document_id=document_id,
+        )
+        if prior_override is not None:
+            expense.category = prior_override
+            expense.user_overridden = True
+            expense.is_ai_categorized = False
+            await db.flush()
+        elif is_rent:
             expense.category = "Rent"
             await db.flush()
         else:
@@ -712,11 +728,13 @@ async def _process_csv_statement(db, repo, doc, doc_id, tenant_id, file_bytes: b
 
 
 # Delivery platforms keep a cut of each order: the restaurant books the sale in
-# Toast POS but only the net lands in the bank. Policy B (tenant-confirmed):
-# delivery cost = Toast NET revenue(channel) − actual bank payout(channel),
-# floored at 0. Uses Toast net (ex-tax/tip) so it compares like-for-like against
-# the deposit and captures the true cash lost to the platform — verified against
-# Uber/DoorDash/Skip payout statements (Uber nets ~0 via markup, so floors to 0).
+# Toast POS but only the net lands in the bank. Policy B (tenant-confirmed),
+# SIGNED: delivery cost = Toast NET revenue(channel) − actual bank payout(channel).
+# Uses Toast net (ex-tax/tip) so it compares like-for-like against the deposit.
+# Positive = cash lost to the platform (DoorDash/Skip). Negative = platform paid
+# MORE than Toast booked (Uber's menu-markup rebate) → booked as delivery income,
+# not dropped, so the P&L ties to the bank penny-for-penny. Verified against
+# Uber/DoorDash/Skip payout statements.
 # Channel key (from the deposit description) -> Toast dining_option match.
 _COMMISSION_CHANNELS = {
     "uber": "uber",
@@ -761,9 +779,15 @@ async def _book_delivery_commissions(
         )
         net = Decimal(str(net or 0))
         commission = (net - deposit).quantize(Decimal("0.01"))
-        if commission <= 0:
-            continue  # payout >= booked revenue (e.g. Uber markup) — no net cost
-        vendor = f"{ch_key.title()} delivery commission"
+        if commission == 0:
+            continue
+        # Signed Policy B: commission > 0 is a cost (platform kept a cut);
+        # commission < 0 means the platform paid MORE than Toast booked (Uber's
+        # menu markup rebate) — that extra cash IS in the bank, so book it as
+        # delivery income (negative expense) rather than dropping it. Net effect:
+        # the P&L bottom line ties to the bank payout penny-for-penny.
+        is_income = commission < 0
+        vendor = f"{ch_key.title()} delivery {'income' if is_income else 'commission'}"
         if await repo.bank_line_exists(
             tenant_id=tenant_id, document_id=document_id,
             vendor_name=vendor, amount=commission, expense_date=doc_date,
@@ -778,7 +802,8 @@ async def _book_delivery_commissions(
         exp.is_ai_categorized = False
         exp.user_overridden = True
         exp.ai_explanation = (
-            f"Delivery cost (Policy B) = Toast {ch_key.title()} net {net} − bank payout {deposit}."
+            f"Delivery {'income' if is_income else 'cost'} (Policy B, signed) = "
+            f"Toast {ch_key.title()} net {net} − bank payout {deposit}."
         )
         booked += 1
         logger.info("delivery_commission_booked", channel=ch_key,
