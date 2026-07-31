@@ -721,10 +721,57 @@ async def _process_csv_statement(db, repo, doc, doc_id, tenant_id, file_bytes: b
         db, tenant_id, doc_id, doc.location_id, doc_date,
         parsed.get("deposits_by_channel") or {}, currency,
     )
+    deposits_saved = await _persist_bank_deposits(
+        db, tenant_id, doc_id, doc.location_id, currency, parsed.get("deposits") or [],
+    )
     await repo.update_status(doc_id, "extracted")
     await db.commit()
-    logger.info("csv_statement_ingested", document_id=str(doc_id), rows=len(txns), expenses=created, commissions=commissions)
+    logger.info("csv_statement_ingested", document_id=str(doc_id), rows=len(txns),
+                expenses=created, commissions=commissions, deposits=deposits_saved)
     return {"status": "ok", "document_type": "bank_statement", "expenses_created": created, "delivery_commissions": commissions, "source": "csv"}
+
+
+async def _persist_bank_deposits(
+    db, tenant_id, document_id, location_id, currency: str, deposits: list[dict]
+) -> int:
+    """Store every CREDIT line from the statement as a BankDeposit row.
+
+    Idempotent per document: a re-import clears this document's prior deposits
+    first, so re-uploading a month replaces its money-in rows rather than
+    doubling revenue (mirrors the expense side's per-document dedup)."""
+    from datetime import date as _date
+    from decimal import Decimal
+
+    from sqlalchemy import delete
+
+    from app.db.models.bank_deposit import BankDeposit
+
+    await db.execute(
+        delete(BankDeposit).where(
+            BankDeposit.tenant_id == tenant_id,
+            BankDeposit.document_id == document_id,
+        )
+    )
+    saved = 0
+    for dep in deposits:
+        try:
+            pd = _date.fromisoformat(str(dep["date"]))
+        except Exception:
+            continue
+        db.add(BankDeposit(
+            tenant_id=tenant_id,
+            location_id=location_id,
+            document_id=document_id,
+            deposit_date=datetime(pd.year, pd.month, pd.day, tzinfo=UTC),
+            channel=dep.get("channel") or "other",
+            description=dep.get("description"),
+            amount=Decimal(str(dep["amount"])),
+            currency_code=currency,
+            is_revenue=bool(dep.get("is_revenue", True)),
+        ))
+        saved += 1
+    await db.flush()
+    return saved
 
 
 # Delivery platforms keep a cut of each order: the restaurant books the sale in

@@ -210,6 +210,7 @@ def parse_statement_csv(file_bytes: bytes, filename: str = "") -> dict:
     )
 
     txns: list[dict] = []
+    deposits: list[dict] = []
     deposits_by_channel: dict[str, Decimal] = {}
     latest: date | None = None
     dropped = 0
@@ -254,6 +255,17 @@ def parse_statement_csv(file_bytes: bytes, filename: str = "") -> dict:
             ch = _deposit_channel(raw_desc)
             if ch:
                 deposits_by_channel[ch] = deposits_by_channel.get(ch, Decimal("0")) + inflow
+            # Persist every credit line (bank-basis P&L revenue). Unbucketed
+            # credits (loan draw, transfer, refund) are kept as channel "other"
+            # and flagged non-revenue so they reconcile the statement without
+            # inflating the top line.
+            deposits.append({
+                "date": d.isoformat(),
+                "channel": ch or "other",
+                "description": raw_desc[:512] or None,
+                "amount": str(inflow),
+                "is_revenue": ch is not None,
+            })
             continue
         if out is None or out <= 0:
             continue
@@ -276,5 +288,6 @@ def parse_statement_csv(file_bytes: bytes, filename: str = "") -> dict:
         "document_date": (latest or date.today()).isoformat(),
         "currency_code": "CAD",
         "transactions": txns,
+        "deposits": deposits,
         "deposits_by_channel": {k: str(v) for k, v in deposits_by_channel.items()},
     }

@@ -1,15 +1,7 @@
 from app.db.models.ai_insight import AIInsight
 from app.db.models.audit import AuditLog
-from app.db.models.expense import Expense
-from app.db.models.external_platform import GoogleAdsCampaign, GoogleAdsDailyMetric, GoogleReviewSnapshot
-from app.db.models.google_ads_optimization import GoogleAdsOptimizationRecommendation, GoogleAdsOptimizationAction
-from app.db.models.pnl import PnLSnapshot
-from app.db.models.push_labor import (
-    PushLabourEmployeeDaily,
-    PushSyncConfig,
-    PushSyncJob,
-)
-from app.db.models.reconciliation import ReconciliationFlag, ReconciliationRun
+from app.db.models.bank_deposit import BankDeposit
+from app.db.models.document import Document, ExtractedLineItem, OCRResult
 from app.db.models.email_sync import (
     DriveSyncConfig,
     DriveSyncJob,
@@ -18,9 +10,26 @@ from app.db.models.email_sync import (
     EmailSyncConfig,
     EmailSyncJob,
 )
-from app.db.models.document import Document, ExtractedLineItem, OCRResult
+from app.db.models.expense import Expense
+from app.db.models.external_platform import (
+    GoogleAdsCampaign,
+    GoogleAdsDailyMetric,
+    GoogleReviewSnapshot,
+)
+from app.db.models.google_ads_optimization import (
+    GoogleAdsOptimizationAction,
+    GoogleAdsOptimizationRecommendation,
+)
 from app.db.models.integration import IntegrationCredential
 from app.db.models.location import Location
+from app.db.models.password_reset import PasswordResetToken
+from app.db.models.pnl import PnLSnapshot
+from app.db.models.push_labor import (
+    PushLabourEmployeeDaily,
+    PushSyncConfig,
+    PushSyncJob,
+)
+from app.db.models.reconciliation import ReconciliationFlag, ReconciliationRun
 from app.db.models.tenant import Tenant
 from app.db.models.toast import (
     ToastEmployee,
@@ -35,11 +44,11 @@ from app.db.models.toast import (
     ToastTimeEntry,
 )
 from app.db.models.user import RefreshToken, User
-from app.db.models.password_reset import PasswordResetToken
 
 __all__ = [
     "AIInsight",
     "AuditLog",
+    "BankDeposit",
     "Expense",
     "GoogleAdsCampaign",
     "GoogleAdsDailyMetric",
