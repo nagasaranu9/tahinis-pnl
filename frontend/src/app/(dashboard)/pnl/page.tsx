@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
 import { usePnLReport, usePnLTrend, useDiscountBreakdown } from "@/hooks/use-pnl";
+import { BankBasisPanel } from "@/components/pnl/bank-basis-panel";
 import { useLocationStore } from "@/lib/location-store";
 import { downloadPnL } from "@/lib/export-pnl";
 import type {
@@ -600,6 +601,7 @@ export default function PnLPage() {
   const [customStart, setCustomStart] = useState(new Date().toISOString().slice(0, 10));
   const [customEnd, setCustomEnd] = useState(new Date().toISOString().slice(0, 10));
   const [compare, setCompare] = useState(false);
+  const [basis, setBasis] = useState<"toast" | "bank">("bank");
   const [exporting, setExporting] = useState<"csv" | "pdf" | null>(null);
   const locationId = useLocationStore((s) => s.selectedLocationId);
 
@@ -740,27 +742,48 @@ export default function PnLPage() {
           </div>
         )}
 
-        {/* Period info */}
-        <p className="text-xs text-muted-foreground">
-          {period.start} → {period.end}
-          {compare && (
-            <span className="ml-3 text-muted-foreground/60">
-              vs. {prior.start} → {prior.end}
-            </span>
-          )}
-        </p>
+        {/* Period info + basis toggle */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-xs text-muted-foreground">
+            {period.start} → {period.end}
+            {compare && basis === "toast" && (
+              <span className="ml-3 text-muted-foreground/60">
+                vs. {prior.start} → {prior.end}
+              </span>
+            )}
+          </p>
+          <div className="flex rounded-md border border-border overflow-hidden">
+            {(["bank", "toast"] as const).map((b) => (
+              <button
+                key={b}
+                onClick={() => setBasis(b)}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  basis === b
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-card text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {b === "bank" ? "Bank Statement" : "Toast POS"}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {isLoading && (
+      {basis === "bank" && (
+        <BankBasisPanel periodStart={period.start} periodEnd={period.end} />
+      )}
+
+      {basis === "toast" && isLoading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Computing P&L…
         </div>
       )}
-      {isError && (
+      {basis === "toast" && isError && (
         <p className="text-sm text-destructive">Failed to load report. Check period dates.</p>
       )}
 
-      {report && !report.bank_statement_verified && (
+      {basis === "toast" && report && !report.bank_statement_verified && (
         <div className="flex items-start gap-2 rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2.5">
           <span className="text-xs text-red-600 dark:text-red-400">
             <span className="font-semibold">No bank statement for this period.</span>{" "}
@@ -772,7 +795,7 @@ export default function PnLPage() {
         </div>
       )}
 
-      {report && li && (
+      {basis === "toast" && report && li && (
         <>
           {/* Summary cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

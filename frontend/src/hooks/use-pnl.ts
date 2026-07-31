@@ -1,8 +1,15 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
-import type { DiscountBreakdown, PnLReport, PnLSnapshot, PnLTrend } from "@/types/pnl";
+import type {
+  BankBasisPnL,
+  DiscountBreakdown,
+  Partner,
+  PnLReport,
+  PnLSnapshot,
+  PnLTrend,
+} from "@/types/pnl";
 
 const BASE = "/api/v1/pnl";
 
@@ -110,6 +117,53 @@ export function usePnLSnapshots(params: { location_id?: string; page?: number } 
         `${BASE}/snapshots?${qs}`
       );
       return data;
+    },
+  });
+}
+
+// ─── Bank-statement-basis P&L ────────────────────────────────────────────────
+
+export function useBankBasisPnL(params: {
+  period_start: string;
+  period_end: string;
+  enabled?: boolean;
+}) {
+  const { period_start, period_end, enabled = true } = params;
+  const qs = new URLSearchParams({ period_start, period_end });
+  return useQuery({
+    queryKey: ["pnl-bank-basis", period_start, period_end],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: BankBasisPnL }>(
+        `${BASE}/report/bank-basis?${qs}`
+      );
+      return data.data;
+    },
+    enabled: enabled && Boolean(period_start && period_end),
+    staleTime: 0,
+  });
+}
+
+export function usePartners() {
+  return useQuery({
+    queryKey: ["pnl-partners"],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: Partner[] }>(`${BASE}/partners`);
+      return data.data;
+    },
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useSetPartners() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (partners: Partner[]) => {
+      const { data } = await apiClient.put<{ data: Partner[] }>(`${BASE}/partners`, partners);
+      return data.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pnl-partners"] });
+      qc.invalidateQueries({ queryKey: ["pnl-bank-basis"] });
     },
   });
 }

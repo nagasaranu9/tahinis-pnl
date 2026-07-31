@@ -104,3 +104,47 @@ export interface PnLSnapshot {
   order_count: number;
   expense_count: number;
 }
+
+// ─── Bank-statement-basis P&L ────────────────────────────────────────────────
+
+export interface BankBasisSide {
+  revenue: string;
+  ebitda: string;
+  net_profit: string;
+}
+
+export interface BankPartnerSplit {
+  name: string;
+  share_pct: string;
+  revenue_before_hst: string;
+  revenue_after_hst: string;
+  net_before_hst: string;
+  net_after_hst: string;
+}
+
+export interface BankBasisPnL {
+  period_start: string;
+  period_end: string;
+  basis: string;
+  revenue: string;
+  revenue_by_channel: Record<string, string>;
+  cogs: string;
+  labor: string;
+  operating_expenses: string;
+  interest: string;
+  expense_by_category: Record<string, string>;
+  principal_excluded: string;
+  before_hst: BankBasisSide;
+  after_hst: BankBasisSide;
+  hst: {
+    collected_on_sales: string;
+    input_tax_credits: string;
+    net_remittance: string;
+  };
+  partner_split: BankPartnerSplit[];
+}
+
+export interface Partner {
+  name: string;
+  share_pct: string;
+}
