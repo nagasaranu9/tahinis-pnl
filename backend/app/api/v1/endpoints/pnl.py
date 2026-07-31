@@ -1,6 +1,6 @@
 """P&L report and snapshot endpoints."""
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import structlog
@@ -37,8 +37,8 @@ async def get_pnl_report(
 ) -> dict:
     """Compute P&L on-the-fly for any date range."""
     try:
-        start_dt = datetime.fromisoformat(period_start).replace(tzinfo=timezone.utc)
-        end_dt = datetime.fromisoformat(period_end).replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+        start_dt = datetime.fromisoformat(period_start).replace(tzinfo=UTC)
+        end_dt = datetime.fromisoformat(period_end).replace(hour=23, minute=59, second=59, tzinfo=UTC)
     except ValueError:
         from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="period_start and period_end must be YYYY-MM-DD")
@@ -59,6 +59,75 @@ async def get_pnl_report(
     return {"data": report, "errors": None}
 
 
+@router.get("/report/bank-basis")
+async def get_bank_basis_pnl(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    period_start: str = Query(..., description="YYYY-MM-DD"),
+    period_end: str = Query(..., description="YYYY-MM-DD"),
+) -> dict:
+    """Bank-statement-basis P&L: revenue from deposits, before/after HST, partner split."""
+    from fastapi.encoders import jsonable_encoder
+
+    from app.services.pnl.bank_pnl import BankPnLCalculator
+
+    try:
+        start_dt = datetime.fromisoformat(period_start).replace(tzinfo=UTC)
+        end_dt = datetime.fromisoformat(period_end).replace(hour=23, minute=59, second=59, tzinfo=UTC)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="period_start and period_end must be YYYY-MM-DD")
+
+    report = await BankPnLCalculator(db).compute(user.tenant_id, start_dt, end_dt)
+    return {"data": jsonable_encoder(report), "errors": None}
+
+
+@router.get("/partners")
+async def list_partners(user: CurrentUserDep, db: AsyncSessionDep) -> dict:
+    """Partner ownership shares for the tenant (bank-basis P&L split)."""
+    from app.db.models.partner_share import PartnerShare
+
+    rows = (await db.execute(
+        select(PartnerShare).where(PartnerShare.tenant_id == user.tenant_id)
+        .order_by(PartnerShare.sort_order, PartnerShare.name)
+    )).scalars().all()
+    return {"data": [
+        {"name": p.name, "share_pct": str(p.share_pct)} for p in rows
+    ], "errors": None}
+
+
+@router.put("/partners")
+async def set_partners(
+    user: ManagerDep,
+    db: AsyncSessionDep,
+    partners: list[dict],
+) -> dict:
+    """Replace the tenant's partner shares. Body: [{name, share_pct}, ...]."""
+    from sqlalchemy import delete
+
+    from app.db.models.partner_share import PartnerShare
+
+    total = Decimal("0")
+    cleaned: list[tuple[str, Decimal]] = []
+    for p in partners:
+        name = str(p.get("name", "")).strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="each partner needs a name")
+        try:
+            pct = Decimal(str(p.get("share_pct")))
+        except Exception:
+            raise HTTPException(status_code=422, detail=f"invalid share_pct for {name}")
+        total += pct
+        cleaned.append((name, pct))
+    if cleaned and abs(total - Decimal("100")) > Decimal("0.01"):
+        raise HTTPException(status_code=422, detail=f"shares must sum to 100 (got {total})")
+
+    await db.execute(delete(PartnerShare).where(PartnerShare.tenant_id == user.tenant_id))
+    for i, (name, pct) in enumerate(cleaned):
+        db.add(PartnerShare(tenant_id=user.tenant_id, name=name, share_pct=pct, sort_order=i))
+    await db.commit()
+    return {"data": [{"name": n, "share_pct": str(p)} for n, p in cleaned], "errors": None}
+
+
 @router.get("/daily-breakdown", response_model=APIResponse[DailyBreakdownResponse])
 async def get_daily_breakdown(
     user: CurrentUserDep,
@@ -69,8 +138,8 @@ async def get_daily_breakdown(
 ) -> dict:
     """Return per-day revenue totals from Toast orders for chart rendering."""
     try:
-        start_dt = datetime.fromisoformat(period_start).replace(tzinfo=timezone.utc)
-        end_dt = datetime.fromisoformat(period_end).replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+        start_dt = datetime.fromisoformat(period_start).replace(tzinfo=UTC)
+        end_dt = datetime.fromisoformat(period_end).replace(hour=23, minute=59, second=59, tzinfo=UTC)
     except ValueError:
         from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="period_start and period_end must be YYYY-MM-DD")
@@ -143,9 +212,9 @@ async def export_pnl(
     if format not in ("csv", "pdf"):
         raise HTTPException(status_code=422, detail="format must be 'csv' or 'pdf'")
     try:
-        start_dt = datetime.fromisoformat(period_start).replace(tzinfo=timezone.utc)
+        start_dt = datetime.fromisoformat(period_start).replace(tzinfo=UTC)
         end_dt = datetime.fromisoformat(period_end).replace(
-            hour=23, minute=59, second=59, tzinfo=timezone.utc
+            hour=23, minute=59, second=59, tzinfo=UTC
         )
     except ValueError:
         raise HTTPException(status_code=422, detail="period_start and period_end must be YYYY-MM-DD")
@@ -338,7 +407,7 @@ async def pnl_trend(
 
     from app.db.session import AsyncSessionLocal
 
-    today = datetime.now(timezone.utc)
+    today = datetime.now(UTC)
 
     # Walk back `months` calendar months, oldest first.
     year, month = today.year, today.month
@@ -352,8 +421,8 @@ async def pnl_trend(
     periods.reverse()
 
     async def _month(yr: int, mo: int) -> dict:
-        start = datetime(yr, mo, 1, tzinfo=timezone.utc)
-        end = datetime(yr, mo, monthrange(yr, mo)[1], 23, 59, 59, tzinfo=timezone.utc)
+        start = datetime(yr, mo, 1, tzinfo=UTC)
+        end = datetime(yr, mo, monthrange(yr, mo)[1], 23, 59, 59, tzinfo=UTC)
         # Each month gets its own session: a single AsyncSession can't be shared
         # across concurrent tasks, and running the months sequentially on the
         # request's session made this endpoint several times slower than the
