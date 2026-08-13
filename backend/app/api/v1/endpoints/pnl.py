@@ -91,7 +91,7 @@ async def list_partners(user: CurrentUserDep, db: AsyncSessionDep) -> dict:
         .order_by(PartnerShare.sort_order, PartnerShare.name)
     )).scalars().all()
     return {"data": [
-        {"name": p.name, "share_pct": str(p.share_pct)} for p in rows
+        {"name": p.name, "share_pct": str(p.share_pct), "gets_vehicle": p.gets_vehicle} for p in rows
     ], "errors": None}
 
 
@@ -121,11 +121,76 @@ async def set_partners(
     if cleaned and abs(total - Decimal("100")) > Decimal("0.01"):
         raise HTTPException(status_code=422, detail=f"shares must sum to 100 (got {total})")
 
+    vehicle_names = {str(p.get("name", "")).strip() for p in partners if p.get("gets_vehicle")}
     await db.execute(delete(PartnerShare).where(PartnerShare.tenant_id == user.tenant_id))
     for i, (name, pct) in enumerate(cleaned):
-        db.add(PartnerShare(tenant_id=user.tenant_id, name=name, share_pct=pct, sort_order=i))
+        db.add(PartnerShare(
+            tenant_id=user.tenant_id, name=name, share_pct=pct, sort_order=i,
+            gets_vehicle=name in vehicle_names,
+        ))
     await db.commit()
-    return {"data": [{"name": n, "share_pct": str(p)} for n, p in cleaned], "errors": None}
+    return {"data": [
+        {"name": n, "share_pct": str(p), "gets_vehicle": n in vehicle_names} for n, p in cleaned
+    ], "errors": None}
+
+
+@router.get("/partner-draws")
+async def get_partner_draws(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    period_start: str = Query(...),
+    period_end: str = Query(...),
+) -> dict:
+    """Manual profit-draws entered for a period, keyed by partner name."""
+    from app.db.models.partner_share import PartnerDraw
+
+    try:
+        s = datetime.fromisoformat(period_start).replace(tzinfo=UTC)
+        e = datetime.fromisoformat(period_end).replace(hour=23, minute=59, second=59, tzinfo=UTC)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="dates must be YYYY-MM-DD")
+    rows = (await db.execute(
+        select(PartnerDraw).where(and_(
+            PartnerDraw.tenant_id == user.tenant_id,
+            PartnerDraw.period_start == s, PartnerDraw.period_end == e,
+        ))
+    )).scalars().all()
+    return {"data": {r.name: str(r.amount) for r in rows}, "errors": None}
+
+
+@router.put("/partner-draws")
+async def set_partner_draws(
+    user: ManagerDep,
+    db: AsyncSessionDep,
+    body: dict,
+) -> dict:
+    """Set manual draws for a period. Body: {period_start, period_end, draws:{name:amount}}."""
+    from sqlalchemy import delete as _delete
+
+    from app.db.models.partner_share import PartnerDraw
+
+    try:
+        s = datetime.fromisoformat(str(body["period_start"])).replace(tzinfo=UTC)
+        e = datetime.fromisoformat(str(body["period_end"])).replace(hour=23, minute=59, second=59, tzinfo=UTC)
+    except (ValueError, KeyError):
+        raise HTTPException(status_code=422, detail="period_start/period_end required (YYYY-MM-DD)")
+    draws = body.get("draws") or {}
+    await db.execute(_delete(PartnerDraw).where(and_(
+        PartnerDraw.tenant_id == user.tenant_id,
+        PartnerDraw.period_start == s, PartnerDraw.period_end == e,
+    )))
+    for name, amt in draws.items():
+        try:
+            amount = Decimal(str(amt))
+        except Exception:
+            continue
+        if amount == 0:
+            continue
+        db.add(PartnerDraw(
+            tenant_id=user.tenant_id, name=str(name), period_start=s, period_end=e, amount=amount,
+        ))
+    await db.commit()
+    return {"data": {"ok": True}, "errors": None}
 
 
 @router.get("/daily-breakdown", response_model=APIResponse[DailyBreakdownResponse])

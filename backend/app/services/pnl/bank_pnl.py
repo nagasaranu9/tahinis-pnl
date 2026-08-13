@@ -36,7 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.bank_deposit import BankDeposit
 from app.db.models.document import Document
 from app.db.models.expense import NON_PNL_CATEGORIES, Expense
-from app.db.models.partner_share import PartnerShare
+from app.db.models.partner_share import PartnerDraw, PartnerShare
 
 logger = structlog.get_logger(__name__)
 
@@ -163,16 +163,49 @@ class BankPnLCalculator:
             .order_by(PartnerShare.sort_order, PartnerShare.name)
         )).scalars().all()
         pct_total = sum((p.share_pct for p in partners), Decimal("0")) or Decimal("100")
+
+        # Manual draws (profit already taken) for this exact period.
+        draw_rows = (await self._db.execute(
+            select(PartnerDraw.name, func.coalesce(func.sum(PartnerDraw.amount), 0))
+            .where(and_(
+                PartnerDraw.tenant_id == tenant_id,
+                PartnerDraw.period_start == period_start,
+                PartnerDraw.period_end == period_end,
+            )).group_by(PartnerDraw.name)
+        )).all()
+        manual_draws = {name: Decimal(str(amt)) for name, amt in draw_rows}
+
+        # Company-paid vehicle (Toyota Finance) — not a P&L cost, it's a draw by the
+        # partner who holds the car. Booked as an excluded "Owner's Draw" expense.
+        vehicle_total = Decimal(str((await self._db.scalar(
+            select(func.coalesce(func.sum(Expense.amount), 0)).where(and_(
+                Expense.tenant_id == tenant_id,
+                Expense.category == "Owner's Draw",
+                Expense.vendor_name.ilike("%toyota%"),
+                Expense.expense_date >= period_start,
+                Expense.expense_date <= period_end,
+            ))
+        )) or 0))
+
         partner_split = []
         for p in partners:
             frac = p.share_pct / pct_total
+            manual = manual_draws.get(p.name, Decimal("0"))
+            vehicle = vehicle_total if p.gets_vehicle else Decimal("0")
+            total_draw = manual + vehicle
+            share_after = _q(net_after * frac)
             partner_split.append({
                 "name": p.name,
                 "share_pct": _q(p.share_pct),
+                "gets_vehicle": p.gets_vehicle,
                 "revenue_before_hst": _q(revenue * frac),
                 "revenue_after_hst": _q(revenue_after * frac),
                 "net_before_hst": _q(net_before * frac),
-                "net_after_hst": _q(net_after * frac),
+                "net_after_hst": share_after,
+                "manual_draw": _q(manual),
+                "vehicle_draw": _q(vehicle),
+                "total_draw": _q(total_draw),
+                "remaining": _q(share_after - total_draw),
             })
 
         return {

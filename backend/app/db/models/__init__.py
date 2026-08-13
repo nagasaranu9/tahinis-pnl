@@ -22,7 +22,7 @@ from app.db.models.google_ads_optimization import (
 )
 from app.db.models.integration import IntegrationCredential
 from app.db.models.location import Location
-from app.db.models.partner_share import PartnerShare
+from app.db.models.partner_share import PartnerDraw, PartnerShare
 from app.db.models.password_reset import PasswordResetToken
 from app.db.models.pnl import PnLSnapshot
 from app.db.models.push_labor import (
@@ -51,6 +51,7 @@ __all__ = [
     "AuditLog",
     "BankDeposit",
     "PartnerShare",
+    "PartnerDraw",
     "Expense",
     "GoogleAdsCampaign",
     "GoogleAdsDailyMetric",

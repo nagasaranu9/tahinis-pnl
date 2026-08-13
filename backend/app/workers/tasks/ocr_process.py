@@ -470,7 +470,11 @@ async def _extract_bank_statement_expenses(
         desc_lower = desc.lower()
         if any(k in desc_lower for k in _SKIP_VENDOR_NOISE):
             continue
-        if _is_non_expense_bank_line(desc):
+        # Toyota Finance is the partner's company-paid vehicle — not dropped like
+        # other loan lines, but booked as an excluded Owner's Draw so the P&L can
+        # charge it back to that partner as a personal distribution.
+        is_vehicle = "toyota finance" in desc_lower
+        if _is_non_expense_bank_line(desc) and not is_vehicle:
             continue
 
         # Use per-transaction date when Claude extracted it; fall back to statement date.
@@ -495,7 +499,11 @@ async def _extract_bank_statement_expenses(
         # AMEX bill payment is rent (tenant-confirmed) — book it directly as a
         # Rent expense and skip the AI guess.
         is_rent = _is_amex_rent_payment(desc)
-        vendor = "Rent (AMEX autopay)" if is_rent else _vendor_from_description(desc)
+        vendor = (
+            "Toyota Finance (vehicle)" if is_vehicle
+            else "Rent (AMEX autopay)" if is_rent
+            else _vendor_from_description(desc)
+        )
 
         # Dedup on vendor+amount+date — a bank statement legitimately repeats the
         # same vendor with different amounts (ALEX FOOD daily, PUSHOPERATIONS
@@ -544,6 +552,12 @@ async def _extract_bank_statement_expenses(
             expense.category = prior_override
             expense.user_overridden = True
             expense.is_ai_categorized = False
+            await db.flush()
+        elif is_vehicle:
+            # Owner's Draw is non-P&L (excluded from every cost line); the bank-basis
+            # partner split charges it to the vehicle-holding partner.
+            expense.category = "Owner's Draw"
+            expense.user_overridden = True
             await db.flush()
         elif is_rent:
             expense.category = "Rent"
