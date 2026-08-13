@@ -100,6 +100,7 @@ function Row({
   bold,
   accent,
   breakdown,
+  revBase,
 }: {
   label: string;
   before: string;
@@ -107,8 +108,11 @@ function Row({
   bold?: boolean;
   accent?: boolean;
   breakdown?: [string, number][];
+  revBase?: number;
 }) {
   const hasBreakdown = breakdown && breakdown.length > 0;
+  const pct = (v: string) =>
+    revBase && revBase !== 0 ? ` (${((parseFloat(v) / revBase) * 100).toFixed(1)}%)` : "";
   return (
     <tr className={accent ? "bg-slate-50 dark:bg-slate-800/50" : ""}>
       <td className={`py-2.5 pl-4 pr-2 text-sm ${bold ? "font-semibold text-slate-800 dark:text-slate-100" : "text-slate-600 dark:text-slate-300"}`}>
@@ -125,7 +129,14 @@ function Row({
                 .map(([cat, amt]) => (
                   <div key={cat} className="flex justify-between gap-4 py-0.5 text-xs">
                     <span className="text-slate-500 dark:text-slate-300">{cat}</span>
-                    <span className="tabular-nums text-slate-700 dark:text-slate-100">{fmt(amt)}</span>
+                    <span className="tabular-nums text-slate-700 dark:text-slate-100">
+                      {fmt(amt)}
+                      {revBase && revBase !== 0 ? (
+                        <span className="ml-1 text-slate-400">
+                          {((amt / revBase) * 100).toFixed(1)}%
+                        </span>
+                      ) : null}
+                    </span>
                   </div>
                 ))}
             </div>
@@ -136,6 +147,7 @@ function Row({
       </td>
       <td className={`py-2.5 px-3 text-right text-sm tabular-nums ${bold ? "font-semibold text-slate-900 dark:text-white" : "text-slate-700 dark:text-slate-200"}`}>
         {fmt(before)}
+        <span className="text-xs font-normal text-slate-400">{pct(before)}</span>
       </td>
       <td className={`py-2.5 pl-3 pr-4 text-right text-sm tabular-nums ${bold ? "font-semibold text-slate-900 dark:text-white" : "text-slate-700 dark:text-slate-200"}`}>
         {fmt(after)}
@@ -154,6 +166,7 @@ function BeforeAfterHst({ data }: { data: BankBasisPnL }) {
   const cogsB = cats.filter(([c]) => COGS_CATS.has(c));
   const laborB = cats.filter(([c]) => LABOR_CATS.has(c));
   const opexB = cats.filter(([c]) => !COGS_CATS.has(c) && !LABOR_CATS.has(c));
+  const revBase = parseFloat(data.before_hst.revenue);
   return (
     <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       <table className="w-full">
@@ -172,9 +185,9 @@ function BeforeAfterHst({ data }: { data: BankBasisPnL }) {
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
           <Row label="Revenue" before={data.before_hst.revenue} after={data.after_hst.revenue} bold />
-          <Row label="COGS" before={data.cogs} after={data.cogs} breakdown={cogsB} />
-          <Row label="Labor" before={data.labor} after={data.labor} breakdown={laborB} />
-          <Row label="Operating Expenses" before={data.operating_expenses} after={data.operating_expenses} breakdown={opexB} />
+          <Row label="COGS" before={data.cogs} after={data.cogs} breakdown={cogsB} revBase={revBase} />
+          <Row label="Labor" before={data.labor} after={data.labor} breakdown={laborB} revBase={revBase} />
+          <Row label="Operating Expenses" before={data.operating_expenses} after={data.operating_expenses} breakdown={opexB} revBase={revBase} />
           <Row label="EBITDA" before={data.before_hst.ebitda} after={data.after_hst.ebitda} bold accent />
           <Row label="Interest & Financing" before={data.interest} after={data.interest} />
           <Row label="Net Profit" before={data.before_hst.net_profit} after={data.after_hst.net_profit} bold accent />
@@ -479,6 +492,68 @@ function PartnerSplit({
           </table>
           <p className="mt-3 text-xs text-slate-400">
             Same draws as above; net is the pre-HST share (before the CRA remittance).
+          </p>
+        </div>
+      </div>
+    )}
+
+    {!editing && (
+      <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+        <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
+          Partner distribution (at 33% tax reserve)
+        </h3>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
+                <th className="py-2 text-left">Partner</th>
+                <th className="py-2 text-right">Net (−33% tax)</th>
+                <th className="py-2 text-right">Draw taken</th>
+                <th className="py-2 text-right">Car</th>
+                <th className="py-2 text-right">Remaining</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {data.partner_split.map((p) => {
+                const net33 = parseFloat(p.net_before_hst) * 0.67;
+                const draw =
+                  parseFloat(p.manual_draw ?? "0") + parseFloat(p.vehicle_draw ?? "0");
+                const rem = net33 - draw;
+                return (
+                  <tr key={p.name}>
+                    <td className="py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200">
+                      {p.name}{" "}
+                      <span className="text-xs text-slate-400">{parseFloat(p.share_pct)}%</span>
+                    </td>
+                    <td className="py-2.5 text-right text-sm tabular-nums text-slate-600 dark:text-slate-300">
+                      {fmt(net33)}
+                    </td>
+                    <td className="py-2.5 text-right text-sm tabular-nums text-slate-500 dark:text-slate-400">
+                      {parseFloat(p.manual_draw ?? "0") > 0 ? fmt(p.manual_draw) : "—"}
+                    </td>
+                    <td className="py-2.5 text-right text-sm tabular-nums text-slate-500 dark:text-slate-400">
+                      {parseFloat(p.vehicle_draw ?? "0") > 0 ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Car className="h-3.5 w-3.5" /> {fmt(p.vehicle_draw)}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td
+                      className={`py-2.5 text-right text-sm font-semibold tabular-nums ${
+                        rem < 0 ? "text-red-600 dark:text-red-400" : "text-slate-900 dark:text-white"
+                      }`}
+                    >
+                      {fmt(rem)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="mt-3 text-xs text-slate-400">
+            Pre-HST net share with 33% held back for tax (net × 0.67), minus draws.
           </p>
         </div>
       </div>
