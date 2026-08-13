@@ -5,6 +5,7 @@ export async function downloadPnL(params: {
   period_start: string;
   period_end: string;
   location_id?: string;
+  basis?: "toast" | "bank";
 }): Promise<void> {
   const qs = new URLSearchParams({
     format: params.format,
@@ -12,6 +13,7 @@ export async function downloadPnL(params: {
     period_end: params.period_end,
   });
   if (params.location_id) qs.set("location_id", params.location_id);
+  if (params.basis) qs.set("basis", params.basis);
 
   const response = await apiClient.get(`/api/v1/pnl/export?${qs}`, {
     responseType: "blob",

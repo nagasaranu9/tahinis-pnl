@@ -114,6 +114,72 @@ def generate_csv(
     return buf.getvalue().encode("utf-8-sig")  # BOM for Excel compatibility
 
 
+def _money(v) -> str:
+    if v is None:
+        return ""
+    return f"${Decimal(str(v)):,.2f}"
+
+
+def generate_bank_csv(
+    report: dict,
+    location_name: str = "All Locations",
+    location_timezone: Optional[str] = None,
+) -> bytes:
+    """Bank-statement-basis P&L as CSV.
+
+    Fixed 4-column grid (Line, Before HST, After HST, Note) so every row lines up
+    in a spreadsheet — no ragged/empty trailing cells."""
+    buf = io.StringIO()
+    w = csv.writer(buf)
+
+    w.writerow(["Tahini's P&L Report — Bank Statement Basis", "", "", ""])
+    w.writerow(["Location", location_name, "", ""])
+    w.writerow(["Period", f"{report['period_start']} to {report['period_end']}", "", ""])
+    w.writerow(["Generated", _generated_at(location_timezone), "", ""])
+    w.writerow(["", "", "", ""])
+
+    before, after = report["before_hst"], report["after_hst"]
+    w.writerow(["Line", "Before HST", "After HST", ""])
+    w.writerow(["Revenue", _money(before["revenue"]), _money(after["revenue"]), ""])
+    w.writerow(["COGS", _money(report["cogs"]), _money(report["cogs"]), ""])
+    w.writerow(["Labor", _money(report["labor"]), _money(report["labor"]), ""])
+    w.writerow(["Operating Expenses", _money(report["operating_expenses"]), _money(report["operating_expenses"]), ""])
+    w.writerow(["EBITDA", _money(before["ebitda"]), _money(after["ebitda"]), ""])
+    w.writerow(["Interest & Financing", _money(report["interest"]), _money(report["interest"]), ""])
+    w.writerow(["Net Profit", _money(before["net_profit"]), _money(after["net_profit"]), ""])
+    w.writerow(["", "", "", ""])
+
+    hst = report["hst"]
+    w.writerow(["HST", "Amount", "", ""])
+    w.writerow(["Collected on sales", _money(hst["collected_on_sales"]), "", ""])
+    w.writerow(["Input tax credits (ITC)", _money(hst["input_tax_credits"]), "", ""])
+    w.writerow(["Net HST owed to CRA", _money(hst["net_remittance"]), "", ""])
+    w.writerow(["", "", "", ""])
+
+    w.writerow(["Revenue by channel", "Amount", "", ""])
+    for ch, amt in sorted(report["revenue_by_channel"].items(), key=lambda x: -float(x[1] or 0)):
+        w.writerow([ch, _money(amt), "", ""])
+    w.writerow(["Total revenue", _money(report["revenue"]), "", ""])
+    w.writerow(["", "", "", ""])
+
+    w.writerow(["Expense category", "Amount", "", ""])
+    for cat, amt in sorted(report["expense_by_category"].items(), key=lambda x: -float(x[1] or 0)):
+        w.writerow([cat, _money(amt), "", ""])
+    if float(report.get("principal_excluded") or 0) > 0:
+        w.writerow(["Loan principal (excluded, balance-sheet)", _money(report["principal_excluded"]), "", ""])
+    w.writerow(["", "", "", ""])
+
+    w.writerow(["Partner", "Revenue (before)", "Revenue (after)", "Net (before)", "Net (after)"])
+    for p in report["partner_split"]:
+        w.writerow([
+            f"{p['name']} ({Decimal(str(p['share_pct'])):g}%)",
+            _money(p["revenue_before_hst"]), _money(p["revenue_after_hst"]),
+            _money(p["net_before_hst"]), _money(p["net_after_hst"]),
+        ])
+
+    return buf.getvalue().encode("utf-8-sig")
+
+
 def generate_pdf(
     report: PnLReportResponse,
     location_name: str = "All Locations",

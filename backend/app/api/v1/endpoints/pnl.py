@@ -206,6 +206,7 @@ async def export_pnl(
     period_start: str = Query(..., description="YYYY-MM-DD"),
     period_end: str = Query(..., description="YYYY-MM-DD"),
     format: str = Query("csv", description="csv or pdf"),
+    basis: str = Query("toast", description="toast or bank"),
     location_id: uuid.UUID | None = Query(None),
 ) -> Response:
     """Export P&L report as CSV or PDF. Never modifies source records."""
@@ -218,6 +219,25 @@ async def export_pnl(
         )
     except ValueError:
         raise HTTPException(status_code=422, detail="period_start and period_end must be YYYY-MM-DD")
+
+    # Bank-statement-basis export (CSV only for now — matches the P&L page's
+    # Bank Statement view: deposits revenue, Before/After HST, partner split).
+    if basis == "bank" and format == "csv":
+        from app.services.pnl.bank_pnl import BankPnLCalculator
+        from app.services.pnl.export_service import generate_bank_csv
+
+        report_dict = await BankPnLCalculator(db).compute(user.tenant_id, start_dt, end_dt)
+        loc_name = "All Locations"
+        loc_tz: str | None = None
+        if location_id:
+            location = await db.get(Location, location_id)
+            if location and location.tenant_id == user.tenant_id:
+                loc_name, loc_tz = location.name, location.timezone
+        content = generate_bank_csv(report_dict, location_name=loc_name, location_timezone=loc_tz)
+        return Response(
+            content=content, media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="tahinis_pnl_bank_{period_start}_{period_end}.csv"'},
+        )
 
     calculator = PnLCalculator(db)
     report = await calculator.compute(

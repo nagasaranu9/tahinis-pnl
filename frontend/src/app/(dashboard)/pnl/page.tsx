@@ -637,6 +637,7 @@ export default function PnLPage() {
         period_start: period.start,
         period_end: period.end,
         location_id: locationId ?? undefined,
+        basis,
       });
     } finally {
       setExporting(null);
