@@ -28,6 +28,7 @@ _PUSHOPERATIONS_KEYWORD = "pushoperations"
 
 async def _pushoperations_integration_active(db, tenant_id: uuid.UUID) -> bool:
     from sqlalchemy import select
+
     from app.db.models.integration import IntegrationCredential
 
     row = (await db.execute(
@@ -200,9 +201,11 @@ async def _gmail_verify_expense(
     """Look for a matching invoice/bill in Gmail email_messages and linked documents."""
     from datetime import timedelta
     from decimal import Decimal as _D
-    from sqlalchemy import select, or_
-    from app.db.models.email_sync import EmailMessage
+
+    from sqlalchemy import or_, select
+
     from app.db.models.document import Document
+    from app.db.models.email_sync import EmailMessage
 
     vendor_token = " ".join(vendor_name.split()[:3]).lower()
     date_low = doc_date - timedelta(days=30)
@@ -255,7 +258,9 @@ async def _parse_bank_transactions_with_claude(extracted_text: str, currency_cod
     Returns list of {description, amount (positive Decimal), date (str|None)}."""
     import json
     from decimal import Decimal, InvalidOperation
+
     import anthropic
+
     from app.core.config import settings
 
     if not extracted_text or len(extracted_text) < 50:
@@ -348,7 +353,9 @@ async def _extract_statement_balances(extracted_text: str) -> dict:
     Decimal, or {} when nothing extractable."""
     import json
     from decimal import Decimal, InvalidOperation
+
     import anthropic
+
     from app.core.config import settings
 
     if not extracted_text or len(extracted_text) < 50:
@@ -419,6 +426,7 @@ async def _extract_bank_statement_expenses(
     + deterministic even on dense multi-page statements). Falls back to whole-document
     line_items, then Claude haiku text parsing. Returns count created."""
     from decimal import Decimal
+
     from app.db.repositories.expense_repo import ExpenseRepository
     from app.workers.tasks.ai_categorize import categorize_expense
 
@@ -455,7 +463,7 @@ async def _extract_bank_statement_expenses(
 
     for tx in transactions:
         desc = tx["description"]
-        amount: "Decimal" = tx["amount"]
+        amount: Decimal = tx["amount"]
         if not amount or amount <= 0:
             continue
 
@@ -1025,16 +1033,59 @@ async def _process_async(document_id_str: str, tenant_id_str: str) -> dict:
                     extracted_text=result.extracted_text or "",
                     prebuilt_transactions=prebuilt,
                 )
+
+                # Money-IN side: extract deposits (bank-basis P&L revenue) and book
+                # per-channel delivery commissions. Mirrors the CSV path so an OCR'd
+                # PDF statement populates revenue too, not just expenses.
+                deposits_saved = 0
+                try:
+                    from decimal import Decimal
+
+                    from app.services.ocr.claude_adapter import extract_bank_deposits_per_page
+                    from app.services.statements.csv_statement import _deposit_channel
+
+                    stmt_year = (doc_date or datetime.now(UTC)).year
+                    raw_deposits = await extract_bank_deposits_per_page(
+                        file_bytes, doc.mime_type, statement_year=stmt_year
+                    )
+                    deposits = []
+                    deposits_by_channel: dict = {}
+                    for d in raw_deposits:
+                        ch = _deposit_channel(d["description"])
+                        amt = d["amount"]
+                        deposits.append({
+                            "date": d["date"] or (doc_date or datetime.now(UTC)).date().isoformat(),
+                            "channel": ch or "other",
+                            "description": (d["description"] or "")[:512] or None,
+                            "amount": str(amt),
+                            "is_revenue": ch is not None,
+                        })
+                        if ch:
+                            deposits_by_channel[ch] = deposits_by_channel.get(ch, Decimal("0")) + amt
+                    deposits_saved = await _persist_bank_deposits(
+                        db, tenant_id, doc_id, doc.location_id,
+                        result.currency_code or "CAD", deposits,
+                    )
+                    await _book_delivery_commissions(
+                        db, tenant_id, doc_id, doc.location_id,
+                        doc_date or datetime.now(UTC), deposits_by_channel,
+                        result.currency_code or "CAD",
+                    )
+                except Exception as exc:
+                    logger.warning("bank_deposit_extract_failed", document_id=document_id_str, error=str(exc))
+
                 await db.commit()
                 logger.info(
                     "bank_statement_expenses_extracted",
                     document_id=document_id_str,
                     bank_expenses_created=bank_created,
+                    deposits_saved=deposits_saved,
                 )
                 return {
                     "status": "ok",
                     "document_type": "bank_statement",
                     "bank_expenses_created": bank_created,
+                    "deposits_saved": deposits_saved,
                 }
 
             # Skip other non-expense document types

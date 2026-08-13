@@ -7,7 +7,6 @@ import base64
 import json
 import re
 from decimal import Decimal, InvalidOperation
-from typing import Optional
 
 import anthropic
 import structlog
@@ -93,16 +92,30 @@ Respond with ONLY a JSON array, no markdown:
 - return [] if none on this page"""
 
 
-async def extract_bank_transactions_per_page(
-    file_bytes: bytes, mime_type: str, statement_year: int | None = None
-) -> list[dict]:
-    """Extract bank debit/charge transactions ONE PAGE AT A TIME.
+# Money-IN prompt — mirror of _BANK_PAGE_PROMPT for the deposit side. Bank-basis
+# P&L revenue = the deposits that actually land in the chequing account.
+_BANK_DEPOSIT_PAGE_PROMPT = """This is ONE page of a bank statement. List EVERY money-IN
+transaction (deposit / credit) visible on THIS page only.
 
-    A single whole-document call truncates its JSON on dense multi-page statements
-    (40+ transactions) and silently drops most rows — the recurring 'P&L is
-    incomplete / inconsistent' bug. Parsing each page in its own bounded call keeps
-    every output small and complete, then we accumulate. Returns a list of
-    {description, amount (positive float), date (str|None)}."""
+Money-IN = the 'amounts credited' column — direct deposits, card settlements
+(Toast, Square), delivery-platform payouts (Uber, DoorDash, Skip), transfers in.
+
+EXCLUDE: money-OUT (debits, pre-authorized payments, withdrawals, purchases, fees),
+and opening/closing/previous/new balance lines.
+
+Respond with ONLY a JSON array, no markdown:
+[{"description": "vendor/text as shown", "amount": 123.45, "date": "YYYY-MM-DD or MM/DD or null"}]
+- amount: positive number, no symbols/commas
+- include EVERY qualifying credit line on this page, even repeats
+- return [] if none on this page"""
+
+
+async def _extract_bank_lines_per_page(
+    file_bytes: bytes, mime_type: str, prompt: str, statement_year: int | None, log_kind: str
+) -> list[dict]:
+    """Shared per-page extractor. A single whole-document call truncates its JSON on
+    dense multi-page statements and silently drops rows — parse each page in its own
+    bounded call so every output is small and complete, then accumulate."""
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
     if mime_type == "application/pdf" or mime_type.endswith("/pdf"):
@@ -122,7 +135,7 @@ async def extract_bank_transactions_per_page(
                     "data": base64.standard_b64encode(img).decode(),
                 },
             },
-            {"type": "text", "text": _BANK_PAGE_PROMPT},
+            {"type": "text", "text": prompt},
         ]
         try:
             msg = client.messages.create(
@@ -140,7 +153,7 @@ async def extract_bank_transactions_per_page(
                 continue
             rows = json.loads(raw[start : end + 1])
         except Exception as exc:
-            logger.warning("bank_page_parse_failed", page=idx, error=str(exc))
+            logger.warning("bank_page_parse_failed", kind=log_kind, page=idx, error=str(exc))
             continue
 
         for r in rows if isinstance(rows, list) else []:
@@ -156,11 +169,29 @@ async def extract_bank_transactions_per_page(
                 "date": _normalize_date(r.get("date"), statement_year),
             })
 
-    logger.info("bank_per_page_extracted", pages=len(page_images), transactions=len(out))
+    logger.info("bank_per_page_extracted", kind=log_kind, pages=len(page_images), rows=len(out))
     return out
 
 
-def _normalize_date(val, statement_year: int | None) -> Optional[str]:
+async def extract_bank_transactions_per_page(
+    file_bytes: bytes, mime_type: str, statement_year: int | None = None
+) -> list[dict]:
+    """Extract bank debit/charge transactions (money-OUT) ONE PAGE AT A TIME."""
+    return await _extract_bank_lines_per_page(
+        file_bytes, mime_type, _BANK_PAGE_PROMPT, statement_year, "debit"
+    )
+
+
+async def extract_bank_deposits_per_page(
+    file_bytes: bytes, mime_type: str, statement_year: int | None = None
+) -> list[dict]:
+    """Extract bank deposit/credit transactions (money-IN) ONE PAGE AT A TIME."""
+    return await _extract_bank_lines_per_page(
+        file_bytes, mime_type, _BANK_DEPOSIT_PAGE_PROMPT, statement_year, "deposit"
+    )
+
+
+def _normalize_date(val, statement_year: int | None) -> str | None:
     """Accept YYYY-MM-DD or MM/DD (year inferred from statement) → YYYY-MM-DD."""
     if not val:
         return None
@@ -173,7 +204,7 @@ def _normalize_date(val, statement_year: int | None) -> Optional[str]:
     return None
 
 
-def _parse_decimal(val) -> Optional[Decimal]:
+def _parse_decimal(val) -> Decimal | None:
     if val is None:
         return None
     try:
@@ -241,8 +272,8 @@ class ClaudeVisionAdapter(OCRAdapter):
             )
             data = {}
 
-        vendor_name: Optional[str] = data.get("vendor_name")
-        document_date: Optional[str] = data.get("document_date")
+        vendor_name: str | None = data.get("vendor_name")
+        document_date: str | None = data.get("document_date")
         total_amount = _parse_decimal(data.get("total_amount"))
         tax_amount = _parse_decimal(data.get("tax_amount"))
         currency_code = (data.get("currency_code") or "CAD").strip().upper()[:3]
