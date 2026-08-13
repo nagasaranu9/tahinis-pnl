@@ -99,17 +99,40 @@ function Row({
   after,
   bold,
   accent,
+  breakdown,
 }: {
   label: string;
   before: string;
   after: string;
   bold?: boolean;
   accent?: boolean;
+  breakdown?: [string, number][];
 }) {
+  const hasBreakdown = breakdown && breakdown.length > 0;
   return (
     <tr className={accent ? "bg-slate-50 dark:bg-slate-800/50" : ""}>
       <td className={`py-2.5 pl-4 pr-2 text-sm ${bold ? "font-semibold text-slate-800 dark:text-slate-100" : "text-slate-600 dark:text-slate-300"}`}>
-        {label}
+        {hasBreakdown ? (
+          <span className="group relative inline-flex cursor-help items-center gap-1 border-b border-dotted border-slate-300 dark:border-slate-600">
+            {label}
+            <div className="pointer-events-none absolute left-0 top-full z-20 mt-1 hidden min-w-[15rem] rounded-lg border border-slate-200 bg-white p-3 text-left shadow-lg group-hover:block dark:border-slate-700 dark:bg-slate-800">
+              <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                {label} breakdown
+              </div>
+              {breakdown!
+                .slice()
+                .sort((a, b) => b[1] - a[1])
+                .map(([cat, amt]) => (
+                  <div key={cat} className="flex justify-between gap-4 py-0.5 text-xs">
+                    <span className="text-slate-500 dark:text-slate-300">{cat}</span>
+                    <span className="tabular-nums text-slate-700 dark:text-slate-100">{fmt(amt)}</span>
+                  </div>
+                ))}
+            </div>
+          </span>
+        ) : (
+          label
+        )}
       </td>
       <td className={`py-2.5 px-3 text-right text-sm tabular-nums ${bold ? "font-semibold text-slate-900 dark:text-white" : "text-slate-700 dark:text-slate-200"}`}>
         {fmt(before)}
@@ -121,9 +144,18 @@ function Row({
   );
 }
 
+const COGS_CATS = new Set(["Food Cost", "Beverage Cost", "Packaging"]);
+const LABOR_CATS = new Set(["Payroll"]);
+
 function BeforeAfterHst({ data }: { data: BankBasisPnL }) {
+  const cats = Object.entries(data.expense_by_category ?? {}).map(
+    ([k, v]) => [k, parseFloat(v)] as [string, number]
+  );
+  const cogsB = cats.filter(([c]) => COGS_CATS.has(c));
+  const laborB = cats.filter(([c]) => LABOR_CATS.has(c));
+  const opexB = cats.filter(([c]) => !COGS_CATS.has(c) && !LABOR_CATS.has(c));
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+    <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       <table className="w-full">
         <thead>
           <tr className="border-b border-slate-200 dark:border-slate-800">
@@ -140,9 +172,9 @@ function BeforeAfterHst({ data }: { data: BankBasisPnL }) {
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
           <Row label="Revenue" before={data.before_hst.revenue} after={data.after_hst.revenue} bold />
-          <Row label="COGS" before={data.cogs} after={data.cogs} />
-          <Row label="Labor" before={data.labor} after={data.labor} />
-          <Row label="Operating Expenses" before={data.operating_expenses} after={data.operating_expenses} />
+          <Row label="COGS" before={data.cogs} after={data.cogs} breakdown={cogsB} />
+          <Row label="Labor" before={data.labor} after={data.labor} breakdown={laborB} />
+          <Row label="Operating Expenses" before={data.operating_expenses} after={data.operating_expenses} breakdown={opexB} />
           <Row label="EBITDA" before={data.before_hst.ebitda} after={data.after_hst.ebitda} bold accent />
           <Row label="Interest & Financing" before={data.interest} after={data.interest} />
           <Row label="Net Profit" before={data.before_hst.net_profit} after={data.after_hst.net_profit} bold accent />
