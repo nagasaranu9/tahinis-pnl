@@ -125,6 +125,7 @@ export interface BankPartnerSplit {
   vehicle_draw?: string;
   total_draw?: string;
   remaining?: string;
+  remaining_before?: string;
 }
 
 export interface BankBasisPnL {

@@ -227,10 +227,11 @@ function PartnerSplit({
   }
 
   return (
+    <div className="space-y-6">
     <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Partner distribution
+          Partner distribution (After HST)
         </h3>
         {!editing ? (
           <button
@@ -390,6 +391,66 @@ function PartnerSplit({
           </div>
         </div>
       )}
+    </div>
+
+    {!editing && (
+      <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+        <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
+          Partner distribution (Before HST)
+        </h3>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
+                <th className="py-2 text-left">Partner</th>
+                <th className="py-2 text-right">Net (before HST)</th>
+                <th className="py-2 text-right">Draw taken</th>
+                <th className="py-2 text-right">Car</th>
+                <th className="py-2 text-right">Remaining</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {data.partner_split.map((p) => {
+                const rem = parseFloat(p.remaining_before ?? p.net_before_hst);
+                return (
+                  <tr key={p.name}>
+                    <td className="py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200">
+                      {p.name}{" "}
+                      <span className="text-xs text-slate-400">{parseFloat(p.share_pct)}%</span>
+                    </td>
+                    <td className="py-2.5 text-right text-sm tabular-nums text-slate-600 dark:text-slate-300">
+                      {fmt(p.net_before_hst)}
+                    </td>
+                    <td className="py-2.5 text-right text-sm tabular-nums text-slate-500 dark:text-slate-400">
+                      {parseFloat(p.manual_draw ?? "0") > 0 ? fmt(p.manual_draw) : "—"}
+                    </td>
+                    <td className="py-2.5 text-right text-sm tabular-nums text-slate-500 dark:text-slate-400">
+                      {parseFloat(p.vehicle_draw ?? "0") > 0 ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Car className="h-3.5 w-3.5" /> {fmt(p.vehicle_draw)}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td
+                      className={`py-2.5 text-right text-sm font-semibold tabular-nums ${
+                        rem < 0 ? "text-red-600 dark:text-red-400" : "text-slate-900 dark:text-white"
+                      }`}
+                    >
+                      {fmt(p.remaining_before ?? p.net_before_hst)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="mt-3 text-xs text-slate-400">
+            Same draws as above; net is the pre-HST share (before the CRA remittance).
+          </p>
+        </div>
+      </div>
+    )}
     </div>
   );
 }

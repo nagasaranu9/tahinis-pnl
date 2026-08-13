@@ -206,6 +206,7 @@ class BankPnLCalculator:
                 "vehicle_draw": _q(vehicle),
                 "total_draw": _q(total_draw),
                 "remaining": _q(share_after - total_draw),
+                "remaining_before": _q(_q(net_before * frac) - total_draw),
             })
 
         return {
