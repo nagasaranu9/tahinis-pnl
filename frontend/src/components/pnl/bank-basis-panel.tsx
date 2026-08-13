@@ -500,14 +500,14 @@ function PartnerSplit({
     {!editing && (
       <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
         <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Partner distribution (at 33% tax reserve)
+          Partner distribution (33% HST remitted)
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
                 <th className="py-2 text-left">Partner</th>
-                <th className="py-2 text-right">Net (−33% tax)</th>
+                <th className="py-2 text-right">Net (33% HST)</th>
                 <th className="py-2 text-right">Draw taken</th>
                 <th className="py-2 text-right">Car</th>
                 <th className="py-2 text-right">Remaining</th>
@@ -515,7 +515,11 @@ function PartnerSplit({
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {data.partner_split.map((p) => {
-                const net33 = parseFloat(p.net_before_hst) * 0.67;
+                // Only 33% of collected HST is remitted (ITC/expenses cover the rest).
+                const remit33 = parseFloat(data.hst.collected_on_sales) * 0.33;
+                const netCompany33 = parseFloat(data.before_hst.net_profit) - remit33;
+                const frac = parseFloat(p.share_pct) / 100;
+                const net33 = netCompany33 * frac;
                 const draw =
                   parseFloat(p.manual_draw ?? "0") + parseFloat(p.vehicle_draw ?? "0");
                 const rem = net33 - draw;
@@ -553,7 +557,8 @@ function PartnerSplit({
             </tbody>
           </table>
           <p className="mt-3 text-xs text-slate-400">
-            Pre-HST net share with 33% held back for tax (net × 0.67), minus draws.
+            Only 33% of collected HST is remitted (ITC/expenses cover the rest):
+            pre-HST net − (HST collected × 33%), split by share, minus draws.
           </p>
         </div>
       </div>
