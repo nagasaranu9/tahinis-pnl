@@ -1,8 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Pencil, Check, X, Landmark } from "lucide-react";
-import { useBankBasisPnL, usePartners, useSetPartners } from "@/hooks/use-pnl";
+import { Loader2, Pencil, Check, X, Landmark, Car } from "lucide-react";
+import {
+  useBankBasisPnL,
+  usePartners,
+  useSetPartners,
+  usePartnerDraws,
+  useSetPartnerDraws,
+} from "@/hooks/use-pnl";
 import type { BankBasisPnL, Partner } from "@/types/pnl";
 
 function fmt(val: string | number | null | undefined): string {
@@ -47,7 +53,7 @@ export function BankBasisPanel({
       <RevenueByChannel data={data} />
       <BeforeAfterHst data={data} />
       <HstSummary data={data} />
-      <PartnerSplit data={data} />
+      <PartnerSplit data={data} periodStart={periodStart} periodEnd={periodEnd} />
       {parseFloat(data.principal_excluded) > 0 && (
         <p className="text-xs text-slate-500">
           Loan principal {fmt(data.principal_excluded)} excluded — balance-sheet movement, not a
@@ -172,18 +178,53 @@ function HstSummary({ data }: { data: BankBasisPnL }) {
   );
 }
 
-function PartnerSplit({ data }: { data: BankBasisPnL }) {
+function PartnerSplit({
+  data,
+  periodStart,
+  periodEnd,
+}: {
+  data: BankBasisPnL;
+  periodStart: string;
+  periodEnd: string;
+}) {
   const { data: partners } = usePartners();
   const setPartners = useSetPartners();
+  const { data: savedDraws } = usePartnerDraws({ period_start: periodStart, period_end: periodEnd });
+  const setDraws = useSetPartnerDraws();
+
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Partner[]>([]);
+  // Manual draw inputs keyed by partner name (strings so the field can be blank).
+  const [drawInputs, setDrawInputs] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (partners) setDraft(partners);
   }, [partners]);
+  useEffect(() => {
+    if (savedDraws) setDrawInputs(savedDraws);
+  }, [savedDraws]);
 
   const draftTotal = draft.reduce((s, p) => s + (parseFloat(p.share_pct) || 0), 0);
   const canSave = Math.abs(draftTotal - 100) < 0.01;
+
+  const drawsDirty =
+    JSON.stringify(
+      Object.fromEntries(
+        data.partner_split.map((p) => [p.name, (drawInputs[p.name] ?? "").trim()])
+      )
+    ) !==
+    JSON.stringify(
+      Object.fromEntries(data.partner_split.map((p) => [p.name, savedDraws?.[p.name] ?? ""]))
+    );
+
+  function saveDraws() {
+    const draws: Record<string, string> = {};
+    for (const p of data.partner_split) {
+      const v = (drawInputs[p.name] ?? "").trim();
+      draws[p.name] = v === "" ? "0" : v;
+    }
+    setDraws.mutate({ period_start: periodStart, period_end: periodEnd, draws });
+  }
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
@@ -248,6 +289,17 @@ function PartnerSplit({ data }: { data: BankBasisPnL }) {
                 inputMode="decimal"
               />
               <span className="text-sm text-slate-400">%</span>
+              <label className="flex items-center gap-1 text-xs text-slate-500" title="Company car charged to this partner">
+                <input
+                  type="checkbox"
+                  checked={!!p.gets_vehicle}
+                  onChange={(e) => {
+                    const next = draft.map((d, j) => ({ ...d, gets_vehicle: j === i ? e.target.checked : false }));
+                    setDraft(next);
+                  }}
+                />
+                <Car className="h-3.5 w-3.5" />
+              </label>
               <button
                 onClick={() => setDraft(draft.filter((_, j) => j !== i))}
                 className="text-slate-400 hover:text-red-500"
@@ -269,35 +321,73 @@ function PartnerSplit({ data }: { data: BankBasisPnL }) {
             <thead>
               <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
                 <th className="py-2 text-left">Partner</th>
-                <th className="py-2 text-right">Revenue (before)</th>
-                <th className="py-2 text-right">Revenue (after)</th>
-                <th className="py-2 text-right">Net (before)</th>
-                <th className="py-2 text-right">Net (after)</th>
+                <th className="py-2 text-right">Net (after HST)</th>
+                <th className="py-2 text-right">Draw taken</th>
+                <th className="py-2 text-right">Car</th>
+                <th className="py-2 text-right">Remaining</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {data.partner_split.map((p) => (
-                <tr key={p.name}>
-                  <td className="py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200">
-                    {p.name}{" "}
-                    <span className="text-xs text-slate-400">{parseFloat(p.share_pct)}%</span>
-                  </td>
-                  <td className="py-2.5 text-right text-sm tabular-nums text-slate-600 dark:text-slate-300">
-                    {fmt(p.revenue_before_hst)}
-                  </td>
-                  <td className="py-2.5 text-right text-sm tabular-nums text-slate-600 dark:text-slate-300">
-                    {fmt(p.revenue_after_hst)}
-                  </td>
-                  <td className="py-2.5 text-right text-sm tabular-nums text-slate-600 dark:text-slate-300">
-                    {fmt(p.net_before_hst)}
-                  </td>
-                  <td className="py-2.5 text-right text-sm font-semibold tabular-nums text-slate-900 dark:text-white">
-                    {fmt(p.net_after_hst)}
-                  </td>
-                </tr>
-              ))}
+              {data.partner_split.map((p) => {
+                const rem = parseFloat(p.remaining ?? p.net_after_hst);
+                return (
+                  <tr key={p.name}>
+                    <td className="py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200">
+                      {p.name}{" "}
+                      <span className="text-xs text-slate-400">{parseFloat(p.share_pct)}%</span>
+                    </td>
+                    <td className="py-2.5 text-right text-sm tabular-nums text-slate-600 dark:text-slate-300">
+                      {fmt(p.net_after_hst)}
+                    </td>
+                    <td className="py-2.5 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <span className="text-xs text-slate-400">$</span>
+                        <input
+                          value={drawInputs[p.name] ?? ""}
+                          onChange={(e) =>
+                            setDrawInputs({ ...drawInputs, [p.name]: e.target.value })
+                          }
+                          placeholder="0.00"
+                          inputMode="decimal"
+                          className="w-24 rounded-md border border-slate-300 px-2 py-1 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-800"
+                        />
+                      </div>
+                    </td>
+                    <td className="py-2.5 text-right text-sm tabular-nums text-slate-500 dark:text-slate-400">
+                      {parseFloat(p.vehicle_draw ?? "0") > 0 ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Car className="h-3.5 w-3.5" /> {fmt(p.vehicle_draw)}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td
+                      className={`py-2.5 text-right text-sm font-semibold tabular-nums ${
+                        rem < 0 ? "text-red-600 dark:text-red-400" : "text-slate-900 dark:text-white"
+                      }`}
+                    >
+                      {fmt(p.remaining ?? p.net_after_hst)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+          <div className="mt-3 flex items-center justify-between">
+            <p className="text-xs text-slate-400">
+              Remaining = share of net profit (after HST) − draw taken − car.
+            </p>
+            {drawsDirty && (
+              <button
+                disabled={setDraws.isPending}
+                onClick={saveDraws}
+                className="flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40"
+              >
+                <Check className="h-3.5 w-3.5" /> Save draws
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -116,10 +116,15 @@ export interface BankBasisSide {
 export interface BankPartnerSplit {
   name: string;
   share_pct: string;
+  gets_vehicle?: boolean;
   revenue_before_hst: string;
   revenue_after_hst: string;
   net_before_hst: string;
   net_after_hst: string;
+  manual_draw?: string;
+  vehicle_draw?: string;
+  total_draw?: string;
+  remaining?: string;
 }
 
 export interface BankBasisPnL {
@@ -147,4 +152,5 @@ export interface BankBasisPnL {
 export interface Partner {
   name: string;
   share_pct: string;
+  gets_vehicle?: boolean;
 }

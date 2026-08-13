@@ -167,3 +167,36 @@ export function useSetPartners() {
     },
   });
 }
+
+export function usePartnerDraws(params: { period_start: string; period_end: string }) {
+  const { period_start, period_end } = params;
+  const qs = new URLSearchParams({ period_start, period_end });
+  return useQuery({
+    queryKey: ["pnl-partner-draws", period_start, period_end],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: Record<string, string> }>(
+        `${BASE}/partner-draws?${qs}`
+      );
+      return data.data;
+    },
+    enabled: Boolean(period_start && period_end),
+    staleTime: 0,
+  });
+}
+
+export function useSetPartnerDraws() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: {
+      period_start: string;
+      period_end: string;
+      draws: Record<string, string>;
+    }) => {
+      await apiClient.put(`${BASE}/partner-draws`, body);
+    },
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["pnl-partner-draws", vars.period_start, vars.period_end] });
+      qc.invalidateQueries({ queryKey: ["pnl-bank-basis"] });
+    },
+  });
+}
