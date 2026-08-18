@@ -169,12 +169,60 @@ def generate_bank_csv(
         w.writerow(["Loan principal (excluded, balance-sheet)", _money(report["principal_excluded"]), "", ""])
     w.writerow(["", "", "", ""])
 
-    w.writerow(["Partner", "Revenue (before)", "Revenue (after)", "Net (before)", "Net (after)"])
+    # Partner distribution — mirrors the three P&L tables exactly (period net +
+    # QTD + YTD), for each HST basis: After HST, Before HST, 33% HST remitted.
+    quarter = report.get("quarter") or {}
+    ytd = report.get("ytd") or {}
+
+    def _find(rep: dict, name: str) -> dict | None:
+        for row in rep.get("partner_split", []):
+            if row["name"] == name:
+                return row
+        return None
+
+    def _net(rep: dict, name: str, key: str):
+        row = _find(rep, name)
+        return row[key] if row else None
+
+    def _net33(rep: dict, share_pct) -> Decimal | None:
+        """Net at the 33%-of-collected-HST remittance, per partner share."""
+        if not rep:
+            return None
+        collected = Decimal(str(rep["hst"]["collected_on_sales"]))
+        net_co = Decimal(str(rep["before_hst"]["net_profit"])) - collected * Decimal("0.33")
+        return net_co * (Decimal(str(share_pct)) / Decimal("100"))
+
+    def _partner_block(title: str, key: str | None) -> None:
+        w.writerow([title, "Net", "QTD", "YTD"])
+        for p in report["partner_split"]:
+            name = p["name"]
+            label = f"{name} ({Decimal(str(p['share_pct'])):g}%)"
+            if key is not None:  # After / Before HST — read net straight from split
+                w.writerow([
+                    label,
+                    _money(p[key]),
+                    _money(_net(quarter, name, key)),
+                    _money(_net(ytd, name, key)),
+                ])
+            else:  # 33% HST — derived from collected HST + share
+                w.writerow([
+                    label,
+                    _money(_net33(report, p["share_pct"])),
+                    _money(_net33(quarter, p["share_pct"])),
+                    _money(_net33(ytd, p["share_pct"])),
+                ])
+        w.writerow(["", "", "", ""])
+
+    _partner_block("Partner distribution (After HST)", "net_after_hst")
+    _partner_block("Partner distribution (Before HST)", "net_before_hst")
+    _partner_block("Partner distribution (33% HST remitted)", None)
+
+    # Partner revenue split (before / after HST) for reference.
+    w.writerow(["Partner", "Revenue (before)", "Revenue (after)", ""])
     for p in report["partner_split"]:
         w.writerow([
             f"{p['name']} ({Decimal(str(p['share_pct'])):g}%)",
-            _money(p["revenue_before_hst"]), _money(p["revenue_after_hst"]),
-            _money(p["net_before_hst"]), _money(p["net_after_hst"]),
+            _money(p["revenue_before_hst"]), _money(p["revenue_after_hst"]), "",
         ])
 
     return buf.getvalue().encode("utf-8-sig")

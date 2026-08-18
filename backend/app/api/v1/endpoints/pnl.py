@@ -301,7 +301,14 @@ async def export_pnl(
         from app.services.pnl.bank_pnl import BankPnLCalculator
         from app.services.pnl.export_service import generate_bank_csv
 
-        report_dict = await BankPnLCalculator(db).compute(user.tenant_id, start_dt, end_dt)
+        _calc = BankPnLCalculator(db)
+        report_dict = await _calc.compute(user.tenant_id, start_dt, end_dt)
+        # Same QTD + YTD roll-ups the P&L page shows, so the CSV matches the UI.
+        _qm = ((end_dt.month - 1) // 3) * 3 + 1
+        _qs = end_dt.replace(month=_qm, day=1, hour=0, minute=0, second=0, microsecond=0)
+        _ys = end_dt.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        report_dict["quarter"] = await _calc.compute(user.tenant_id, _qs, end_dt)
+        report_dict["ytd"] = await _calc.compute(user.tenant_id, _ys, end_dt)
         loc_name = "All Locations"
         loc_tz: str | None = None
         if location_id:
