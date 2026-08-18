@@ -193,25 +193,31 @@ def generate_bank_csv(
         return net_co * (Decimal(str(share_pct)) / Decimal("100"))
 
     def _partner_block(title: str, key: str | None) -> None:
-        w.writerow([title, "Net", "QTD", "YTD"])
+        # Columns mirror the UI table: Net (period) / QTD / YTD / Draw taken /
+        # Car / Remaining. Remaining = period net − draw − car.
+        w.writerow([title, "Net", "QTD", "YTD", "Draw taken", "Car", "Remaining"])
         for p in report["partner_split"]:
             name = p["name"]
             label = f"{name} ({Decimal(str(p['share_pct'])):g}%)"
+            draw = Decimal(str(p.get("manual_draw") or 0))
+            car = Decimal(str(p.get("vehicle_draw") or 0))
             if key is not None:  # After / Before HST — read net straight from split
-                w.writerow([
-                    label,
-                    _money(p[key]),
-                    _money(_net(quarter, name, key)),
-                    _money(_net(ytd, name, key)),
-                ])
+                net = Decimal(str(p[key]))
+                q = _net(quarter, name, key)
+                y = _net(ytd, name, key)
             else:  # 33% HST — derived from collected HST + share
-                w.writerow([
-                    label,
-                    _money(_net33(report, p["share_pct"])),
-                    _money(_net33(quarter, p["share_pct"])),
-                    _money(_net33(ytd, p["share_pct"])),
-                ])
-        w.writerow(["", "", "", ""])
+                net = _net33(report, p["share_pct"]) or Decimal("0")
+                q = _net33(quarter, p["share_pct"])
+                y = _net33(ytd, p["share_pct"])
+            remaining = net - draw - car
+            w.writerow([
+                label,
+                _money(net), _money(q), _money(y),
+                _money(draw) if draw else "",
+                _money(car) if car else "",
+                _money(remaining),
+            ])
+        w.writerow(["", "", "", "", "", "", ""])
 
     _partner_block("Partner distribution (After HST)", "net_after_hst")
     _partner_block("Partner distribution (Before HST)", "net_before_hst")
