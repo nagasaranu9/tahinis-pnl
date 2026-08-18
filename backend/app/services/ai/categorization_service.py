@@ -4,7 +4,6 @@ AI may suggest categories and explain reasoning.
 AI must never modify source financial records.
 Every AI output includes confidence_score and explanation.
 """
-import uuid
 from decimal import Decimal
 
 import anthropic
@@ -45,8 +44,13 @@ class CategorizationResult:
 # transactions categorize for free (no Anthropic credits) and never land in
 # "Uncategorized". Order matters: first substring hit wins. Keep keywords lower.
 _KEYWORD_CATEGORY_MAP: list[tuple[tuple[str, ...], str]] = [
-    # Payroll / labor
-    (("pushoperation", "pushops", "payroll", "wage", "adp ", "ceridian", "wagepoint"), "Payroll"),
+    # Payroll / labor — incl. cash paid to staff via ABM/branch withdrawals
+    # (tenant-confirmed: all cash withdrawals are staffing). The CSV path normalizes
+    # "[MB]BR.####" to "STAFFING CASH WITHDRAWAL"; OCR'd PDF statements keep the raw
+    # "Withdrawal at, BR.0380" / "ABM Withdrawal" text, so match those here too.
+    (("pushoperation", "pushops", "payroll", "wage", "adp ", "ceridian", "wagepoint",
+      "staffing cash", "withdrawal at, br", "withdrawal at br", "abm withdrawal",
+      "br.03"), "Payroll"),
     # Utilities (telecom + hydro/gas/water)
     (("telus", "rogers", "bell ", "bell canada", "fido", "koodo", "videotron",
       "hydro", "enbridge", "fortis", "epcor", "toronto hydro", "alectra",

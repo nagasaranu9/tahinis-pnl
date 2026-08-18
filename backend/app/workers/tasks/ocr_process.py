@@ -768,23 +768,45 @@ async def _persist_bank_deposits(
 
     from app.db.models.bank_deposit import BankDeposit
 
-    await db.execute(
-        delete(BankDeposit).where(
-            BankDeposit.tenant_id == tenant_id,
-            BankDeposit.document_id == document_id,
-        )
-    )
-    saved = 0
+    # Parse dates up front so we can clear by the statement's DATE RANGE, not just
+    # this document_id. A statement owns every deposit in its period — clearing by
+    # range replaces a re-upload (even as a NEW document id) and sweeps orphaned
+    # rows whose document was deleted (FK set document_id NULL). Per-document-only
+    # dedup let those double-count revenue (the 2x June-revenue bug).
+    parsed: list[tuple[datetime, dict]] = []
     for dep in deposits:
         try:
-            pd = _date.fromisoformat(str(dep["date"]))
+            pdt = _date.fromisoformat(str(dep["date"]))
         except Exception:
             continue
+        parsed.append((datetime(pdt.year, pdt.month, pdt.day, tzinfo=UTC), dep))
+
+    clear = [
+        BankDeposit.tenant_id == tenant_id,
+        BankDeposit.document_id == document_id,
+    ]
+    if parsed:
+        lo = min(d for d, _ in parsed)
+        hi = max(d for d, _ in parsed)
+        # Replace any prior deposits overlapping this statement's span for the same
+        # location (covers re-upload-as-new-doc and orphaned NULL-doc rows).
+        loc_match = (
+            BankDeposit.location_id == location_id if location_id is not None
+            else BankDeposit.location_id.is_(None)
+        )
+        await db.execute(delete(BankDeposit).where(
+            BankDeposit.tenant_id == tenant_id, loc_match,
+            BankDeposit.deposit_date >= lo, BankDeposit.deposit_date <= hi,
+        ))
+    await db.execute(delete(BankDeposit).where(*clear))
+
+    saved = 0
+    for deposit_date, dep in parsed:
         db.add(BankDeposit(
             tenant_id=tenant_id,
             location_id=location_id,
             document_id=document_id,
-            deposit_date=datetime(pd.year, pd.month, pd.day, tzinfo=UTC),
+            deposit_date=deposit_date,
             channel=dep.get("channel") or "other",
             description=dep.get("description"),
             amount=Decimal(str(dep["amount"])),
