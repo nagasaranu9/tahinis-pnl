@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Fragment } from "react";
 import { Loader2, Pencil, Check, X, Landmark, Car, ChevronRight } from "lucide-react";
 import {
   useBankBasisPnL,
@@ -93,6 +93,68 @@ function RevenueByChannel({ data }: { data: BankBasisPnL }) {
   );
 }
 
+// Opex drilldown grouped by category (Royalties, Utilities, Miscellaneous, …).
+// Each category is a collapsible subgroup: header shows total + count, click to
+// reveal the individual bank lines.
+function GroupedLines({ lines }: { lines: ExpenseLine[] }) {
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const groups = new Map<string, ExpenseLine[]>();
+  for (const ln of lines) {
+    const c = ln.category || "Uncategorized";
+    (groups.get(c) ?? groups.set(c, []).get(c)!).push(ln);
+  }
+  const ordered = [...groups.entries()].sort(
+    (a, b) =>
+      b[1].reduce((s, l) => s + parseFloat(l.amount), 0) -
+      a[1].reduce((s, l) => s + parseFloat(l.amount), 0)
+  );
+  return (
+    <table className="w-full">
+      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+        {ordered.map(([cat, items]) => {
+          const total = items.reduce((s, l) => s + parseFloat(l.amount), 0);
+          const isOpen = !!open[cat];
+          return (
+            <Fragment key={cat}>
+              <tr className="bg-slate-100/70 dark:bg-slate-800/50">
+                <td colSpan={3} className="py-1.5 pl-3 pr-2">
+                  <button
+                    onClick={() => setOpen((o) => ({ ...o, [cat]: !o[cat] }))}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-indigo-600 dark:text-slate-200 dark:hover:text-indigo-400"
+                  >
+                    <ChevronRight
+                      className={`h-3 w-3 transition-transform ${isOpen ? "rotate-90" : ""}`}
+                    />
+                    {cat}
+                    <span className="text-slate-400">({items.length})</span>
+                  </button>
+                </td>
+                <td className="py-1.5 pl-2 pr-3 text-right text-xs font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                  {fmt(total)}
+                </td>
+              </tr>
+              {isOpen &&
+                items.map((ln, i) => (
+                  <tr key={i}>
+                    <td className="py-1.5 pl-6 pr-2 text-xs text-slate-500 dark:text-slate-400">
+                      {ln.date ?? ""}
+                    </td>
+                    <td className="py-1.5 px-2 text-xs text-slate-700 dark:text-slate-200" colSpan={2}>
+                      {ln.vendor_name ?? "—"}
+                    </td>
+                    <td className="py-1.5 pl-2 pr-3 text-right text-xs tabular-nums text-slate-700 dark:text-slate-200">
+                      {fmt(ln.amount)}
+                    </td>
+                  </tr>
+                ))}
+            </Fragment>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
 function Row({
   label,
   before,
@@ -103,6 +165,7 @@ function Row({
   lines,
   expanded,
   onToggle,
+  grouped,
 }: {
   label: string;
   before: string;
@@ -113,6 +176,7 @@ function Row({
   lines?: ExpenseLine[];
   expanded?: boolean;
   onToggle?: () => void;
+  grouped?: boolean;
 }) {
   const pct = (v: string) =>
     revBase && revBase !== 0 ? ` (${((parseFloat(v) / revBase) * 100).toFixed(1)}%)` : "";
@@ -147,24 +211,28 @@ function Row({
         <tr className="bg-slate-50/60 dark:bg-slate-800/30">
           <td colSpan={3} className="px-4 py-2">
             <div className="max-h-72 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700">
-              <table className="w-full">
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {lines!.map((ln, i) => (
-                    <tr key={i}>
-                      <td className="py-1.5 pl-3 pr-2 text-xs text-slate-500 dark:text-slate-400">
-                        {ln.date ?? ""}
-                      </td>
-                      <td className="py-1.5 px-2 text-xs text-slate-700 dark:text-slate-200">
-                        {ln.vendor_name ?? "—"}
-                      </td>
-                      <td className="py-1.5 px-2 text-xs text-slate-400">{ln.category}</td>
-                      <td className="py-1.5 pl-2 pr-3 text-right text-xs tabular-nums text-slate-700 dark:text-slate-200">
-                        {fmt(ln.amount)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {grouped ? (
+                <GroupedLines lines={lines!} />
+              ) : (
+                <table className="w-full">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {lines!.map((ln, i) => (
+                      <tr key={i}>
+                        <td className="py-1.5 pl-3 pr-2 text-xs text-slate-500 dark:text-slate-400">
+                          {ln.date ?? ""}
+                        </td>
+                        <td className="py-1.5 px-2 text-xs text-slate-700 dark:text-slate-200">
+                          {ln.vendor_name ?? "—"}
+                        </td>
+                        <td className="py-1.5 px-2 text-xs text-slate-400">{ln.category}</td>
+                        <td className="py-1.5 pl-2 pr-3 text-right text-xs tabular-nums text-slate-700 dark:text-slate-200">
+                          {fmt(ln.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </td>
         </tr>
@@ -201,7 +269,7 @@ function BeforeAfterHst({ data }: { data: BankBasisPnL }) {
           <Row label="Labor" before={data.labor} after={data.labor} revBase={revBase}
             lines={el?.labor} expanded={open.labor} onToggle={() => toggle("labor")} />
           <Row label="Operating Expenses" before={data.operating_expenses} after={data.operating_expenses} revBase={revBase}
-            lines={el?.opex} expanded={open.opex} onToggle={() => toggle("opex")} />
+            lines={el?.opex} expanded={open.opex} onToggle={() => toggle("opex")} grouped />
           <Row label="EBITDA" before={data.before_hst.ebitda} after={data.after_hst.ebitda} bold accent />
           <Row label="Interest & Financing" before={data.interest} after={data.interest} />
           <Row label="Net Profit" before={data.before_hst.net_profit} after={data.after_hst.net_profit} bold accent />
