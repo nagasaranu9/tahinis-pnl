@@ -107,6 +107,13 @@ export interface PnLSnapshot {
 
 // ─── Bank-statement-basis P&L ────────────────────────────────────────────────
 
+export interface ExpenseLine {
+  vendor_name: string | null;
+  amount: string;
+  category: string;
+  date: string | null;
+}
+
 export interface BankBasisSide {
   revenue: string;
   ebitda: string;
@@ -139,6 +146,11 @@ export interface BankBasisPnL {
   operating_expenses: string;
   interest: string;
   expense_by_category: Record<string, string>;
+  expense_lines?: {
+    cogs: ExpenseLine[];
+    labor: ExpenseLine[];
+    opex: ExpenseLine[];
+  };
   principal_excluded: string;
   before_hst: BankBasisSide;
   after_hst: BankBasisSide;

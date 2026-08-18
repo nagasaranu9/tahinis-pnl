@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Pencil, Check, X, Landmark, Car } from "lucide-react";
+import { Loader2, Pencil, Check, X, Landmark, Car, ChevronRight } from "lucide-react";
 import {
   useBankBasisPnL,
   usePartners,
@@ -9,7 +9,7 @@ import {
   usePartnerDraws,
   useSetPartnerDraws,
 } from "@/hooks/use-pnl";
-import type { BankBasisPnL, Partner } from "@/types/pnl";
+import type { BankBasisPnL, ExpenseLine, Partner } from "@/types/pnl";
 
 function fmt(val: string | number | null | undefined): string {
   if (val == null) return "—";
@@ -99,74 +99,85 @@ function Row({
   after,
   bold,
   accent,
-  breakdown,
   revBase,
+  lines,
+  expanded,
+  onToggle,
 }: {
   label: string;
   before: string;
   after: string;
   bold?: boolean;
   accent?: boolean;
-  breakdown?: [string, number][];
   revBase?: number;
+  lines?: ExpenseLine[];
+  expanded?: boolean;
+  onToggle?: () => void;
 }) {
-  const hasBreakdown = breakdown && breakdown.length > 0;
   const pct = (v: string) =>
     revBase && revBase !== 0 ? ` (${((parseFloat(v) / revBase) * 100).toFixed(1)}%)` : "";
+  const expandable = !!lines && lines.length > 0;
   return (
-    <tr className={accent ? "bg-slate-50 dark:bg-slate-800/50" : ""}>
-      <td className={`py-2.5 pl-4 pr-2 text-sm ${bold ? "font-semibold text-slate-800 dark:text-slate-100" : "text-slate-600 dark:text-slate-300"}`}>
-        {hasBreakdown ? (
-          <span className="group relative inline-flex cursor-help items-center gap-1 border-b border-dotted border-slate-300 dark:border-slate-600">
-            {label}
-            <div className="pointer-events-none absolute left-0 top-full z-20 mt-1 hidden min-w-[15rem] rounded-lg border border-slate-200 bg-white p-3 text-left shadow-lg group-hover:block dark:border-slate-700 dark:bg-slate-800">
-              <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                {label} breakdown
-              </div>
-              {breakdown!
-                .slice()
-                .sort((a, b) => b[1] - a[1])
-                .map(([cat, amt]) => (
-                  <div key={cat} className="flex justify-between gap-4 py-0.5 text-xs">
-                    <span className="text-slate-500 dark:text-slate-300">{cat}</span>
-                    <span className="tabular-nums text-slate-700 dark:text-slate-100">
-                      {fmt(amt)}
-                      {revBase && revBase !== 0 ? (
-                        <span className="ml-1 text-slate-400">
-                          {((amt / revBase) * 100).toFixed(1)}%
-                        </span>
-                      ) : null}
-                    </span>
-                  </div>
-                ))}
+    <>
+      <tr className={accent ? "bg-slate-50 dark:bg-slate-800/50" : ""}>
+        <td className={`py-2.5 pl-4 pr-2 text-sm ${bold ? "font-semibold text-slate-800 dark:text-slate-100" : "text-slate-600 dark:text-slate-300"}`}>
+          {expandable ? (
+            <button
+              onClick={onToggle}
+              className="inline-flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-400"
+            >
+              <ChevronRight
+                className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-90" : ""}`}
+              />
+              {label}
+            </button>
+          ) : (
+            label
+          )}
+        </td>
+        <td className={`py-2.5 px-3 text-right text-sm tabular-nums ${bold ? "font-semibold text-slate-900 dark:text-white" : "text-slate-700 dark:text-slate-200"}`}>
+          {fmt(before)}
+          <span className="text-xs font-normal text-slate-400">{pct(before)}</span>
+        </td>
+        <td className={`py-2.5 pl-3 pr-4 text-right text-sm tabular-nums ${bold ? "font-semibold text-slate-900 dark:text-white" : "text-slate-700 dark:text-slate-200"}`}>
+          {fmt(after)}
+        </td>
+      </tr>
+      {expandable && expanded && (
+        <tr className="bg-slate-50/60 dark:bg-slate-800/30">
+          <td colSpan={3} className="px-4 py-2">
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700">
+              <table className="w-full">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {lines!.map((ln, i) => (
+                    <tr key={i}>
+                      <td className="py-1.5 pl-3 pr-2 text-xs text-slate-500 dark:text-slate-400">
+                        {ln.date ?? ""}
+                      </td>
+                      <td className="py-1.5 px-2 text-xs text-slate-700 dark:text-slate-200">
+                        {ln.vendor_name ?? "—"}
+                      </td>
+                      <td className="py-1.5 px-2 text-xs text-slate-400">{ln.category}</td>
+                      <td className="py-1.5 pl-2 pr-3 text-right text-xs tabular-nums text-slate-700 dark:text-slate-200">
+                        {fmt(ln.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </span>
-        ) : (
-          label
-        )}
-      </td>
-      <td className={`py-2.5 px-3 text-right text-sm tabular-nums ${bold ? "font-semibold text-slate-900 dark:text-white" : "text-slate-700 dark:text-slate-200"}`}>
-        {fmt(before)}
-        <span className="text-xs font-normal text-slate-400">{pct(before)}</span>
-      </td>
-      <td className={`py-2.5 pl-3 pr-4 text-right text-sm tabular-nums ${bold ? "font-semibold text-slate-900 dark:text-white" : "text-slate-700 dark:text-slate-200"}`}>
-        {fmt(after)}
-      </td>
-    </tr>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
-const COGS_CATS = new Set(["Food Cost", "Beverage Cost", "Packaging"]);
-const LABOR_CATS = new Set(["Payroll"]);
-
 function BeforeAfterHst({ data }: { data: BankBasisPnL }) {
-  const cats = Object.entries(data.expense_by_category ?? {}).map(
-    ([k, v]) => [k, parseFloat(v)] as [string, number]
-  );
-  const cogsB = cats.filter(([c]) => COGS_CATS.has(c));
-  const laborB = cats.filter(([c]) => LABOR_CATS.has(c));
-  const opexB = cats.filter(([c]) => !COGS_CATS.has(c) && !LABOR_CATS.has(c));
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const toggle = (k: string) => setOpen((o) => ({ ...o, [k]: !o[k] }));
   const revBase = parseFloat(data.before_hst.revenue);
+  const el = data.expense_lines;
   return (
     <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       <table className="w-full">
@@ -185,9 +196,12 @@ function BeforeAfterHst({ data }: { data: BankBasisPnL }) {
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
           <Row label="Revenue" before={data.before_hst.revenue} after={data.after_hst.revenue} bold />
-          <Row label="COGS" before={data.cogs} after={data.cogs} breakdown={cogsB} revBase={revBase} />
-          <Row label="Labor" before={data.labor} after={data.labor} breakdown={laborB} revBase={revBase} />
-          <Row label="Operating Expenses" before={data.operating_expenses} after={data.operating_expenses} breakdown={opexB} revBase={revBase} />
+          <Row label="COGS" before={data.cogs} after={data.cogs} revBase={revBase}
+            lines={el?.cogs} expanded={open.cogs} onToggle={() => toggle("cogs")} />
+          <Row label="Labor" before={data.labor} after={data.labor} revBase={revBase}
+            lines={el?.labor} expanded={open.labor} onToggle={() => toggle("labor")} />
+          <Row label="Operating Expenses" before={data.operating_expenses} after={data.operating_expenses} revBase={revBase}
+            lines={el?.opex} expanded={open.opex} onToggle={() => toggle("opex")} />
           <Row label="EBITDA" before={data.before_hst.ebitda} after={data.after_hst.ebitda} bold accent />
           <Row label="Interest & Financing" before={data.interest} after={data.interest} />
           <Row label="Net Profit" before={data.before_hst.net_profit} after={data.after_hst.net_profit} bold accent />

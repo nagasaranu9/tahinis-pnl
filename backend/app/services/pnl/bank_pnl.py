@@ -113,6 +113,8 @@ class BankPnLCalculator:
         cogs = labor = opex = interest = principal_excluded = Decimal("0")
         itc = Decimal("0")
         cat_totals: dict[str, Decimal] = {}
+        # Per-line detail for the UI drill-down, grouped by P&L bucket.
+        lines: dict[str, list[dict]] = {"cogs": [], "labor": [], "opex": []}
         for e in exp_rows:
             if e.amount is None:
                 continue
@@ -133,13 +135,26 @@ class BankPnLCalculator:
             cat_totals[cat] = cat_totals.get(cat, Decimal("0")) + amount
             if cat in _COGS_CATEGORIES:
                 cogs += amount
+                group = "cogs"
             elif cat in _LABOR_CATEGORIES:
                 labor += amount
+                group = "labor"
             else:
                 opex += amount
+                group = "opex"
+            lines[group].append({
+                "vendor_name": e.vendor_name,
+                "amount": _q(amount),
+                "category": cat,
+                "date": e.expense_date.date().isoformat() if e.expense_date else None,
+            })
             # ITC on taxable purchases (tax-inclusive → embedded 13/113).
             if cat in _HST_TAXABLE_CATEGORIES:
                 itc += amount * _HST_FRACTION
+
+        # Biggest first for the drill-down.
+        for g in lines:
+            lines[g].sort(key=lambda x: x["amount"], reverse=True)
 
         cogs, labor, opex, interest = _q(cogs), _q(labor), _q(opex), _q(interest)
         itc = _q(itc)
@@ -220,6 +235,7 @@ class BankPnLCalculator:
             "operating_expenses": opex,
             "interest": interest,
             "expense_by_category": {k: _q(v) for k, v in cat_totals.items()},
+            "expense_lines": lines,
             "principal_excluded": _q(principal_excluded),
             "before_hst": {
                 "revenue": revenue,
