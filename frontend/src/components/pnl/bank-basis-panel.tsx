@@ -285,6 +285,32 @@ function PartnerSplit({
     setDraws.mutate({ period_start: periodStart, period_end: periodEnd, draws });
   }
 
+  // Quarter-to-date + year-to-date roll-ups (from the same endpoint). Look up a
+  // partner's net in a given roll-up for each HST basis.
+  const q = data.quarter;
+  const y = data.ytd;
+  const findRow = (rep: BankBasisPnL | undefined, name: string) =>
+    rep?.partner_split.find((x) => x.name === name);
+  const netAfter = (rep: BankBasisPnL | undefined, name: string) => {
+    const r = findRow(rep, name);
+    return r ? parseFloat(r.net_after_hst) : null;
+  };
+  const netBefore = (rep: BankBasisPnL | undefined, name: string) => {
+    const r = findRow(rep, name);
+    return r ? parseFloat(r.net_before_hst) : null;
+  };
+  const roll33 = (rep: BankBasisPnL | undefined, sharePct: string) => {
+    if (!rep) return null;
+    const remit = parseFloat(rep.hst.collected_on_sales) * 0.33;
+    const netCo = parseFloat(rep.before_hst.net_profit) - remit;
+    return netCo * (parseFloat(sharePct) / 100);
+  };
+  const rollCell = (v: number | null) => (
+    <td className="py-2.5 text-right text-sm tabular-nums text-slate-500 dark:text-slate-400">
+      {v == null ? "—" : fmt(v)}
+    </td>
+  );
+
   return (
     <div className="space-y-6">
     <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
@@ -382,6 +408,8 @@ function PartnerSplit({
               <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
                 <th className="py-2 text-left">Partner</th>
                 <th className="py-2 text-right">Net (after HST)</th>
+                <th className="py-2 text-right">QTD</th>
+                <th className="py-2 text-right">YTD</th>
                 <th className="py-2 text-right">Draw taken</th>
                 <th className="py-2 text-right">Car</th>
                 <th className="py-2 text-right">Remaining</th>
@@ -399,6 +427,8 @@ function PartnerSplit({
                     <td className="py-2.5 text-right text-sm tabular-nums text-slate-600 dark:text-slate-300">
                       {fmt(p.net_after_hst)}
                     </td>
+                    {rollCell(netAfter(q, p.name))}
+                    {rollCell(netAfter(y, p.name))}
                     <td className="py-2.5 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <span className="text-xs text-slate-400">$</span>
@@ -436,7 +466,7 @@ function PartnerSplit({
           </table>
           <div className="mt-3 flex items-center justify-between">
             <p className="text-xs text-slate-400">
-              Remaining = share of net profit (after HST) − draw taken − car.
+              Remaining = share of net profit (after HST) − draw taken − car. QTD = quarter-to-date, YTD = year-to-date.
             </p>
             {drawsDirty && (
               <button
@@ -463,6 +493,8 @@ function PartnerSplit({
               <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
                 <th className="py-2 text-left">Partner</th>
                 <th className="py-2 text-right">Net (before HST)</th>
+                <th className="py-2 text-right">QTD</th>
+                <th className="py-2 text-right">YTD</th>
                 <th className="py-2 text-right">Draw taken</th>
                 <th className="py-2 text-right">Car</th>
                 <th className="py-2 text-right">Remaining</th>
@@ -480,6 +512,8 @@ function PartnerSplit({
                     <td className="py-2.5 text-right text-sm tabular-nums text-slate-600 dark:text-slate-300">
                       {fmt(p.net_before_hst)}
                     </td>
+                    {rollCell(netBefore(q, p.name))}
+                    {rollCell(netBefore(y, p.name))}
                     <td className="py-2.5 text-right text-sm tabular-nums text-slate-500 dark:text-slate-400">
                       {parseFloat(p.manual_draw ?? "0") > 0 ? fmt(p.manual_draw) : "—"}
                     </td>
@@ -522,6 +556,8 @@ function PartnerSplit({
               <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
                 <th className="py-2 text-left">Partner</th>
                 <th className="py-2 text-right">Net (33% HST)</th>
+                <th className="py-2 text-right">QTD</th>
+                <th className="py-2 text-right">YTD</th>
                 <th className="py-2 text-right">Draw taken</th>
                 <th className="py-2 text-right">Car</th>
                 <th className="py-2 text-right">Remaining</th>
@@ -546,6 +582,8 @@ function PartnerSplit({
                     <td className="py-2.5 text-right text-sm tabular-nums text-slate-600 dark:text-slate-300">
                       {fmt(net33)}
                     </td>
+                    {rollCell(roll33(q, p.share_pct))}
+                    {rollCell(roll33(y, p.share_pct))}
                     <td className="py-2.5 text-right text-sm tabular-nums text-slate-500 dark:text-slate-400">
                       {parseFloat(p.manual_draw ?? "0") > 0 ? fmt(p.manual_draw) : "—"}
                     </td>

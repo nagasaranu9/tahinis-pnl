@@ -77,7 +77,17 @@ async def get_bank_basis_pnl(
     except ValueError:
         raise HTTPException(status_code=422, detail="period_start and period_end must be YYYY-MM-DD")
 
-    report = await BankPnLCalculator(db).compute(user.tenant_id, start_dt, end_dt)
+    calc = BankPnLCalculator(db)
+    report = await calc.compute(user.tenant_id, start_dt, end_dt)
+
+    # Quarter-to-date (calendar quarter containing period_end, up to period_end)
+    # and year-to-date (Jan 1 → period_end) roll-ups, so the partner tables can
+    # show period / QTD / YTD side by side.
+    q_first_month = ((end_dt.month - 1) // 3) * 3 + 1
+    q_start = end_dt.replace(month=q_first_month, day=1, hour=0, minute=0, second=0, microsecond=0)
+    ytd_start = end_dt.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    report["quarter"] = await calc.compute(user.tenant_id, q_start, end_dt)
+    report["ytd"] = await calc.compute(user.tenant_id, ytd_start, end_dt)
     return {"data": jsonable_encoder(report), "errors": None}
 
 

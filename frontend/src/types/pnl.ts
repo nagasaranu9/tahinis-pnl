@@ -160,6 +160,8 @@ export interface BankBasisPnL {
     net_remittance: string;
   };
   partner_split: BankPartnerSplit[];
+  quarter?: BankBasisPnL;
+  ytd?: BankBasisPnL;
 }
 
 export interface Partner {
