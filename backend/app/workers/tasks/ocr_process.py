@@ -161,6 +161,21 @@ def _is_amex_rent_payment(description: str) -> bool:
     return "amex" in desc and ("bill payment" in desc or "online bill" in desc)
 
 
+# Tenant-confirmed fixed monthly rent (Church & Bloor #1941). Usually paid via
+# AMEX autopay, but some months the landlord is paid by a bare INTERAC e-Transfer
+# with no vendor label — which would otherwise be dropped as a generic transfer,
+# silently zeroing Rent for that month (April 2026). Match the exact rent amount
+# so that one specific e-transfer is booked as Rent while other e-transfers
+# (owner draws, misc) stay excluded.
+_MONTHLY_RENT = Decimal("14678.18")
+
+
+def _is_etransfer_rent(description: str, amount: "Decimal") -> bool:
+    desc = description.lower()
+    is_etransfer = "e-transfer" in desc or "etransfer" in desc or "interac" in desc
+    return is_etransfer and amount is not None and abs(amount) == _MONTHLY_RENT
+
+
 def _is_non_expense_bank_line(description: str) -> bool:
     """True when a bank line is a transfer / card-bill payment / credit summary —
     movements that must be excluded from the P&L."""
@@ -474,7 +489,10 @@ async def _extract_bank_statement_expenses(
         # other loan lines, but booked as an excluded Owner's Draw so the P&L can
         # charge it back to that partner as a personal distribution.
         is_vehicle = "toyota finance" in desc_lower
-        if _is_non_expense_bank_line(desc) and not is_vehicle:
+        # A bare INTERAC e-transfer matching the fixed monthly rent is rent, not a
+        # generic transfer — book it instead of dropping it.
+        is_rent_etransfer = _is_etransfer_rent(desc, amount)
+        if _is_non_expense_bank_line(desc) and not is_vehicle and not is_rent_etransfer:
             continue
 
         # Use per-transaction date when Claude extracted it; fall back to statement date.
@@ -498,10 +516,11 @@ async def _extract_bank_statement_expenses(
 
         # AMEX bill payment is rent (tenant-confirmed) — book it directly as a
         # Rent expense and skip the AI guess.
-        is_rent = _is_amex_rent_payment(desc)
+        is_rent = _is_amex_rent_payment(desc) or is_rent_etransfer
         vendor = (
             "Toyota Finance (vehicle)" if is_vehicle
-            else "Rent (AMEX autopay)" if is_rent
+            else "Rent (AMEX autopay)" if _is_amex_rent_payment(desc)
+            else "Rent (e-transfer)" if is_rent_etransfer
             else _vendor_from_description(desc)
         )
 
