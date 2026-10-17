@@ -28,8 +28,10 @@ def _q(v: Decimal) -> Decimal:
 
 async def _net_sales(db: AsyncSession, tenant_id: uuid.UUID, location_id: uuid.UUID | None,
                      week_ending: date) -> Decimal:
-    start = datetime.combine(week_ending - timedelta(days=6), time.min, tzinfo=timezone.utc)
-    end = datetime.combine(week_ending, time.max, tzinfo=timezone.utc)
+    # Inventory is counted Sunday morning, so it reflects the completed week that
+    # just ended — sum the 7 days up to (but not including) the count date.
+    start = datetime.combine(week_ending - timedelta(days=7), time.min, tzinfo=timezone.utc)
+    end = datetime.combine(week_ending - timedelta(days=1), time.max, tzinfo=timezone.utc)
     conds = [
         BankDeposit.tenant_id == tenant_id,
         BankDeposit.is_revenue.is_(True),

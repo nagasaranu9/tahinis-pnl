@@ -12,16 +12,18 @@ function fmt(v: string | null | undefined): string {
   return n.toLocaleString(undefined, { style: "currency", currency: "CAD" });
 }
 
-function nextSaturday(): string {
+// Inventory is counted Sunday morning — default the count date to the upcoming
+// Sunday (or today if it already is Sunday).
+function nextSunday(): string {
   const d = new Date();
-  d.setDate(d.getDate() + ((6 - d.getDay() + 7) % 7 || 7));
+  d.setDate(d.getDate() + ((0 - d.getDay() + 7) % 7));
   return d.toISOString().slice(0, 10);
 }
 
 function UploadCard() {
   const upload = useUploadCogs();
   const [file, setFile] = useState<File | null>(null);
-  const [weekEnding, setWeekEnding] = useState<string>(nextSaturday());
+  const [weekEnding, setWeekEnding] = useState<string>(nextSunday());
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
@@ -43,7 +45,7 @@ function UploadCard() {
           />
         </label>
         <label>
-          <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">Week ending</span>
+          <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">Count date (Sunday)</span>
           <input
             type="date"
             value={weekEnding}
