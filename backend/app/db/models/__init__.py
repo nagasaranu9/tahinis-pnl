@@ -21,6 +21,7 @@ from app.db.models.google_ads_optimization import (
     GoogleAdsOptimizationRecommendation,
 )
 from app.db.models.integration import IntegrationCredential
+from app.db.models.inventory import InventoryCount, InventoryCountItem
 from app.db.models.location import Location
 from app.db.models.partner_share import PartnerDraw, PartnerShare
 from app.db.models.password_reset import PasswordResetToken
@@ -73,6 +74,8 @@ __all__ = [
     "Document",
     "ExtractedLineItem",
     "IntegrationCredential",
+    "InventoryCount",
+    "InventoryCountItem",
     "Location",
     "OCRResult",
     "RefreshToken",
