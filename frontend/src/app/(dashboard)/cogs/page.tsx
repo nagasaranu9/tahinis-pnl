@@ -155,6 +155,7 @@ function EditOverrides({ id, report }: { id: string; report: import("@/types/cog
   const patch = usePatchCogs();
   const [purch, setPurch] = useState(report.purchases_is_override ? report.totals.purchases : "");
   const [sales, setSales] = useState(report.net_sales_is_override ? report.net_sales : "");
+  const [other, setOther] = useState(parseFloat(report.other_purchases) > 0 ? report.other_purchases : "");
   return (
     <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
       <label>
@@ -173,9 +174,15 @@ function EditOverrides({ id, report }: { id: string; report: import("@/types/cog
           onChange={(e) => setSales(e.target.value)}
           className="w-32 rounded-md border border-slate-300 px-2 py-1.5 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-800" />
       </label>
+      <label>
+        <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">Other purchases $ (misc)</span>
+        <input type="number" inputMode="decimal" placeholder="0" value={other}
+          onChange={(e) => setOther(e.target.value)}
+          className="w-32 rounded-md border border-slate-300 px-2 py-1.5 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-800" />
+      </label>
       <button
         disabled={patch.isPending}
-        onClick={() => patch.mutate({ id, purchases: purch === "" ? null : purch, net_sales: sales === "" ? null : sales })}
+        onClick={() => patch.mutate({ id, purchases: purch === "" ? null : purch, net_sales: sales === "" ? null : sales, other_purchases: other === "" ? null : other })}
         className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
       >
         {patch.isPending ? "Saving…" : "Save & recalc"}
@@ -384,6 +391,7 @@ export default function CogsPage() {
                   <th className="py-2.5 px-3 text-right">Net sales</th>
                   <th className="py-2.5 px-3 text-right">Ending inv.</th>
                   <th className="py-2.5 px-3 text-right">Purchases</th>
+                  <th className="py-2.5 px-3 text-right">Other purch.</th>
                   <th className="py-2.5 px-3 text-right">COGS</th>
                   <th className="py-2.5 px-3 text-right">COGS %</th>
                   <th className="py-2.5 pr-5" />
@@ -405,6 +413,7 @@ export default function CogsPage() {
                       <td className="py-2.5 px-3 text-right tabular-nums text-slate-500">{fmt(w.net_sales)}</td>
                       <td className="py-2.5 px-3 text-right tabular-nums text-slate-500">{fmt(w.totals.ending_inventory)}</td>
                       <td className="py-2.5 px-3 text-right tabular-nums text-slate-500">{fmt(w.totals.purchases)}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-slate-500">{parseFloat(w.other_purchases) > 0 ? fmt(w.other_purchases) : "—"}</td>
                       <td className="py-2.5 px-3 text-right font-medium tabular-nums text-slate-900 dark:text-white">{fmt(w.totals.cogs)}</td>
                       <td className="py-2.5 px-3 text-right tabular-nums text-slate-600 dark:text-slate-300">
                         {w.totals.cogs_pct ? `${w.totals.cogs_pct}%` : "—"}
@@ -420,7 +429,7 @@ export default function CogsPage() {
                     </tr>
                     {openId === w.id && (
                       <tr>
-                        <td colSpan={7} className="p-0">
+                        <td colSpan={8} className="p-0">
                           <WeekDetail id={w.id} />
                         </td>
                       </tr>

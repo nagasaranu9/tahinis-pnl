@@ -21,6 +21,7 @@ export interface CogsReport {
   net_sales_is_override: boolean;
   purchases_is_override: boolean;
   purchases_source: "manual" | "invoices" | "sheet";
+  other_purchases: string;
   invoices: { count: number; total: string };
   categories: CogsCategoryRow[];
   totals: CogsTotals;
@@ -67,6 +68,7 @@ export interface CogsWeekSummary {
   original_filename: string | null;
   created_at: string | null;
   net_sales: string;
+  other_purchases: string;
   totals: CogsTotals;
 }
 

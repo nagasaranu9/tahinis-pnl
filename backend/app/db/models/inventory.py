@@ -70,6 +70,9 @@ class InventoryCount(Base, TimestampMixin, TenantMixin):
     # back to auto (sheet purchases, bank-deposit revenue).
     purchases_override: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     net_sales_override: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    # Extra manual purchases (Costco, misc suppliers) not on an uploaded invoice;
+    # added on top of base purchases and counted in COGS.
+    other_purchases: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     items: Mapped[list["InventoryCountItem"]] = relationship(

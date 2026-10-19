@@ -61,6 +61,7 @@ async def upload_cogs(
     location_id: str | None = Form(None),
     purchases: str | None = Form(None, description="Manual total purchases for the week"),
     net_sales: str | None = Form(None, description="Manual net sales override"),
+    other_purchases: str | None = Form(None, description="Extra manual (non-invoice) purchases"),
 ) -> dict:
     name = (file.filename or "").lower()
     if not (name.endswith(".xlsx") or name.endswith(".xlsm")):
@@ -127,6 +128,7 @@ async def upload_cogs(
         category_totals=category_totals,
         purchases_override=_money_opt(purchases),
         net_sales_override=_money_opt(net_sales),
+        other_purchases=_money_opt(other_purchases),
         created_by=user.user_id,
     )
     db.add(count)
@@ -241,7 +243,8 @@ async def list_cogs(
     out = []
     for c in counts:
         report = await compute_cogs(db, c)
-        out.append({**_header(c), "totals": report["totals"], "net_sales": report["net_sales"]})
+        out.append({**_header(c), "totals": report["totals"], "net_sales": report["net_sales"],
+                    "other_purchases": report["other_purchases"]})
     return {"data": out, "errors": None}
 
 
@@ -308,6 +311,9 @@ async def patch_cogs(
     has_n, n = _parse("net_sales")
     if has_n:
         count.net_sales_override = n
+    has_o, o = _parse("other_purchases")
+    if has_o:
+        count.other_purchases = o
     await db.flush()
     report = await compute_cogs(db, count)
     await db.commit()

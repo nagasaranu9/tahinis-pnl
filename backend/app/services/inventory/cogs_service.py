@@ -200,6 +200,19 @@ async def compute_cogs(db: AsyncSession, count: InventoryCount) -> dict:
         purchases = sheet_purchases
         purchases_source = "sheet"
 
+    # Other manual purchases (non-invoice: Costco, misc) added on top of base,
+    # allocated across categories by ending-inventory weight.
+    other_total = Decimal(str(count.other_purchases)) if count.other_purchases is not None else Decimal("0")
+    if other_total != 0:
+        weight_base = sum(ending.values(), Decimal("0"))
+        if weight_base > 0:
+            for c in INVENTORY_CATEGORIES:
+                purchases[c] = purchases[c] + other_total * (ending[c] / weight_base)
+        else:
+            even = other_total / Decimal(len(INVENTORY_CATEGORIES))
+            for c in INVENTORY_CATEGORIES:
+                purchases[c] = purchases[c] + even
+
     if count.net_sales_override is not None:
         net_sales = Decimal(str(count.net_sales_override))
     else:
@@ -232,6 +245,7 @@ async def compute_cogs(db: AsyncSession, count: InventoryCount) -> dict:
         "net_sales_is_override": count.net_sales_override is not None,
         "purchases_is_override": count.purchases_override is not None,
         "purchases_source": purchases_source,
+        "other_purchases": _q(other_total),
         "invoices": {"count": invoice_count, "total": _q(invoice_total)},
         "categories": rows,
         "totals": {

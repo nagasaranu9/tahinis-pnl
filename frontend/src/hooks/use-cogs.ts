@@ -57,10 +57,11 @@ export function useUploadCogs() {
 export function usePatchCogs() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (args: { id: string; purchases?: string | null; net_sales?: string | null }) => {
+    mutationFn: async (args: { id: string; purchases?: string | null; net_sales?: string | null; other_purchases?: string | null }) => {
       const body: Record<string, string | null> = {};
       if (args.purchases !== undefined) body.purchases = args.purchases;
       if (args.net_sales !== undefined) body.net_sales = args.net_sales;
+      if (args.other_purchases !== undefined) body.other_purchases = args.other_purchases;
       const { data } = await apiClient.patch<{ data: CogsWeekDetail }>(
         `${BASE}/${args.id}`, body
       );
