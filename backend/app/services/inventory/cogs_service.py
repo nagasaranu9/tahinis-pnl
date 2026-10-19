@@ -24,6 +24,10 @@ from app.db.models.inventory import INVENTORY_CATEGORIES, InventoryCount
 # Invoice expense category -> inventory category. "Food Cost" has no single
 # inventory bucket, so it is allocated across the food categories by ending-
 # inventory weight.
+# Document.source for invoices uploaded via the COGS panel. Only these feed a
+# week's auto-purchases — not arbitrary receipts/sales docs in the system.
+COGS_INVOICE_SOURCE = "manual_cogs_invoice"
+
 _FOOD_INV_CATEGORIES = ("Protein", "Cheesecake", "Grocery", "Produce")
 _DIRECT_EXPENSE_MAP = {"Beverage Cost": "Beverage", "Packaging": "Packaging"}
 _INVOICE_EXPENSE_CATEGORIES = ("Food Cost", "Beverage Cost", "Packaging")
@@ -93,7 +97,7 @@ async def _invoice_purchases(
         Expense.expense_date >= start,
         Expense.expense_date <= end,
         Expense.category.in_(_INVOICE_EXPENSE_CATEGORIES),
-        Document.document_type != "bank_statement",
+        Document.source == COGS_INVOICE_SOURCE,
     ]
     if location_id is not None:
         conds.append(Expense.location_id == location_id)

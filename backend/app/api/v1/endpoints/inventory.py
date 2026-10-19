@@ -26,6 +26,10 @@ router = APIRouter()
 logger = structlog.get_logger(__name__)
 
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# Documents uploaded through the COGS invoice panel. Prefixed "manual" so the
+# ingest pipeline treats them as deliberate (no non-financial filename filter),
+# and distinct so only these feed a week's auto-purchases — never stray receipts.
+from app.services.inventory.cogs_service import COGS_INVOICE_SOURCE
 
 
 async def _resolve_location(db, tenant_id: uuid.UUID, location_id: str | None) -> uuid.UUID | None:
@@ -159,7 +163,7 @@ async def upload_invoices(
             doc, dup = await ingest_document(
                 file_bytes=data, original_filename=f.filename or "invoice",
                 mime_type=mime, tenant_id=user.tenant_id, created_by=user.user_id,
-                repo=repo, location_id=loc_id,
+                repo=repo, location_id=loc_id, source=COGS_INVOICE_SOURCE,
             )
             await db.commit()
         except Exception as exc:  # noqa: BLE001
@@ -184,7 +188,7 @@ async def list_week_invoices(count_id: uuid.UUID, user: CurrentUserDep, db: Asyn
     from app.db.models.document import Document
     from app.db.models.expense import Expense
     from app.services.inventory.cogs_service import (
-        _INVOICE_EXPENSE_CATEGORIES, _prior_count, _purchase_window,
+        COGS_INVOICE_SOURCE, _INVOICE_EXPENSE_CATEGORIES, _prior_count, _purchase_window,
     )
 
     count = (await db.execute(
@@ -201,7 +205,7 @@ async def list_week_invoices(count_id: uuid.UUID, user: CurrentUserDep, db: Asyn
         Expense.tenant_id == user.tenant_id,
         Expense.expense_date >= start, Expense.expense_date <= end,
         Expense.category.in_(_INVOICE_EXPENSE_CATEGORIES),
-        Document.document_type != "bank_statement",
+        Document.source == COGS_INVOICE_SOURCE,
     ]
     if count.location_id is not None:
         conds.append(Expense.location_id == count.location_id)
