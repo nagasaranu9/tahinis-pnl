@@ -87,7 +87,7 @@ export function useWeekInvoices(id: string | null) {
 export function useUploadInvoices() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (args: { files: File[]; weekId: string }) => {
+    mutationFn: async (args: { files: File[]; weekId?: string }) => {
       const form = new FormData();
       for (const f of args.files) form.append("files", f);
       const { data } = await apiClient.post<{ data: InvoiceUploadResult[] }>(
@@ -96,9 +96,11 @@ export function useUploadInvoices() {
       return data.data;
     },
     onSuccess: (_d, args) => {
-      qc.invalidateQueries({ queryKey: ["cogs-week-invoices", args.weekId] });
-      qc.invalidateQueries({ queryKey: ["cogs-week", args.weekId] });
+      // Invoices route to weeks by date, so refresh every week view.
       qc.invalidateQueries({ queryKey: ["cogs-weeks"] });
+      qc.invalidateQueries({ queryKey: ["cogs-week"] });
+      qc.invalidateQueries({ queryKey: ["cogs-week-invoices"] });
+      if (args.weekId) qc.invalidateQueries({ queryKey: ["cogs-week", args.weekId] });
     },
   });
 }

@@ -185,6 +185,44 @@ function EditOverrides({ id, report }: { id: string; report: import("@/types/cog
   );
 }
 
+function InvoiceDropCard() {
+  const upload = useUploadInvoices();
+  const [files, setFiles] = useState<File[]>([]);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+      <h3 className="mb-1 text-sm font-semibold text-slate-700 dark:text-slate-200">
+        Upload invoices
+      </h3>
+      <p className="mb-4 text-xs text-slate-400">
+        Drop all supplier invoices here at once — each is OCR&apos;d and routed to the week whose count
+        period covers its date, auto-filling that week&apos;s purchases &amp; COGS. No need to pick a week.
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.tiff,.webp"
+          onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+          className="text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-indigo-600 dark:text-slate-300 dark:file:bg-indigo-950/40 dark:file:text-indigo-300"
+        />
+        <button
+          disabled={files.length === 0 || upload.isPending}
+          onClick={() => upload.mutate({ files }, { onSuccess: () => setFiles([]) })}
+          className="flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+        >
+          {upload.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+          Upload {files.length > 0 ? `${files.length} file${files.length === 1 ? "" : "s"}` : "invoices"}
+        </button>
+        {upload.isSuccess && (
+          <span className="text-xs text-emerald-600 dark:text-emerald-400">
+            {upload.data?.filter((d) => d.status === "processing").length} processing,{" "}
+            {upload.data?.filter((d) => d.status === "duplicate").length} duplicate — OCR runs in the
+            background; weeks update as each invoice is dated & booked. Refresh shortly.
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function InvoicesPanel({ id, source, invCount, invTotal }: {
   id: string; source: string; invCount: number; invTotal: string;
 }) {
@@ -324,6 +362,7 @@ export default function CogsPage() {
       </div>
 
       <UploadCard />
+      <InvoiceDropCard />
 
       <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="border-b border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-200">
