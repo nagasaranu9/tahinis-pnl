@@ -20,6 +20,7 @@ from app.db.models.bank_deposit import BankDeposit
 from app.db.models.document import Document
 from app.db.models.expense import Expense
 from app.db.models.inventory import INVENTORY_CATEGORIES, InventoryCount
+from app.db.models.toast import ToastOrder
 
 # Invoice expense category -> inventory category. "Food Cost" has no single
 # inventory bucket, so it is allocated across the food categories by ending-
@@ -43,8 +44,30 @@ async def _net_sales(db: AsyncSession, tenant_id: uuid.UUID, location_id: uuid.U
                      week_ending: date) -> Decimal:
     # Inventory is counted Sunday morning, so it reflects the completed week that
     # just ended — sum the 7 days up to (but not including) the count date.
-    start = datetime.combine(week_ending - timedelta(days=7), time.min, tzinfo=timezone.utc)
-    end = datetime.combine(week_ending - timedelta(days=1), time.max, tzinfo=timezone.utc)
+    # Net sales come from Toast orders (actual sales, available within a day),
+    # by business_date; bank deposits are a laggy settlement fallback.
+    start_d = week_ending - timedelta(days=7)
+    end_d = week_ending - timedelta(days=1)
+    bd_start = start_d.strftime("%Y%m%d")
+    bd_end = end_d.strftime("%Y%m%d")
+    tconds = [
+        ToastOrder.tenant_id == tenant_id,
+        ToastOrder.business_date >= bd_start,
+        ToastOrder.business_date <= bd_end,
+    ]
+    if location_id is not None:
+        tconds.append(ToastOrder.location_id == location_id)
+    toast_total = await db.scalar(
+        select(func.coalesce(func.sum(func.coalesce(ToastOrder.net_amount, ToastOrder.amount)), 0))
+        .where(and_(*tconds))
+    )
+    toast_total = Decimal(str(toast_total or 0))
+    if toast_total > 0:
+        return _q(toast_total)
+
+    # Fallback: bank-deposit revenue in the same window.
+    start = datetime.combine(start_d, time.min, tzinfo=timezone.utc)
+    end = datetime.combine(end_d, time.max, tzinfo=timezone.utc)
     conds = [
         BankDeposit.tenant_id == tenant_id,
         BankDeposit.is_revenue.is_(True),
