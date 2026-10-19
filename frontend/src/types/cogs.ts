@@ -20,8 +20,32 @@ export interface CogsReport {
   net_sales: string;
   net_sales_is_override: boolean;
   purchases_is_override: boolean;
+  purchases_source: "manual" | "invoices" | "sheet";
+  invoices: { count: number; total: string };
   categories: CogsCategoryRow[];
   totals: CogsTotals;
+}
+
+export interface WeekInvoice {
+  date: string | null;
+  vendor_name: string | null;
+  amount: string;
+  category: string;
+  filename: string | null;
+  document_type: string | null;
+}
+
+export interface WeekInvoices {
+  window_start: string;
+  window_end: string;
+  invoices: WeekInvoice[];
+}
+
+export interface InvoiceUploadResult {
+  id?: string;
+  filename: string | null;
+  status: "processing" | "duplicate" | "ignored" | "error";
+  error?: string;
 }
 
 export interface CogsItem {

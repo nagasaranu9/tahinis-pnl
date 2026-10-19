@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
-import type { CogsWeekDetail, CogsWeekSummary } from "@/types/cogs";
+import type { CogsWeekDetail, CogsWeekSummary, InvoiceUploadResult, WeekInvoices } from "@/types/cogs";
 
 const BASE = "/api/v1/inventory/cogs";
 
@@ -69,6 +69,36 @@ export function usePatchCogs() {
     onSuccess: (_d, args) => {
       qc.invalidateQueries({ queryKey: ["cogs-weeks"] });
       qc.invalidateQueries({ queryKey: ["cogs-week", args.id] });
+    },
+  });
+}
+
+export function useWeekInvoices(id: string | null) {
+  return useQuery({
+    queryKey: ["cogs-week-invoices", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data: WeekInvoices }>(`${BASE}/${id}/invoices`);
+      return data.data;
+    },
+  });
+}
+
+export function useUploadInvoices() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { files: File[]; weekId: string }) => {
+      const form = new FormData();
+      for (const f of args.files) form.append("files", f);
+      const { data } = await apiClient.post<{ data: InvoiceUploadResult[] }>(
+        `${BASE}/invoices`, form, { headers: { "Content-Type": "multipart/form-data" } }
+      );
+      return data.data;
+    },
+    onSuccess: (_d, args) => {
+      qc.invalidateQueries({ queryKey: ["cogs-week-invoices", args.weekId] });
+      qc.invalidateQueries({ queryKey: ["cogs-week", args.weekId] });
+      qc.invalidateQueries({ queryKey: ["cogs-weeks"] });
     },
   });
 }

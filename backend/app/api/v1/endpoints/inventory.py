@@ -136,6 +136,92 @@ async def upload_cogs(
     return {"data": {**_header(count), "report": report}, "errors": None}
 
 
+@router.post("/cogs/invoices", response_model=APIResponse[list], status_code=201)
+async def upload_invoices(
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    files: list[UploadFile] = File(...),
+    location_id: str | None = Form(None),
+) -> dict:
+    """Upload supplier invoices — OCR'd asynchronously into Food/Beverage/
+    Packaging expenses that auto-feed the matching week's COGS purchases."""
+    from app.db.repositories.document_repo import DocumentRepository
+    from app.services.document_service import ingest_document
+    from app.workers.tasks.ocr_process import process_document
+
+    loc_id = await _resolve_location(db, user.tenant_id, location_id)
+    repo = DocumentRepository(db)
+    out = []
+    for f in files:
+        data = await f.read()
+        mime = f.content_type or "application/octet-stream"
+        try:
+            doc, dup = await ingest_document(
+                file_bytes=data, original_filename=f.filename or "invoice",
+                mime_type=mime, tenant_id=user.tenant_id, created_by=user.user_id,
+                repo=repo, location_id=loc_id,
+            )
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("cogs_invoice_ingest_failed", error=str(exc), filename=f.filename)
+            out.append({"filename": f.filename, "status": "error", "error": str(exc)[:200]})
+            continue
+        if doc is None:
+            out.append({"filename": f.filename, "status": "ignored"})
+            continue
+        if not dup:
+            process_document.delay(str(doc.id), str(user.tenant_id))
+        out.append({
+            "id": str(doc.id), "filename": f.filename,
+            "status": "duplicate" if dup else "processing",
+        })
+    return {"data": out, "errors": None}
+
+
+@router.get("/cogs/{count_id}/invoices", response_model=APIResponse[dict])
+async def list_week_invoices(count_id: uuid.UUID, user: CurrentUserDep, db: AsyncSessionDep) -> dict:
+    """Invoice-sourced expenses that fall in a week's count period."""
+    from app.db.models.document import Document
+    from app.db.models.expense import Expense
+    from app.services.inventory.cogs_service import (
+        _INVOICE_EXPENSE_CATEGORIES, _prior_count, _purchase_window,
+    )
+
+    count = (await db.execute(
+        select(InventoryCount).where(and_(
+            InventoryCount.id == count_id, InventoryCount.tenant_id == user.tenant_id,
+        ))
+    )).scalars().first()
+    if count is None:
+        raise HTTPException(status_code=404, detail="Count not found")
+
+    prior = await _prior_count(db, count.tenant_id, count.location_id, count.week_ending)
+    start, end = _purchase_window(count.week_ending, prior)
+    conds = [
+        Expense.tenant_id == user.tenant_id,
+        Expense.expense_date >= start, Expense.expense_date <= end,
+        Expense.category.in_(_INVOICE_EXPENSE_CATEGORIES),
+        Document.document_type != "bank_statement",
+    ]
+    if count.location_id is not None:
+        conds.append(Expense.location_id == count.location_id)
+    rows = (await db.execute(
+        select(Expense.expense_date, Expense.vendor_name, Expense.amount, Expense.category,
+               Document.original_filename, Document.document_type)
+        .join(Document, Expense.document_id == Document.id).where(and_(*conds))
+        .order_by(Expense.expense_date)
+    )).all()
+    invoices = [{
+        "date": d.date().isoformat() if d else None,
+        "vendor_name": v, "amount": str(a) if a is not None else "0",
+        "category": c, "filename": fn, "document_type": dt,
+    } for d, v, a, c, fn, dt in rows]
+    return {"data": {
+        "window_start": start.date().isoformat(), "window_end": end.date().isoformat(),
+        "invoices": invoices,
+    }, "errors": None}
+
+
 @router.get("/cogs", response_model=APIResponse[list])
 async def list_cogs(
     user: CurrentUserDep,

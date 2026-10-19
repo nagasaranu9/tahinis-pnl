@@ -2,7 +2,10 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { Upload, Trash2, ChevronRight, Loader2, FileSpreadsheet } from "lucide-react";
-import { useCogsWeeks, useCogsWeek, useUploadCogs, useDeleteCogs, usePatchCogs } from "@/hooks/use-cogs";
+import {
+  useCogsWeeks, useCogsWeek, useUploadCogs, useDeleteCogs, usePatchCogs,
+  useUploadInvoices, useWeekInvoices,
+} from "@/hooks/use-cogs";
 import type { CogsItem } from "@/types/cogs";
 
 function fmt(v: string | null | undefined): string {
@@ -182,6 +185,68 @@ function EditOverrides({ id, report }: { id: string; report: import("@/types/cog
   );
 }
 
+function InvoicesPanel({ id, source, invCount, invTotal }: {
+  id: string; source: string; invCount: number; invTotal: string;
+}) {
+  const { data } = useWeekInvoices(id);
+  const upload = useUploadInvoices();
+  const [files, setFiles] = useState<File[]>([]);
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+      <div className="mb-2 flex items-center justify-between">
+        <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          Invoices → purchases
+          <span className="ml-2 text-xs font-normal text-slate-400">
+            {invCount} invoice{invCount === 1 ? "" : "s"} · {fmt(invTotal)}
+            {source === "invoices" && " (feeding COGS)"}
+            {source === "manual" && " (manual override active — clear it to use invoices)"}
+          </span>
+        </h4>
+      </div>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <input
+          type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.tiff,.webp"
+          onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+          className="text-xs text-slate-600 file:mr-2 file:rounded-md file:border-0 file:bg-indigo-50 file:px-2 file:py-1 file:text-xs file:font-medium file:text-indigo-600 dark:text-slate-300 dark:file:bg-indigo-950/40 dark:file:text-indigo-300"
+        />
+        <button
+          disabled={files.length === 0 || upload.isPending}
+          onClick={() => upload.mutate({ files, weekId: id }, { onSuccess: () => setFiles([]) })}
+          className="flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+        >
+          {upload.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+          Upload invoices
+        </button>
+        {upload.isSuccess && (
+          <span className="text-xs text-emerald-600 dark:text-emerald-400">
+            {upload.data?.filter((d) => d.status === "processing").length} processing — OCR runs in the
+            background; refresh in a moment.
+          </span>
+        )}
+      </div>
+      {data && data.invoices.length > 0 ? (
+        <table className="w-full text-xs">
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            {data.invoices.map((inv, i) => (
+              <tr key={i}>
+                <td className="py-1.5 pl-2 pr-2 text-slate-400">{inv.date ?? ""}</td>
+                <td className="py-1.5 px-2 text-slate-600 dark:text-slate-300">{inv.vendor_name ?? inv.filename ?? "—"}</td>
+                <td className="py-1.5 px-2 text-slate-400">{inv.category}</td>
+                <td className="py-1.5 pl-2 pr-2 text-right tabular-nums text-slate-700 dark:text-slate-200">{fmt(inv.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="text-xs text-slate-400">
+          No invoices in this count period yet ({data?.window_start} → {data?.window_end}). Upload supplier
+          invoices above — totals auto-fill purchases unless a manual override is set.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function WeekDetail({ id }: { id: string }) {
   const { data, isLoading } = useCogsWeek(id);
   if (isLoading || !data) return <div className="p-4 text-sm text-slate-400">Loading…</div>;
@@ -231,6 +296,7 @@ function WeekDetail({ id }: { id: string }) {
           </div>
         </div>
       </div>
+      <InvoicesPanel id={id} source={r.purchases_source} invCount={r.invoices.count} invTotal={r.invoices.total} />
       <EditOverrides id={id} report={r} />
       {!r.has_prior_week && (
         <p className="text-xs text-amber-600 dark:text-amber-400">
