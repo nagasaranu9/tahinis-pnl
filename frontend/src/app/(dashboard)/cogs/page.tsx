@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { Upload, Trash2, ChevronRight, Loader2, FileSpreadsheet } from "lucide-react";
-import { useCogsWeeks, useCogsWeek, useUploadCogs, useDeleteCogs } from "@/hooks/use-cogs";
+import { useCogsWeeks, useCogsWeek, useUploadCogs, useDeleteCogs, usePatchCogs } from "@/hooks/use-cogs";
 import type { CogsItem } from "@/types/cogs";
 
 function fmt(v: string | null | undefined): string {
@@ -24,6 +24,8 @@ function UploadCard() {
   const upload = useUploadCogs();
   const [file, setFile] = useState<File | null>(null);
   const [weekEnding, setWeekEnding] = useState<string>(nextSunday());
+  const [purchases, setPurchases] = useState("");
+  const [netSales, setNetSales] = useState("");
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
@@ -32,7 +34,8 @@ function UploadCard() {
       </h3>
       <p className="mb-4 text-xs text-slate-400">
         Count sheet (.xlsx). COGS = prior week&apos;s inventory + this week&apos;s purchases − this
-        week&apos;s count. Re-uploading a week replaces it.
+        week&apos;s count. Purchases &amp; net sales auto-pull once synced; the sheet carries only the
+        count, so enter purchases here (or edit later) for an accurate COGS %. Re-uploading replaces the week.
       </p>
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex-1 min-w-[220px]">
@@ -53,9 +56,25 @@ function UploadCard() {
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800"
           />
         </label>
+        <label>
+          <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">Purchases $ (week)</span>
+          <input
+            type="number" inputMode="decimal" placeholder="auto" value={purchases}
+            onChange={(e) => setPurchases(e.target.value)}
+            className="w-28 rounded-md border border-slate-300 px-2 py-1.5 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-800"
+          />
+        </label>
+        <label>
+          <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">Net sales $</span>
+          <input
+            type="number" inputMode="decimal" placeholder="auto" value={netSales}
+            onChange={(e) => setNetSales(e.target.value)}
+            className="w-28 rounded-md border border-slate-300 px-2 py-1.5 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-800"
+          />
+        </label>
         <button
           disabled={!file || !weekEnding || upload.isPending}
-          onClick={() => file && upload.mutate({ file, weekEnding })}
+          onClick={() => file && upload.mutate({ file, weekEnding, purchases: purchases || undefined, netSales: netSales || undefined })}
           className="flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
         >
           {upload.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
@@ -129,6 +148,40 @@ function CategoryItems({ items }: { items: CogsItem[] }) {
   );
 }
 
+function EditOverrides({ id, report }: { id: string; report: import("@/types/cogs").CogsReport }) {
+  const patch = usePatchCogs();
+  const [purch, setPurch] = useState(report.purchases_is_override ? report.totals.purchases : "");
+  const [sales, setSales] = useState(report.net_sales_is_override ? report.net_sales : "");
+  return (
+    <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+      <label>
+        <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+          Purchases $ {report.purchases_is_override ? "(manual)" : "(from sheet)"}
+        </span>
+        <input type="number" inputMode="decimal" placeholder="auto" value={purch}
+          onChange={(e) => setPurch(e.target.value)}
+          className="w-32 rounded-md border border-slate-300 px-2 py-1.5 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-800" />
+      </label>
+      <label>
+        <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">
+          Net sales $ {report.net_sales_is_override ? "(manual)" : "(auto)"}
+        </span>
+        <input type="number" inputMode="decimal" placeholder="auto" value={sales}
+          onChange={(e) => setSales(e.target.value)}
+          className="w-32 rounded-md border border-slate-300 px-2 py-1.5 text-right text-sm tabular-nums dark:border-slate-700 dark:bg-slate-800" />
+      </label>
+      <button
+        disabled={patch.isPending}
+        onClick={() => patch.mutate({ id, purchases: purch === "" ? null : purch, net_sales: sales === "" ? null : sales })}
+        className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+      >
+        {patch.isPending ? "Saving…" : "Save & recalc"}
+      </button>
+      <span className="text-xs text-slate-400">Blank = auto (sheet / live revenue).</span>
+    </div>
+  );
+}
+
 function WeekDetail({ id }: { id: string }) {
   const { data, isLoading } = useCogsWeek(id);
   if (isLoading || !data) return <div className="p-4 text-sm text-slate-400">Loading…</div>;
@@ -178,6 +231,13 @@ function WeekDetail({ id }: { id: string }) {
           </div>
         </div>
       </div>
+      <EditOverrides id={id} report={r} />
+      {!r.has_prior_week && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          First week — no prior count to open against (opening = 0), so COGS reads as the full count.
+          Accurate from the next week once the chain has a prior.
+        </p>
+      )}
       <CategoryItems items={data.items} />
     </div>
   );

@@ -65,6 +65,11 @@ class InventoryCount(Base, TimestampMixin, TenantMixin):
     # Per-category ending inventory + sheet-entered purchases, cached for the
     # list view: {"Protein": {"ending": "1234.56", "purchases": "0.00"}, ...}
     category_totals: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    # Manual total purchases for the week (allocated across categories) and net
+    # sales, used when the sheet / live revenue don't carry them. NULL = fall
+    # back to auto (sheet purchases, bank-deposit revenue).
+    purchases_override: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    net_sales_override: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     items: Mapped[list["InventoryCountItem"]] = relationship(

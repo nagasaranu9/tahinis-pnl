@@ -18,6 +18,8 @@ export interface CogsReport {
   week_ending: string;
   has_prior_week: boolean;
   net_sales: string;
+  net_sales_is_override: boolean;
+  purchases_is_override: boolean;
   categories: CogsCategoryRow[];
   totals: CogsTotals;
 }

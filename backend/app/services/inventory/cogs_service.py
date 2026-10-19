@@ -72,14 +72,32 @@ def _ending_from(totals: dict) -> dict[str, Decimal]:
 async def compute_cogs(db: AsyncSession, count: InventoryCount) -> dict:
     """Per-category + total COGS for one weekly count, with net sales & %."""
     ending = _ending_from(count.category_totals)
-    purchases = {
+
+    # Purchases: a manual total override (allocated across categories by ending-
+    # inventory weight) takes precedence; otherwise use the per-category values
+    # entered on the sheet.
+    sheet_purchases = {
         c: Decimal(str((count.category_totals.get(c) or {}).get("purchases", "0") or "0"))
         for c in INVENTORY_CATEGORIES
     }
+    if count.purchases_override is not None:
+        total_override = Decimal(str(count.purchases_override))
+        weight_base = sum(ending.values(), Decimal("0"))
+        if weight_base > 0:
+            purchases = {c: _q(total_override * (ending[c] / weight_base)) for c in INVENTORY_CATEGORIES}
+        else:
+            even = _q(total_override / Decimal(len(INVENTORY_CATEGORIES)))
+            purchases = {c: even for c in INVENTORY_CATEGORIES}
+    else:
+        purchases = sheet_purchases
+
     prior = await _prior_count(db, count.tenant_id, count.location_id, count.week_ending)
     opening = _ending_from(prior.category_totals) if prior else {c: Decimal("0") for c in INVENTORY_CATEGORIES}
 
-    net_sales = await _net_sales(db, count.tenant_id, count.location_id, count.week_ending)
+    if count.net_sales_override is not None:
+        net_sales = Decimal(str(count.net_sales_override))
+    else:
+        net_sales = await _net_sales(db, count.tenant_id, count.location_id, count.week_ending)
 
     rows = []
     total_cogs = Decimal("0")
@@ -105,6 +123,8 @@ async def compute_cogs(db: AsyncSession, count: InventoryCount) -> dict:
         "week_ending": count.week_ending.isoformat(),
         "has_prior_week": prior is not None,
         "net_sales": _q(net_sales),
+        "net_sales_is_override": count.net_sales_override is not None,
+        "purchases_is_override": count.purchases_override is not None,
         "categories": rows,
         "totals": {
             "opening_inventory": _q(total_open),

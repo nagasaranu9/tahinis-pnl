@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 
 import structlog
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile
 from sqlalchemy import and_, select
 
 from app.core.deps import CurrentUserDep
@@ -54,6 +55,8 @@ async def upload_cogs(
     file: UploadFile = File(...),
     week_ending: str = Form(..., description="YYYY-MM-DD the count represents"),
     location_id: str | None = Form(None),
+    purchases: str | None = Form(None, description="Manual total purchases for the week"),
+    net_sales: str | None = Form(None, description="Manual net sales override"),
 ) -> dict:
     name = (file.filename or "").lower()
     if not (name.endswith(".xlsx") or name.endswith(".xlsm")):
@@ -103,6 +106,14 @@ async def upload_cogs(
         for c in INVENTORY_CATEGORIES
     }
 
+    def _money_opt(v: str | None):
+        if v is None or str(v).strip() == "":
+            return None
+        try:
+            return Decimal(str(v))
+        except (InvalidOperation, ValueError):
+            raise HTTPException(status_code=422, detail="purchases / net_sales must be numbers")
+
     count = InventoryCount(
         tenant_id=user.tenant_id,
         location_id=loc_id,
@@ -110,6 +121,8 @@ async def upload_cogs(
         original_filename=file.filename,
         storage_path=storage_path,
         category_totals=category_totals,
+        purchases_override=_money_opt(purchases),
+        net_sales_override=_money_opt(net_sales),
         created_by=user.user_id,
     )
     db.add(count)
@@ -169,6 +182,46 @@ async def get_cogs(count_id: uuid.UUID, user: CurrentUserDep, db: AsyncSessionDe
         "extended_total": str(i.extended_total),
     } for i in items]
     return {"data": {**_header(count), "report": report, "items": item_rows}, "errors": None}
+
+
+@router.patch("/cogs/{count_id}", response_model=APIResponse[dict])
+async def patch_cogs(
+    count_id: uuid.UUID,
+    user: CurrentUserDep,
+    db: AsyncSessionDep,
+    body: dict = Body(...),
+) -> dict:
+    """Set the purchases / net-sales overrides for a week (null clears → auto)."""
+    count = (await db.execute(
+        select(InventoryCount).where(and_(
+            InventoryCount.id == count_id,
+            InventoryCount.tenant_id == user.tenant_id,
+        ))
+    )).scalars().first()
+    if count is None:
+        raise HTTPException(status_code=404, detail="Count not found")
+
+    def _parse(key):
+        if key not in body:
+            return False, None
+        v = body[key]
+        if v is None or str(v).strip() == "":
+            return True, None
+        try:
+            return True, Decimal(str(v))
+        except (InvalidOperation, ValueError):
+            raise HTTPException(status_code=422, detail=f"{key} must be a number")
+
+    has_p, p = _parse("purchases")
+    if has_p:
+        count.purchases_override = p
+    has_n, n = _parse("net_sales")
+    if has_n:
+        count.net_sales_override = n
+    await db.flush()
+    report = await compute_cogs(db, count)
+    await db.commit()
+    return {"data": {**_header(count), "report": report}, "errors": None}
 
 
 @router.delete("/cogs/{count_id}", response_model=APIResponse[dict])

@@ -31,11 +31,16 @@ export function useCogsWeek(id: string | null) {
 export function useUploadCogs() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (args: { file: File; weekEnding: string; locationId?: string }) => {
+    mutationFn: async (args: {
+      file: File; weekEnding: string; locationId?: string;
+      purchases?: string; netSales?: string;
+    }) => {
       const form = new FormData();
       form.append("file", args.file);
       form.append("week_ending", args.weekEnding);
       if (args.locationId) form.append("location_id", args.locationId);
+      if (args.purchases) form.append("purchases", args.purchases);
+      if (args.netSales) form.append("net_sales", args.netSales);
       const { data } = await apiClient.post<{ data: CogsWeekDetail }>(
         `${BASE}/upload`,
         form,
@@ -45,6 +50,25 @@ export function useUploadCogs() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["cogs-weeks"] });
+    },
+  });
+}
+
+export function usePatchCogs() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { id: string; purchases?: string | null; net_sales?: string | null }) => {
+      const body: Record<string, string | null> = {};
+      if (args.purchases !== undefined) body.purchases = args.purchases;
+      if (args.net_sales !== undefined) body.net_sales = args.net_sales;
+      const { data } = await apiClient.patch<{ data: CogsWeekDetail }>(
+        `${BASE}/${args.id}`, body
+      );
+      return data.data;
+    },
+    onSuccess: (_d, args) => {
+      qc.invalidateQueries({ queryKey: ["cogs-weeks"] });
+      qc.invalidateQueries({ queryKey: ["cogs-week", args.id] });
     },
   });
 }
