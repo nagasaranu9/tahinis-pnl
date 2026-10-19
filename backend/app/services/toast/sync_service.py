@@ -71,16 +71,29 @@ class ToastSyncService:
         log.info("toast_incremental_sync_start", date_from=str(date_from), date_to=str(date_to))
 
         creds = await self._load_credentials(config.integration_credential_id)
-        counts = await self._sync_range(
-            tenant_id, location_id, creds, config.toast_restaurant_guid,
-            date_from, date_to, job_id, redis_client
-        )
 
-        await self._repo.update_last_synced(tenant_id, location_id, now)
-        await self._db.commit()
+        # Toast rejects any window longer than 30 days. When the last sync is far
+        # behind (e.g. a stalled worker left a 50-day gap), walk forward in
+        # ≤30-day chunks, persisting last_synced after each so progress sticks
+        # and a later run resumes from where this one stopped.
+        _MAX_WINDOW = timedelta(days=29)
+        totals: dict = {}
+        cursor = date_from
+        while cursor < date_to:
+            window_end = min(cursor + _MAX_WINDOW, date_to)
+            counts = await self._sync_range(
+                tenant_id, location_id, creds, config.toast_restaurant_guid,
+                cursor, window_end, job_id, redis_client
+            )
+            for k, v in (counts or {}).items():
+                if isinstance(v, (int, float)):
+                    totals[k] = totals.get(k, 0) + v
+            await self._repo.update_last_synced(tenant_id, location_id, window_end)
+            await self._db.commit()
+            cursor = window_end
 
-        log.info("toast_incremental_sync_complete", **counts)
-        return counts
+        log.info("toast_incremental_sync_complete", **totals)
+        return totals
 
     async def run_historical_import(
         self,
