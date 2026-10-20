@@ -46,6 +46,7 @@ import {
   useSalesByHour,
 } from "@/hooks/use-dashboard";
 import { useLaborSummary, useStaffingTodayTeam } from "@/hooks/use-staffing";
+import { SystemStatusPanel } from "@/components/dashboard/system-status";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { useLocations } from "@/hooks/use-locations";
 import { useLocationStore } from "@/lib/location-store";
@@ -654,6 +655,9 @@ export default function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {/* ── System status ── */}
+      <SystemStatusPanel />
 
       {/* ── Row 1: Hero ── */}
       <div>
