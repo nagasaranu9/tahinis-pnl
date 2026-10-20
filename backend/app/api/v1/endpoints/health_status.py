@@ -163,7 +163,8 @@ async def system_status(user: CurrentUserDep, db: AsyncSessionDep) -> dict:
             ToastOrder.dining_option.ilike(pat),
         )))
         if cnt and cnt > 0:
-            items.append(_item(key, label, "delivery", "active", f"{cnt} orders / 14d"))
+            per_day = round(cnt / _DELIVERY_LOOKBACK_DAYS)
+            items.append(_item(key, label, "delivery", "active", f"{per_day} orders/day"))
         else:
             items.append(_item(key, label, "delivery", "disabled", "No recent orders"))
 

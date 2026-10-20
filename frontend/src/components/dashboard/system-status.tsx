@@ -39,7 +39,6 @@ function Group({ title, items }: { title: string; items: SystemStatusItem[] }) {
 export function SystemStatusPanel() {
   const { data, isLoading } = useSystemStatus();
   const items = data?.items ?? [];
-  const core = items.filter((i) => i.group === "core");
   const platform = items.filter((i) => i.group === "platform");
   const delivery = items.filter((i) => i.group === "delivery");
 
@@ -55,7 +54,6 @@ export function SystemStatusPanel() {
         <div className="py-6 text-center text-sm text-muted-foreground">Checking…</div>
       ) : (
         <div className="space-y-4">
-          <Group title="Core" items={core} />
           <Group title="Platforms" items={platform} />
           <Group title="Delivery" items={delivery} />
         </div>
