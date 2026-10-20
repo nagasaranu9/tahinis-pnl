@@ -126,7 +126,18 @@ def daily_external_sync_all_tenants() -> None:
 
 async def _daily_all() -> None:
     from sqlalchemy import select
+    from app.core.config import settings
     from app.db.models.tenant import Tenant
+
+    # Dev scaffolding: this path uses placeholder IDs and the mock adapters. Never
+    # let it write fake review/ads snapshots into production — real reviews come
+    # from the GBP path (reviews_sync / /reviews). Skip unless real adapters are
+    # explicitly configured.
+    reviews_mock = getattr(settings, "GOOGLE_REVIEWS_ADAPTER", "mock") == "mock"
+    ads_mock = getattr(settings, "GOOGLE_ADS_ADAPTER", "mock") == "mock"
+    if reviews_mock and ads_mock:
+        logger.info("daily_external_sync_skipped_mock")
+        return
 
     async with get_db_context() as db:
         rows = await db.execute(select(Tenant))
@@ -134,21 +145,15 @@ async def _daily_all() -> None:
 
     for tenant in tenants:
         # Use placeholder IDs — real integrations will store place_id/customer_id in credentials
-        sync_google_reviews.apply_async(
-            kwargs={
-                "tenant_id": str(tenant.id),
-                "place_id": f"mock_place_{tenant.id.hex[:8]}",
-                "days_back": 7,
-            },
-            queue="sync",
-        )
-        sync_google_ads.apply_async(
-            kwargs={
-                "tenant_id": str(tenant.id),
-                "customer_id": f"mock_cust_{tenant.id.hex[:8]}",
-                "days_back": 7,
-            },
-            queue="sync",
-        )
+        if not reviews_mock:
+            sync_google_reviews.apply_async(
+                kwargs={"tenant_id": str(tenant.id), "place_id": f"mock_place_{tenant.id.hex[:8]}", "days_back": 7},
+                queue="sync",
+            )
+        if not ads_mock:
+            sync_google_ads.apply_async(
+                kwargs={"tenant_id": str(tenant.id), "customer_id": f"mock_cust_{tenant.id.hex[:8]}", "days_back": 7},
+                queue="sync",
+            )
 
     logger.info("daily_external_sync_dispatched", tenants=len(tenants))
