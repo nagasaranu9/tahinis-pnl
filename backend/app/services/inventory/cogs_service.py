@@ -172,7 +172,12 @@ async def compute_cogs(db: AsyncSession, count: InventoryCount) -> dict:
     """Per-category + total COGS for one weekly count, with net sales & %."""
     ending = _ending_from(count.category_totals)
     prior = await _prior_count(db, count.tenant_id, count.location_id, count.week_ending)
-    opening = _ending_from(prior.category_totals) if prior else {c: Decimal("0") for c in INVENTORY_CATEGORIES}
+    # First count has no prior week, so there is no measured opening inventory.
+    # Seeding opening=0 would make COGS = purchases - ending (wildly negative).
+    # Treat the first week's opening as equal to its ending count, so COGS for
+    # that week reduces to purchases only (the only defensible figure without a
+    # prior count). has_prior_week=False still flags it as an estimate.
+    opening = _ending_from(prior.category_totals) if prior else dict(ending)
 
     # Purchases precedence: (1) manual total override, allocated by ending-inv
     # weight; else (2) auto from uploaded invoices in the count period; the
